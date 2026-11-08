@@ -14,16 +14,19 @@ const PUBLIC = [/^\/api\/webhooks\//, /^\/healthz$/];
  */
 export function installGuard(app: FastifyInstance, cfg: AppConfig, settings: SettingsStore) {
   const iap = new OAuth2Client();
+  // Local mode has no login, so only requests addressed to this machine are served (blocks DNS
+  // rebinding and other sites' pages). WC_ALLOWED_HOSTS adds names, e.g. for a reverse proxy.
+  const localHosts = ['localhost', '127.0.0.1', '[::1]', ...(process.env.WC_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean)];
   let keys: { pubkeys: any; at: number } | null = null;
 
   app.addHook('onRequest', async (req, reply) => {
     if (PUBLIC.some((r) => r.test(req.url))) return;
     if (cfg.authMode === 'local') {
-      const host = (req.headers.host ?? '').split(':')[0];
-      if (!['localhost', '127.0.0.1', '[::1]'].includes(host) && cfg.host === '127.0.0.1') return reply.code(403).send({ error: 'Forbidden host' });
+      const host = (req.headers.host ?? '').replace(/:\d+$/, '');
+      if (!localHosts.includes(host)) return reply.code(403).send({ error: 'Forbidden host' });
       if (req.method !== 'GET' && req.headers.origin) {
         const o = new URL(req.headers.origin).hostname;
-        if (!['localhost', '127.0.0.1'].includes(o)) return reply.code(403).send({ error: 'Cross-origin request blocked' });
+        if (!localHosts.includes(o)) return reply.code(403).send({ error: 'Cross-origin request blocked' });
       }
       return;
     }
