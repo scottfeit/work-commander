@@ -394,7 +394,7 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
           summary: a.summary,
           description: a.description,
           requester_email: a.requester_email,
-          assignee: 'Primary user',
+          assignee: s.pu.name || s.pu.email || 'You',
         }, [
           { key: 'project_key', label: 'Project', type: 'readonly' },
           { key: 'assignee', label: 'Assignee', type: 'readonly' },
