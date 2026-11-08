@@ -174,7 +174,7 @@ export class Repo {
       await this.db.insertInto('items').values(row).execute();
       const item = this.toItem(row);
       bus.publish({ type: 'item.updated', item });
-      return { item, newMessages: input.data.messages ?? [], created: true };
+      return { item, newMessages: input.data.messages ?? [], created: true, changed: true };
     }
     const prev = existing.data;
     const known = new Set((prev.messages ?? []).map((m) => m.id));
@@ -182,6 +182,7 @@ export class Repo {
     const newMessages = incoming.filter((m) => !known.has(m.id));
     const messages = [...(prev.messages ?? []), ...newMessages].sort((a, b) => a.at.localeCompare(b.at));
     let ticket = input.data.ticket ?? prev.ticket;
+    const ticketChanged = !!(prev.ticket && input.data.ticket && (prev.ticket.status !== input.data.ticket.status || prev.ticket.assignee !== input.data.ticket.assignee));
     if (prev.ticket && input.data.ticket) {
       const knownC = new Set(prev.ticket.comments.map((c) => c.id));
       const newComments = input.data.ticket.comments.filter((c) => !knownC.has(c.id));
@@ -197,7 +198,7 @@ export class Repo {
       .execute();
     const item = { ...existing, title: input.title || existing.title, data, updatedAt: t, streamId };
     bus.publish({ type: 'item.updated', item });
-    return { item, newMessages, created: false };
+    return { item, newMessages, created: false, changed: newMessages.length > 0 || ticketChanged };
   }
 
   async attachItem(itemId: string, streamId: string) {

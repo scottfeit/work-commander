@@ -101,7 +101,7 @@ export class AtlassianCloud implements TicketApi {
           comments,
         },
       },
-      eventId: triggerId ?? `${issue.key}@${lastComment?.id ?? f.updated}`,
+      eventId: triggerId ?? `${issue.key}@${f.updated ?? lastComment?.id}`,
     };
   }
 
