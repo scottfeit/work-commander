@@ -124,7 +124,8 @@ export class SecretStore {
 
   /** Keychain needs a desktop session; on Cloud Run only Secret Manager and 1Password apply. */
   availableBackends(): SecretBackend[] {
-    return this.cfg.hosting === 'gcp' ? ['gcp-secret-manager', 'onepassword'] : ['keychain', 'gcp-secret-manager', 'onepassword'];
+    const noKeychain = this.cfg.hosting === 'gcp' || process.env.WC_DISABLE_KEYCHAIN === '1';
+    return noKeychain ? ['gcp-secret-manager', 'onepassword'] : ['keychain', 'gcp-secret-manager', 'onepassword'];
   }
 
   private async backend(b: SecretBackend): Promise<Backend> {

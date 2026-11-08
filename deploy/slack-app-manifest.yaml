@@ -1,0 +1,40 @@
+# Create the app at https://api.slack.com/apps -> "Create New App" -> "From an app manifest".
+# Then: Install to workspace -> copy the *User OAuth Token* (xoxp-...).
+# Basic Information -> App-Level Tokens -> generate one with scope connections:write (xapp-...).
+display_information:
+  name: Work Commander
+  description: Lets your Work Commander dashboard read and reply to Slack on your behalf.
+features:
+  bot_user:
+    display_name: Work Commander
+    always_online: false
+oauth_config:
+  scopes:
+    user:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - mpim:history
+      - mpim:read
+      - users:read
+      - users:read.email
+      - search:read
+      - chat:write
+    bot:
+      - users:read
+settings:
+  event_subscriptions:
+    user_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

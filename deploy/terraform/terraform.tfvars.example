@@ -1,0 +1,5 @@
+project_id = "my-gcp-project"
+region     = "us-central1"
+pu_email   = "you@yourcompany.com"
+image      = "us-central1-docker.pkg.dev/my-gcp-project/work-commander/app:latest"
+# public_url = "https://work-commander-xxxxx-uc.a.run.app"   # set after the first apply

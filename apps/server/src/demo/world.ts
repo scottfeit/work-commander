@@ -87,7 +87,7 @@ export class DemoWorld {
           data: { messages: [m], slack: { channel, channelName: `DM with ${person?.name}`, threadTs: ts } },
           eventId: key,
         });
-      if (person?.email === 'marco.diaz@example.com') this.later(4000, () => this.marcoReplies(key));
+      if (person?.email === 'marco.diaz@example.com') this.later(Number(process.env.DEMO_REPLY_DELAY_MS ?? 4000), () => this.marcoReplies(key));
       return { channel, ts };
     },
   };
@@ -170,7 +170,7 @@ export class DemoWorld {
       data: { gmail: { threadId: 't2' }, messages: [msg('n1', { name: 'SaaS Weekly', email: 'news@saasweekly.example' }, 'Our top picks this week…', iso(120_000), [PU.email])] },
       eventId: 'n1',
     });
-    this.later(1500, async () => {
+    this.later(Number(process.env.DEMO_SEED_DELAY_MS ?? 1500), async () => {
       await this.sink(structuredClone(this.threads.get('t2')!));
       await this.sink(structuredClone(this.threads.get('t1')!));
     });

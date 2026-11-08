@@ -1,0 +1,18 @@
+# Optional: run the dashboard in a container on your machine.
+# Running natively (npm run dev / npm start) is simpler locally and is the only way to use the
+# OS keychain or your Claude Code login. In a container, store credentials in GCP Secret Manager
+# or 1Password, and use Vertex AI or an API key for Claude.
+services:
+  work-commander:
+    build: .
+    ports: ["127.0.0.1:8787:8080"]
+    environment:
+      WC_HOSTING: local
+      WC_HOST: 0.0.0.0            # inside the container; the port is still only published on 127.0.0.1
+      WC_PUBLIC_URL: http://localhost:8787
+      GOOGLE_APPLICATION_CREDENTIALS: /gcloud/application_default_credentials.json
+    volumes:
+      - wc-data:/home/wc/.work-commander
+      - ${HOME}/.config/gcloud:/gcloud:ro
+volumes:
+  wc-data: {}

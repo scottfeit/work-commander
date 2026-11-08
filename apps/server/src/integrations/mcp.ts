@@ -80,6 +80,6 @@ export class McpConnection {
 export function extractRefs(text: string) {
   return {
     key: text.match(/\b[A-Z][A-Z0-9]{1,9}-\d+\b/)?.[0],
-    url: text.match(/https?:\/\/[^\s"'<>)]+/)?.[0],
+    url: text.match(/https?:\/\/[^\s"'<>)]+/)?.[0]?.replace(/[.,;:!?]+$/, ''),
   };
 }

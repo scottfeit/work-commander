@@ -23,7 +23,9 @@ export interface AppConfig {
 
 export function loadConfig(env = process.env): AppConfig {
   const hosting = (env.WC_HOSTING ?? (env.K_SERVICE ? 'gcp' : 'local')) as 'local' | 'gcp';
-  const dataDir = env.WC_DATA_DIR ?? path.join(os.homedir(), '.work-commander');
+  const demoMode = env.DEMO_MODE === '1' || env.DEMO_MODE === 'true';
+  // Demo data never mixes with a real setup.
+  const dataDir = env.WC_DATA_DIR ?? path.join(os.homedir(), demoMode ? '.work-commander-demo' : '.work-commander');
   const port = Number(env.PORT ?? 8787);
   const host = env.WC_HOST ?? (hosting === 'gcp' ? '0.0.0.0' : '127.0.0.1');
   return {
@@ -35,7 +37,7 @@ export function loadConfig(env = process.env): AppConfig {
     publicUrl: (env.WC_PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, ''),
     authMode: (env.WC_AUTH_MODE ?? (hosting === 'gcp' ? 'iap' : 'local')) as 'local' | 'iap',
     iapAudience: env.WC_IAP_AUDIENCE,
-    demoMode: env.DEMO_MODE === '1' || env.DEMO_MODE === 'true',
+    demoMode,
     webDist: env.WC_WEB_DIST ?? path.resolve(process.cwd(), '../web/dist'),
     gcpProjectId: env.GOOGLE_CLOUD_PROJECT ?? env.GCP_PROJECT_ID,
     version: env.WC_VERSION ?? '0.1.0',
