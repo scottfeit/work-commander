@@ -12,6 +12,12 @@ async function main() {
 
   if (process.env.WC_ROLE === 'webhook-relay') return relay(cfg.port);
 
+  // The demo's fake systems live in memory, so its saved database must not outlive the process
+  // (a stale "already seeded" flag would leave streams pointing at threads that no longer exist).
+  if (cfg.demoMode && !process.env.WC_DEMO_KEEP && cfg.dataDir.endsWith('.work-commander-demo')) {
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+
   const overrides = cfg.demoMode ? (await import('./demo/world.js')).demoOverrides() : {};
   const app = await createApp(cfg, overrides);
   if (cfg.demoMode) await (await import('./demo/world.js')).seedDemo(app);
