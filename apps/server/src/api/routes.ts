@@ -58,9 +58,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   }));
 
   // ---------- live events ----------
+  // Changes whenever the server process restarts, so open pages know their state is stale.
+  const bootId = Math.random().toString(36).slice(2);
   f.get('/api/events', (req, reply) => {
     reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-    reply.raw.write(': connected\n\n');
+    reply.raw.write(`event: boot\ndata: ${bootId}\n\n`);
     const off = bus.subscribe((e) => reply.raw.write(`data: ${JSON.stringify(e)}\n\n`));
     const ping = setInterval(() => reply.raw.write(': ping\n\n'), 25_000);
     req.raw.on('close', () => {

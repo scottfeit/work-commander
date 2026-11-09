@@ -30,12 +30,19 @@ export function useServerEvents(onEvent: (e: ServerEvent) => void, onReconnect?:
     let es: EventSource | null = null;
     let retry: number | undefined;
     let first = true;
+    let boot: string | null = null;
     const connect = () => {
       es = new EventSource('/api/events');
       es.onopen = () => {
         if (!first) re.current?.();
         first = false;
       };
+      // The server announces a per-process id; if it changes, it restarted and this page's state is stale.
+      es.addEventListener('boot', (m) => {
+        const id = (m as MessageEvent).data as string;
+        if (boot && boot !== id) location.reload();
+        boot = id;
+      });
       es.onmessage = (m) => handler.current(JSON.parse(m.data));
       es.onerror = () => {
         es?.close();

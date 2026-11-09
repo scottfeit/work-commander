@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
-    "dev": "npm run dev -w @wc/server & npm run dev -w @wc/web",
+    "dev": "node scripts/dev.mjs",
     "build": "npm run build -w @wc/web && npm run build -w @wc/server",
     "start": "npm run start -w @wc/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "demo": "DEMO_MODE=1 npm run serve -w @wc/server & npm run dev -w @wc/web"
+    "demo": "DEMO_MODE=1 node scripts/dev.mjs --no-watch"
   },
   "engines": { "node": ">=20" }
 }

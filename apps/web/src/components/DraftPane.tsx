@@ -19,9 +19,18 @@ export function DraftPane({ drafts }: { drafts: Proposal[] }) {
   // Unsaved PU edits, keyed by proposal id. Kept here so "Approve all" sends the edited text.
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
   const titles = new Map(drafts.map((d) => [d.id, d.title]));
+  const [allErr, setAllErr] = useState('');
   const approveAll = async () => {
+    setAllErr('');
     // Approve in creation order so dependencies are already approved when their dependents are.
-    for (const d of drafts) await post(`/api/proposals/${d.id}/approve`, { payload: edits[d.id] ?? d.payload });
+    for (const d of drafts) {
+      try {
+        await post(`/api/proposals/${d.id}/approve`, { payload: edits[d.id] ?? d.payload });
+      } catch (e: any) {
+        setAllErr(`${d.title}: ${e.message}`);
+        return;
+      }
+    }
   };
   const setEdit = (id: string, v: Record<string, unknown> | null) =>
     setEdits((e) => {
@@ -40,6 +49,7 @@ export function DraftPane({ drafts }: { drafts: Proposal[] }) {
           </button>
         )}
       </div>
+      {allErr && <div className="error small" style={{ padding: '6px 12px' }}>{allErr}</div>}
       <div className="drafts-scroll">
         {drafts.map((d) => (
           <DraftCard key={d.id} p={d} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
