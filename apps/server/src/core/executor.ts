@@ -33,6 +33,7 @@ const asList = (v: unknown) => (Array.isArray(v) ? v.map(String) : String(v ?? '
 export class Executor {
   onRunSettled?: (runId: string, streamId: string | null, proposals: Proposal[]) => Promise<void>;
   private draining = new Set<string>();
+  private redrain = new Set<string>();
   readonly autoApproved = new Set<string>();
 
   constructor(
@@ -71,10 +72,15 @@ export class Executor {
   }
 
   async drain(runId: string, suppressSettle = false) {
-    if (this.draining.has(runId)) return;
+    // A drain already in progress may have listed proposals before this approval landed: ask it to go around again.
+    if (this.draining.has(runId)) {
+      this.redrain.add(runId);
+      return;
+    }
     this.draining.add(runId);
     try {
       for (;;) {
+        this.redrain.delete(runId);
         const all = await this.repo.listProposals({ runId });
         const byId = new Map(all.map((p) => [p.id, p]));
         let progressed = false;
@@ -89,7 +95,7 @@ export class Executor {
           await this.execute(p, deps);
           progressed = true;
         }
-        if (!progressed) break;
+        if (!progressed && !this.redrain.has(runId)) break;
       }
       const after = await this.repo.listProposals({ runId });
       const open = after.some((p) => ['pending', 'approved', 'executing'].includes(p.status));
