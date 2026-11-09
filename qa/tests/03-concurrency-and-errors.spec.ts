@@ -32,9 +32,9 @@ test('API errors are clean 4xx JSON, never 500s', async () => {
 
 test('re-approving, editing or rejecting a finished draft is refused', async () => {
   // Self-contained: a failure elsewhere in this file restarts the worker (and the app), so don't assume earlier state.
-  const [pending] = await api.waitPending(['ticket_create']).catch(() => []);
-  if (pending) await api.post(`/api/proposals/${pending.id}/approve`);
-  const ticket = (await api.proposals()).find((p) => p.kind === 'ticket_create')!;
+  let ticket = (await api.proposals()).find((p) => p.kind === 'ticket_create');
+  if (!ticket) ticket = (await api.waitPending(['ticket_create']))[0]; // fresh app after a worker restart
+  if (ticket.status === 'pending') await api.post(`/api/proposals/${ticket.id}/approve`);
   await api.waitStatus(ticket.id, 'executed');
   for (const [m, p, b] of [
     ['POST', `/api/proposals/${ticket.id}/approve`, {}],

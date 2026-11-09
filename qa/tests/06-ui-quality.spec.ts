@@ -57,8 +57,9 @@ test('recipient list fields accept typed comma-separated addresses', async ({ pa
   await page.goto(WEB);
   await stream(page, /contractor access/i).click();
   const cc = page.locator('.draft.kind-email_reply').getByLabel(/^Cc/);
-  await cc.click();
-  await page.keyboard.press('End');
+  await cc.focus();
+  // Put the caret at the end explicitly: the End key scrolls the page instead of moving the caret on macOS.
+  await cc.evaluate((el: HTMLInputElement) => el.setSelectionRange(el.value.length, el.value.length));
   await page.keyboard.type(', one@example.com, two@example.com', { delay: 10 });
   await expect(cc).toHaveValue(/, one@example\.com, two@example\.com$/);
 });
