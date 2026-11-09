@@ -9,7 +9,7 @@
     "start": "npm run start -w @wc/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "demo": "DEMO_MODE=1 npm run dev"
+    "demo": "DEMO_MODE=1 npm run serve -w @wc/server & npm run dev -w @wc/web"
   },
   "engines": { "node": ">=20" }
 }
