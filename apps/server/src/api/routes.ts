@@ -8,6 +8,7 @@ import { McpConnection, isReadOnlyTool } from '../integrations/mcp.js';
 import { AtlassianCloud } from '../integrations/atlassian.js';
 import { SlackWorkspace } from '../integrations/slack.js';
 import { DEFAULT_MAPPINGS, fetchJiraAssets, fetchWorkdayRaas, fetchWorkdayRest, mapRecords, parseFile } from '../orgchart/import.js';
+import { notFound } from '../core/errors.js';
 import { CREDENTIAL_LABELS } from '../secrets/store.js';
 
 const sid = (id: string) => (id === GENERAL_STREAM || id === 'general' ? null : id);
@@ -92,7 +93,13 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.updateStream(id, b);
     return repo.getStream(id);
   });
-  f.get('/api/streams/:id/items', async (req) => repo.listItems((req.params as any).id));
+  // 404 for streams that do not exist (the general stream is virtual and always exists).
+  const existing = async (raw: string) => {
+    const id = sid(raw);
+    if (id !== null && !(await repo.getStream(id))) throw notFound('Work stream');
+    return id;
+  };
+  f.get('/api/streams/:id/items', async (req) => repo.listItems((await existing((req.params as any).id)) ?? ''));
   f.get('/api/streams/:id/grants', async (req) => app.grants.list((req.params as any).id));
   f.post('/api/grants/:id/revoke', async (req) => {
     await app.grants.revoke((req.params as any).id);
@@ -100,9 +107,9 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   });
 
   // ---------- chat ----------
-  f.get('/api/streams/:id/chat', async (req) => repo.listChat(sid((req.params as any).id)));
+  f.get('/api/streams/:id/chat', async (req) => repo.listChat(await existing((req.params as any).id)));
   f.post('/api/streams/:id/chat', async (req, reply) => {
-    const streamId = sid((req.params as any).id);
+    const streamId = await existing((req.params as any).id);
     const b = z.object({ text: z.string().min(1), selectedItemId: z.string().optional(), answersQuestionId: z.string().optional() }).parse(req.body);
     await repo.addChat({ streamId, role: 'user', content: b.text, meta: { selectedItemId: b.selectedItemId } });
     if (b.answersQuestionId) {

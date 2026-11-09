@@ -84,7 +84,7 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
   return (
     <div className="item-view overview">
       <div className="item-head">
-        <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
+        <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
         <button className="btn small" onClick={() => save({ status: stream.status === 'open' ? 'closed' : 'open' })}>
           {stream.status === 'open' ? 'Close stream' : 'Reopen'}
         </button>

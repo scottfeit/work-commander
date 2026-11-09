@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { EditableField, Proposal } from '@wc/shared';
 import { patch, post } from '../api';
 
@@ -140,7 +140,7 @@ function Field({ f, value, onChange }: { f: EditableField; value: unknown; onCha
       {f.type === 'textarea' ? (
         <textarea id={id} rows={Math.min(14, Math.max(4, String(value ?? '').split('\n').length + 1))} value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />
       ) : f.type === 'list' ? (
-        <input id={id} value={Array.isArray(value) ? value.join(', ') : String(value ?? '')} onChange={(e) => onChange(e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} />
+        <ListInput id={id} value={value} onChange={onChange} />
       ) : f.type === 'select' ? (
         <select id={id} value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
           {(f.options ?? []).map((o) => (
@@ -152,5 +152,28 @@ function Field({ f, value, onChange }: { f: EditableField; value: unknown; onCha
         <input id={id} value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />
       )}
     </div>
+  );
+}
+
+const parseList = (t: string) => t.split(',').map((x) => x.trim()).filter(Boolean);
+const joinList = (v: unknown) => (Array.isArray(v) ? v.join(', ') : String(v ?? ''));
+
+/** Comma-separated list field. Keeps what the PU is typing (including a trailing ", ") while the payload holds the parsed list. */
+function ListInput({ id, value, onChange }: { id: string; value: unknown; onChange: (v: unknown) => void }) {
+  const [text, setText] = useState(joinList(value));
+  useEffect(() => {
+    // Adopt outside changes (saved edits, reload) but never overwrite what is being typed.
+    if (JSON.stringify(parseList(text)) !== JSON.stringify(Array.isArray(value) ? value : parseList(String(value ?? '')))) setText(joinList(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <input
+      id={id}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(parseList(e.target.value));
+      }}
+    />
   );
 }

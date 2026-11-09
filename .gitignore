@@ -11,3 +11,8 @@ deploy/terraform/*.tfstate*
 deploy/terraform/terraform.tfvars
 .DS_Store
 coverage/
+
+# QA runs
+qa/results/
+qa/findings/*
+!qa/findings/.gitkeep

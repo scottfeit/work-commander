@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { CredentialInfo, IngestionMode, McpServerSettings, PolicyMode, SecretBackend } from '@wc/shared';
 import { del, post, put } from '../api';
 
@@ -9,13 +9,26 @@ export const BACKEND_LABEL: Record<SecretBackend, string> = {
 };
 
 export function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+  const labelId = useId();
+  const controls = useRef<HTMLDivElement>(null);
+  // Name the row's form controls after the row label (they are passed in as children, so they cannot carry htmlFor themselves).
+  useLayoutEffect(() => {
+    controls.current?.querySelectorAll<HTMLElement>('input:not([type=checkbox]):not([type=radio]), select, textarea').forEach((el) => {
+      const labelled = (el as HTMLInputElement).labels?.length || el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby');
+      if (!labelled) el.setAttribute('aria-labelledby', labelId);
+    });
+  });
   return (
     <div className="srow">
       <div className="srow-label">
-        <label>{label}</label>
+        <span id={labelId} className="srow-title">
+          {label}
+        </span>
         {hint && <div className="muted small">{hint}</div>}
       </div>
-      <div className="srow-control">{children}</div>
+      <div className="srow-control" ref={controls}>
+        {children}
+      </div>
     </div>
   );
 }

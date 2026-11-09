@@ -24,6 +24,13 @@ async function main() {
 
   const f = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 5 * 1024 * 1024 });
   await f.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } });
+  // Basic hardening headers on every response (the dashboard must not be frameable or sniffed).
+  f.addHook('onSend', async (_req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Content-Security-Policy', "frame-ancestors 'none'");
+    reply.header('Referrer-Policy', 'no-referrer');
+  });
   installGuard(f, cfg, app.settings);
   f.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     const status = (err as any).statusCode && (err as any).statusCode < 500 ? (err as any).statusCode : err.name === 'ZodError' ? 400 : 500;

@@ -24,8 +24,14 @@ export function installGuard(app: FastifyInstance, cfg: AppConfig, settings: Set
     if (cfg.authMode === 'local') {
       const host = (req.headers.host ?? '').replace(/:\d+$/, '');
       if (!localHosts.includes(host)) return reply.code(403).send({ error: 'Forbidden host' });
-      if (req.method !== 'GET' && req.headers.origin) {
-        const o = new URL(req.headers.origin).hostname;
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== undefined) {
+        // "null" (sandboxed iframes, file://) and unparsable values are treated as foreign origins.
+        let o = '';
+        try {
+          o = new URL(req.headers.origin).hostname;
+        } catch {
+          /* fall through: not allowed */
+        }
         if (!localHosts.includes(o)) return reply.code(403).send({ error: 'Cross-origin request blocked' });
       }
       return;

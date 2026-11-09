@@ -2,14 +2,25 @@
   "name": "work-commander",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "npm run build -w @wc/web && npm run build -w @wc/server",
     "start": "npm run start -w @wc/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "qa": "playwright test -c qa/playwright.config.ts; node qa/report.mjs",
+    "qa:install": "playwright install chromium",
     "demo": "DEMO_MODE=1 node scripts/dev.mjs --no-watch"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.65.0"
+  }
 }

@@ -91,7 +91,7 @@ export class ScriptedBackend implements AgentBackend {
       });
       text = await say('Lee asked you to open a request. I drafted an access-request ticket (requester: Priya, assigned to you) and a reply-all with the ticket number. Review both in the draft pane.');
     } else if (p.startsWith('[Dashboard event]')) {
-      if (/rejected/.test(p) && !/executed/.test(p)) text = await say('Understood. I left those undone. Tell me how you want to handle it.');
+      if (/rejected by the PU|\) failed/.test(p)) text = await say('Understood. I left those undone. Tell me how you want to handle it.');
       else if (/stream_close/.test(p)) text = await say('Work stream closed. Nice work.');
       else if (/ticket_comment|ticket_transition/.test(p)) {
         await call('propose_close_stream', { reason: `${key} resolved and the email thread was updated.` });

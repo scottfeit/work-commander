@@ -1,3 +1,4 @@
+import { notFound, conflict } from './errors.js';
 import type { Proposal, Settings } from '@wc/shared';
 import type { Repo } from './repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
@@ -47,8 +48,8 @@ export class Executor {
 
   async approve(id: string, payload?: Record<string, unknown>, opts: { auto?: boolean } = {}) {
     const p = await this.repo.getProposal(id);
-    if (!p) throw new Error('Proposal not found');
-    if (p.status !== 'pending') throw new Error(`Proposal is ${p.status}`);
+    if (!p) throw notFound('Proposal');
+    if (p.status !== 'pending') throw conflict(`Proposal is ${p.status}`);
     if (opts.auto) this.autoApproved.add(id);
     await this.repo.updateProposal(id, { status: 'approved', payload: payload ?? p.payload });
     await this.repo.audit(opts.auto ? 'policy' : 'pu', 'proposal.approved', { id, kind: p.kind, edited: !!payload && JSON.stringify(payload) !== JSON.stringify(p.originalPayload) });
@@ -58,7 +59,8 @@ export class Executor {
 
   async reject(id: string, reason?: string) {
     const p = await this.repo.getProposal(id);
-    if (!p || p.status !== 'pending') throw new Error('Proposal is not pending');
+    if (!p) throw notFound('Proposal');
+    if (p.status !== 'pending') throw conflict(`Proposal is ${p.status}`);
     await this.repo.updateProposal(id, { status: 'rejected', error: reason ?? null });
     await this.repo.audit('pu', 'proposal.rejected', { id, reason });
     await this.drain(p.runId);
@@ -67,7 +69,8 @@ export class Executor {
   /** Save PU edits without approving. */
   async edit(id: string, payload: Record<string, unknown>) {
     const p = await this.repo.getProposal(id);
-    if (!p || p.status !== 'pending') throw new Error('Proposal is not pending');
+    if (!p) throw notFound('Proposal');
+    if (p.status !== 'pending') throw conflict(`Proposal is ${p.status}`);
     return this.repo.updateProposal(id, { payload });
   }
 

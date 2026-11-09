@@ -5,8 +5,8 @@
   --line: #e6e3dc;
   --line-2: #d8d4cb;
   --text: #1f1e1c;
-  --muted: #6f6b63;
-  --accent: #c9643f;
+  --muted: #625e57;
+  --accent: #b4532f; /* white text on this is >= 4.5:1 */
   --accent-ink: #ffffff;
   --accent-soft: #f6e6de;
   --ok: #2f7d4f;
@@ -30,6 +30,7 @@
     --text: #ecebe7;
     --muted: #a19c92;
     --accent: #e07a52;
+    --accent-ink: #1a1816;
     --accent-soft: #3a2a22;
     --ok: #6cc28f;
     --warn: #e2b34a;
@@ -78,7 +79,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .chip.attention { background: var(--attn-bg); border-color: transparent; color: var(--attn); font-weight: 600; }
 .chip.running { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .chip.subtle { background: transparent; }
-.chip.demo { background: var(--accent); color: #fff; border: 0; }
+.chip.demo { background: var(--accent); color: var(--accent-ink); border: 0; }
 
 /* ---------- layout ---------- */
 .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; overflow: hidden; }
@@ -207,7 +208,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .settings-body section { max-width: 860px; }
 .settings-bar { position: sticky; top: 0; display: flex; gap: 12px; align-items: center; padding: 12px 0; background: var(--bg); z-index: 2; border-bottom: 1px solid var(--line); margin-bottom: 16px; max-width: 860px; }
 .srow { display: grid; grid-template-columns: 240px 1fr; gap: 16px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
-.srow-label label { font-weight: 550; }
+.srow-label .srow-title { font-weight: 550; display: block; }
 .srow-control { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .srow-control > input, .srow-control > select { max-width: 520px; }
 .cred { display: flex; gap: 6px; flex-wrap: wrap; }
