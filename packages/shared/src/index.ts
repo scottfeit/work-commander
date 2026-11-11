@@ -204,6 +204,11 @@ export interface McpServerSettings {
   /** Header or env name -> plain value or {secretId} */
   headers?: Record<string, string | { secretId: string }>;
   env?: Record<string, string | { secretId: string }>;
+  /**
+   * OAuth sign-in for remote (http/sse) servers that require it, e.g. Slack's or Atlassian's hosted MCP servers.
+   * Leave clientId empty to register automatically (dynamic client registration) when the server supports it.
+   */
+  oauth?: { enabled: boolean; clientId?: string; clientSecretId?: string; scope?: string; connectedAs?: string; connectedAt?: string };
   /** Regexes over tool names considered read-only. */
   readOnlyToolPatterns: string[];
   /** Agent-driven ingestion instructions (MCP mode only has polling). */

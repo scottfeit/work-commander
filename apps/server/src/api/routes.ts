@@ -17,6 +17,12 @@ const sid = (id: string) => (id === GENERAL_STREAM || id === 'general' ? null : 
 
 /** Settings fields that point at a credential, keyed by credential id. */
 function credentialPointer(id: string, s: Settings): Partial<Settings> | null {
+  const mcp = id.match(/^(google|slack|atlassian)\.mcp\.oauthClientSecret$/);
+  if (mcp) {
+    const sys = mcp[1] as 'google' | 'slack' | 'atlassian';
+    const m = s[sys].mcp!;
+    return { [sys]: { ...s[sys], mcp: { ...m, oauth: { ...(m.oauth ?? { enabled: true }), clientSecretId: id } } } } as Partial<Settings>;
+  }
   switch (id) {
     case 'anthropic.apiKey':
       return { claude: { ...s.claude, apiKeyId: id } };
@@ -275,6 +281,53 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (tokenId) await secrets.remove(tokenId).catch(() => undefined);
     await settings.update({ google: { ...s.google, enabled: false, oauth: { ...s.google.oauth, refreshTokenId: undefined, connectedEmail: undefined } } });
     return { ok: true, revoked };
+  });
+
+  // ---------- MCP OAuth (remote MCP servers that require sign-in) ----------
+  const MCP_SYSTEMS = ['google', 'slack', 'atlassian'] as const;
+  const mcpSystem = (v: string) => {
+    if (!(MCP_SYSTEMS as readonly string[]).includes(v)) throw notFound('Integration');
+    return v as (typeof MCP_SYSTEMS)[number];
+  };
+  f.get('/api/oauth/mcp/:system/start', async (req, reply) => {
+    const system = mcpSystem((req.params as any).system);
+    const back = (r: string) => reply.redirect(`${cfg.webUrl}/settings?mcp=${system}&result=${encodeURIComponent(r)}`);
+    const m = (await settings.get())[system].mcp;
+    if (!m?.oauth?.enabled) return back('OAuth is not turned on for this MCP server; save settings first');
+    try {
+      const login = await app.mcpOAuth.start(system, m);
+      if (!login) {
+        await settings.update({ [system]: { mcp: { ...m, oauth: { ...m.oauth, connectedAt: new Date().toISOString() } } } } as any);
+        return back('connected');
+      }
+      return reply.redirect(login);
+    } catch (e) {
+      return back((e as Error).message);
+    }
+  });
+  f.get('/api/oauth/mcp/callback', async (req, reply) => {
+    const q = req.query as { code?: string; state?: string; error?: string; error_description?: string };
+    const system = (q.state ?? '').split('.')[0];
+    const back = (r: string) => reply.redirect(`${cfg.webUrl}/settings?mcp=${encodeURIComponent(system)}&result=${encodeURIComponent(r)}`);
+    if (q.error) return back(q.error_description || q.error);
+    if (!q.code || !q.state) return back('The sign-in page returned no code');
+    try {
+      const sys = await app.mcpOAuth.finish(q.state, q.code, async (s) => (await settings.get())[s].mcp);
+      const m = (await settings.get())[sys].mcp!;
+      await settings.update({ [sys]: { mcp: { ...m, oauth: { ...m.oauth!, connectedAt: new Date().toISOString() } } } } as any);
+      return back('connected');
+    } catch (e) {
+      return back((e as Error).message);
+    }
+  });
+  f.post('/api/oauth/mcp/:system/signout', async (req) => {
+    const system = mcpSystem((req.params as any).system);
+    const m = (await settings.get())[system].mcp;
+    if (m) {
+      await app.mcpOAuth.signOut(m);
+      await settings.update({ [system]: { mcp: { ...m, oauth: { ...(m.oauth ?? { enabled: false }), connectedAt: undefined } } } } as any);
+    }
+    return { ok: true };
   });
 
   // ---------- integrations ----------

@@ -1,5 +1,6 @@
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerSettings } from '@wc/shared';
+import { oauthHeaders } from './mcpOAuth.js';
 
 type SecretFn = (id: string) => Promise<string>;
 
@@ -16,7 +17,7 @@ export async function toSdkMcpConfig(s: McpServerSettings, secret: SecretFn): Pr
     return { type: 'stdio', command: s.command, args: s.args ?? [], env: { ...(process.env as Record<string, string>), ...(await resolveMap(s.env, secret)) } };
   }
   if (!s.url) throw new Error('MCP server needs a URL');
-  return { type: s.transport, url: s.url, headers: await resolveMap(s.headers, secret) } as McpServerConfig;
+  return { type: s.transport, url: s.url, headers: { ...(await resolveMap(s.headers, secret)), ...(await oauthHeaders(s)) } } as McpServerConfig;
 }
 
 export function isReadOnlyTool(name: string, s: McpServerSettings, annotations?: { readOnlyHint?: boolean }) {
@@ -49,11 +50,11 @@ export class McpConnection {
       transport = new StdioClientTransport({ command: s.command!, args: s.args ?? [], env: { ...(process.env as Record<string, string>), ...(await resolveMap(s.env, secret)) } });
     } else if (s.transport === 'sse') {
       const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
-      const headers = await resolveMap(s.headers, secret);
+      const headers = { ...(await resolveMap(s.headers, secret)), ...(await oauthHeaders(s)) };
       transport = new SSEClientTransport(new URL(s.url!), { requestInit: { headers }, eventSourceInit: { fetch: (u: any, i: any) => fetch(u, { ...i, headers: { ...(i?.headers ?? {}), ...headers } }) } as any });
     } else {
       const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-      transport = new StreamableHTTPClientTransport(new URL(s.url!), { requestInit: { headers: await resolveMap(s.headers, secret) } });
+      transport = new StreamableHTTPClientTransport(new URL(s.url!), { requestInit: { headers: { ...(await resolveMap(s.headers, secret)), ...(await oauthHeaders(s)) } } });
     }
     await conn.client.connect(transport);
     return conn;

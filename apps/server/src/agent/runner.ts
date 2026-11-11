@@ -88,14 +88,21 @@ export class StreamAgentRunner {
         await this.repo.audit('policy', 'mcp.write.auto', { server: server.name, tool, input });
         return { behavior: 'allow', updatedInput: input };
       }
+      const isNativeDraft = !readOnly && /draft/i.test(tool);
+      const label = server.system[0].toUpperCase() + server.system.slice(1);
       const editable = Object.entries(input).map(([k, v]) => ({ key: `args.${k}`, label: k, type: typeof v === 'string' ? (String(v).length > 80 ? 'textarea' : 'text') : 'readonly' }) as const);
       const p = await this.repo.createProposal({
         streamId,
         runId,
         kind: readOnly ? 'read_approval' : 'mcp_tool_call',
         system: server.system,
-        title: `${server.name}: ${tool}`,
-        rationale: readOnly ? `Your policy requires approval for ${server.system} reads.` : `Agent wants to run ${tool} on ${server.name}.`,
+        // A system's own draft tool doesn't send anything; say so plainly so it isn't mistaken for a send.
+        title: isNativeDraft ? `${label}: save as a draft in ${label} (not sent; you send it there)` : `${server.name}: ${tool}`,
+        rationale: readOnly
+          ? `Your policy requires approval for ${server.system} reads.`
+          : isNativeDraft
+            ? `Approving creates a draft inside ${label} (${tool}); it is not sent until you send it there yourself.`
+            : `Agent wants to run ${tool} on ${server.name}.`,
         payload: { server: server.name, system: server.system, tool, args: input },
         editable: [...editable],
       });

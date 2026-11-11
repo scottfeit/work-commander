@@ -226,7 +226,23 @@ function PairList({ list, onChange, creds, label }: { list: Pair[]; onChange: (l
 }
 
 /** Edit an MCP server connection; header/env values can be plain or reference a stored credential. */
-export function McpEditor({ value, onChange, creds }: { value: McpServerSettings; onChange: (v: McpServerSettings) => void; creds: CredentialInfo[] }) {
+export function McpEditor({
+  value,
+  onChange,
+  creds,
+  system,
+  dirty,
+  credProps,
+  publicUrl,
+}: {
+  value: McpServerSettings;
+  onChange: (v: McpServerSettings) => void;
+  creds: CredentialInfo[];
+  system: 'google' | 'slack' | 'atlassian';
+  dirty: boolean;
+  credProps: { creds: CredentialInfo[]; backends: SecretBackend[]; defaultBackend: SecretBackend; onSaved: () => void };
+  publicUrl: string;
+}) {
   // Keep rows with empty names while editing; they are dropped server-side when unused.
   const set = (key: 'headers' | 'env', list: Pair[]) => onChange({ ...value, [key]: Object.fromEntries(list) });
   const env = Object.entries(value.env ?? {}) as Pair[];
@@ -259,6 +275,7 @@ export function McpEditor({ value, onChange, creds }: { value: McpServerSettings
           <Row label="URL">
             <Text value={value.url} onChange={(url) => onChange({ ...value, url })} placeholder="https://…/mcp" />
           </Row>
+          <McpOAuthEditor value={value} onChange={onChange} system={system} dirty={dirty} credProps={credProps} publicUrl={publicUrl} />
           <PairList list={headers} onChange={(l) => set('headers', l)} creds={creds} label="Headers" />
         </>
       )}
@@ -269,5 +286,76 @@ export function McpEditor({ value, onChange, creds }: { value: McpServerSettings
         <textarea rows={2} value={value.ingestionPrompt ?? ''} placeholder="Leave blank for the default" onChange={(e) => onChange({ ...value, ingestionPrompt: e.target.value })} />
       </Row>
     </div>
+  );
+}
+
+/** Sign-in for remote MCP servers that use OAuth (e.g. Slack's and Atlassian's hosted servers). */
+function McpOAuthEditor({
+  value,
+  onChange,
+  system,
+  dirty,
+  credProps,
+  publicUrl,
+}: {
+  value: McpServerSettings;
+  onChange: (v: McpServerSettings) => void;
+  system: 'google' | 'slack' | 'atlassian';
+  dirty: boolean;
+  credProps: { creds: CredentialInfo[]; backends: SecretBackend[]; defaultBackend: SecretBackend; onSaved: () => void };
+  publicUrl: string;
+}) {
+  const o = value.oauth ?? { enabled: false };
+  const setO = (v: Partial<NonNullable<McpServerSettings['oauth']>>) => onChange({ ...value, oauth: { ...o, ...v } });
+  const params = new URLSearchParams(location.search);
+  const flash = params.get('mcp') === system ? params.get('result') : null;
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <Row label="Sign-in" hint="Turn on for servers that ask you to log in (OAuth), such as Slack's or Atlassian's hosted MCP servers.">
+        <Toggle checked={o.enabled} onChange={(enabled) => setO({ enabled })} label="Sign in with OAuth" />
+      </Row>
+      {o.enabled && (
+        <div className="subsection">
+          {flash && <div className={flash === 'connected' ? 'ok' : 'error'}>{flash === 'connected' ? 'Signed in to the MCP server.' : `MCP sign-in: ${flash}`}</div>}
+          <p className="muted small">
+            If the server needs a registered app, add <code>{publicUrl}/api/oauth/mcp/callback</code> as its redirect URL and enter its client id below. Leave the client id blank to register
+            automatically, for servers that support it.
+          </p>
+          <Row label="Client id" hint="Optional">
+            <Text value={o.clientId ?? ''} onChange={(clientId) => setO({ clientId: clientId || undefined })} placeholder="Register automatically" />
+          </Row>
+          {o.clientId && <CredentialField id={`${system}.mcp.oauthClientSecret`} label="Client secret (if the app has one)" {...credProps} />}
+          <Row label="Scopes" hint="Optional, space separated. Blank uses the server's defaults.">
+            <Text value={o.scope ?? ''} onChange={(scope) => setO({ scope: scope || undefined })} />
+          </Row>
+          <Row label="Account" hint={o.connectedAt ? `Signed in ${new Date(o.connectedAt).toLocaleString()}` : 'Not signed in'}>
+            <div className="row-form">
+            <a className={`btn small ${dirty || !value.url ? 'disabled' : 'primary'}`} href={dirty || !value.url ? undefined : `/api/oauth/mcp/${system}/start`}>
+              {o.connectedAt ? 'Sign in again' : 'Sign in'}
+            </a>
+            {o.connectedAt && (
+              <button
+                className="btn small ghost"
+                disabled={dirty || busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await post(`/api/oauth/mcp/${system}/signout`);
+                    credProps.onSaved();
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Sign out
+              </button>
+            )}
+            {dirty && <span className="small muted"> Save first</span>}
+            </div>
+          </Row>
+        </div>
+      )}
+    </>
   );
 }

@@ -53,6 +53,15 @@ Real time: store a webhook shared secret, then in Jira → Settings → System �
 
 **MCP mode**: e.g. Atlassian's remote MCP server. Configure its URL and auth headers. Ingestion is by polling.
 
+## MCP servers that need sign-in (OAuth)
+
+Any integration in **MCP mode** with an HTTP or SSE server can sign in with OAuth (MCP authorization spec): turn on **Sign in with OAuth**, save, then press **Sign in**.
+
+- **Servers that support automatic registration**: leave **Client id** blank. Work Commander registers itself.
+- **Servers that need a registered app** (e.g. Slack's hosted server at `https://mcp.slack.com/mcp`, which also needs workspace-admin approval): create the app on that platform, add `<dashboard URL>/api/oauth/mcp/callback` as a redirect URL, then enter its client id (and secret, if it has one).
+
+Tokens are kept in your secret store and refreshed automatically; if a refresh token expires you'll be asked to sign in again. **Sign out** deletes them.
+
 ## 6. 1Password
 
 Choose how the dashboard reaches 1Password:

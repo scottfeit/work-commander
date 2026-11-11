@@ -19,7 +19,11 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
   const [saved, setSaved] = useState<Settings | null>(null);
   const [s, setS] = useState<Settings | null>(null);
   const [creds, setCreds] = useState<CredentialInfo[]>([]);
-  const [section, setSection] = useState<Section>(() => (new URLSearchParams(location.search).get('google') ? 'google' : 'pu'));
+  const [section, setSection] = useState<Section>(() => {
+    const q = new URLSearchParams(location.search);
+    const mcp = q.get('mcp');
+    return q.get('google') ? 'google' : mcp === 'google' || mcp === 'slack' || mcp === 'atlassian' ? (mcp as Section) : 'pu';
+  });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const flash = new URLSearchParams(location.search).get('google');
 
@@ -175,7 +179,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 </Row>
               </>
             ) : (
-              <McpEditor value={s.google.mcp!} onChange={(mcp) => up('google', { mcp })} creds={creds} />
+              <McpEditor value={s.google.mcp!} onChange={(mcp) => up('google', { mcp })} creds={creds} system="google" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
             )}
             <IngestionEditor
               mode={s.google.ingestion}
@@ -216,7 +220,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 <CredentialField id="slack.appToken" label="App-level token (Socket Mode)" placeholder="xapp-…" {...credProps} />
               </>
             ) : (
-              <McpEditor value={s.slack.mcp!} onChange={(mcp) => up('slack', { mcp })} creds={creds} />
+              <McpEditor value={s.slack.mcp!} onChange={(mcp) => up('slack', { mcp })} creds={creds} system="slack" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
             )}
             <IngestionEditor
               mode={s.slack.ingestion}
@@ -595,7 +599,7 @@ function AtlassianSection({ s, up, credProps, creds, env, dirty }: { s: Settings
           <CredentialField id="atlassian.apiToken" label="API token" {...credProps} />
         </>
       ) : (
-        <McpEditor value={a.mcp!} onChange={(mcp) => up('atlassian', { mcp })} creds={creds} />
+        <McpEditor value={a.mcp!} onChange={(mcp) => up('atlassian', { mcp })} creds={creds} system="atlassian" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
       )}
       <Row label="Tickets to watch (JQL)" hint="Tickets attached to open streams are always watched too">
         <Text value={a.jql} onChange={(jql) => up('atlassian', { jql })} />
