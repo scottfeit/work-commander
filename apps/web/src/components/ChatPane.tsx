@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, StreamItem } from '@wc/shared';
 import { post, fmtTime } from '../api';
+import { ThinkingMark } from './ThinkingMark';
 
 interface Props {
   streamId: string;
@@ -51,10 +52,14 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
         ))}
         {live !== null && (
           <div className="bubble assistant streaming">
-            <div className="body">{live.trim() || '…'}</div>
+            <div className="body">{live.trim() || <ThinkingMark />}</div>
           </div>
         )}
-        {running && live === null && <div className="typing">Claude is working…</div>}
+        {running && live === null && (
+          <div className="typing">
+            <ThinkingMark size={16} /> Claude is working…
+          </div>
+        )}
       </div>
       {err && <div className="error small">{err}</div>}
       <form
