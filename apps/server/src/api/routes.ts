@@ -161,6 +161,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (id !== null && !(await repo.getStream(id))) throw notFound('Work stream');
     return id;
   };
+  f.get('/api/items/:id', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item) throw new Error('Item not found');
+    return item;
+  });
   f.get('/api/items/skipped', async () => repo.listSkipped(14));
   f.post('/api/items/:id/dismiss', async (req) => {
     await repo.dismissSkipped((req.params as any).id);

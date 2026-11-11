@@ -24,25 +24,32 @@ function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
   );
 }
 
-export function ItemView({ item, onRemoved }: { item: StreamItem; onRemoved?: () => void }) {
+export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamItem; onRemoved?: () => void; peek?: boolean; onDismiss?: () => void }) {
   const t = item.data.ticket;
   return (
     <div className="item-view">
       <div className="item-head">
         <SourceBadge source={item.source} />
         <h2>{item.title}</h2>
+        {peek && <span className="chip subtle">Skipped · preview</span>}
         {item.url && (
           <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
             Open ↗
           </a>
         )}
-        <button
-          className="btn ghost small"
-          title="Remove this from the work stream. It won't be added back to it."
-          onClick={() => void post(`/api/items/${item.id}/not-relevant`).then(() => onRemoved?.())}
-        >
-          Not relevant
-        </button>
+        {peek ? (
+          <button className="btn ghost small" title="Hide this from the Skipped list until it has new activity" onClick={onDismiss}>
+            Dismiss
+          </button>
+        ) : (
+          <button
+            className="btn ghost small"
+            title="Remove this from the work stream. It won't be added back to it."
+            onClick={() => void post(`/api/items/${item.id}/not-relevant`).then(() => onRemoved?.())}
+          >
+            Not relevant
+          </button>
+        )}
       </div>
       {t ? (
         <>

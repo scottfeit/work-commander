@@ -43,8 +43,28 @@ export function SourceBadge({ source }: { source: string }) {
   );
 }
 
-export function TabBar({ stream, items, tab, onTab }: { stream: WorkStream | null; items: StreamItem[]; tab: string; onTab: (id: string) => void }) {
-  if (!stream) return <div className="tabbar"><div className="tab active">Overview</div></div>;
+export function TabBar({ stream, items, tab, onTab, peek, onClosePeek }: { stream: WorkStream | null; items: StreamItem[]; tab: string; onTab: (id: string) => void; peek?: StreamItem | null; onClosePeek?: () => void }) {
+  // A previewed item (e.g. a skipped message) gets a temporary tab that is not part of the stream and goes away when you navigate off it.
+  const peekTab = peek && !items.some((i) => i.id === peek.id) && (
+    <span key={peek.id} className={`tab peek ${tab === peek.id ? 'active' : ''}`} role="tab" title={`${peek.title}\nPreview: not part of a work stream`} {...dragItem(peek.id)}>
+      <button className="peek-main" onClick={() => onTab(peek.id)}>
+        <SourceBadge source={peek.source} />
+        <span className="tab-title">{peek.data.ticket?.key ?? peek.title}</span>
+      </button>
+      <button className="peek-close" aria-label="Close preview" onClick={onClosePeek}>
+        ×
+      </button>
+    </span>
+  );
+  if (!stream)
+    return (
+      <div className="tabbar">
+        <div className={`tab ${tab === OVERVIEW_TAB ? 'active' : ''}`} onClick={() => onTab(OVERVIEW_TAB)}>
+          Overview
+        </div>
+        {peekTab}
+      </div>
+    );
   return (
     <div className="tabbar" role="tablist">
       <button role="tab" className={`tab ${tab === OVERVIEW_TAB ? 'active' : ''}`} onClick={() => onTab(OVERVIEW_TAB)}>
@@ -56,6 +76,7 @@ export function TabBar({ stream, items, tab, onTab }: { stream: WorkStream | nul
           <span className="tab-title">{i.data.ticket?.key ?? i.title}</span>
         </button>
       ))}
+      {peekTab}
     </div>
   );
 }

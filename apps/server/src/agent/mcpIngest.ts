@@ -28,6 +28,9 @@ const DEFAULTS: Record<'google' | 'slack' | 'atlassian', string> = {
   atlassian: 'Find Jira/JSM issues updated after {since} that are assigned to, reported by, or watched by the PU. Include comments.',
 };
 
+/** How far before the previous poll each poll looks, to catch messages search had not indexed yet. */
+const OVERLAP_MS = 10 * 60_000;
+
 const SOURCE: Record<'google' | 'slack' | 'atlassian', ItemSource> = { google: 'gmail', slack: 'slack', atlassian: 'jira' };
 const KIND = { google: 'email_thread', slack: 'slack_thread', atlassian: 'ticket' } as const;
 
@@ -58,6 +61,14 @@ export class McpPollIngestor implements Ingestor {
     clearInterval(this.timer);
   }
 
+  /** Slack channels/DMs that have an item in an open work stream. */
+  private async trackedSlackChannels() {
+    const ids = new Set<string>();
+    for (const st of await this.repo.listStreams(false))
+      for (const it of await this.repo.listItems(st.id)) if (it.source === 'slack') ids.add(it.data.slack?.channel ?? it.externalId.split(':')[0]);
+    return [...ids].slice(0, 20);
+  }
+
   async pollOnce() {
     if (this.busy) return;
     this.busy = true;
@@ -66,11 +77,19 @@ export class McpPollIngestor implements Ingestor {
       const m = s[this.system].mcp;
       if (!m) throw new Error('MCP server not configured');
       const key = `mcp.${this.system}.since`;
-      const since = (await this.repo.getSync(key)) || new Date(Date.now() - 86400_000).toISOString();
+      const lastRun = (await this.repo.getSync(key)) || new Date(Date.now() - 86400_000).toISOString();
+      // Search indexes lag and a miss would otherwise be permanent, so look back past the last run. Repeats are harmless: messages merge by id.
+      const since = new Date(Math.min(Date.parse(lastRun) - OVERLAP_MS, Date.now())).toISOString();
       const started = new Date().toISOString();
       const config = await toSdkMcpConfig(m, (id) => this.secrets.get(id));
       const ext = [{ name: this.system, system: this.system, settings: m, config }];
-      const instruction = (m.ingestionPrompt || DEFAULTS[this.system]).replaceAll('{since}', since);
+      let instruction = (m.ingestionPrompt || DEFAULTS[this.system]).replaceAll('{since}', since);
+      if (this.system === 'slack') {
+        // Conversations already in open work streams are checked directly, not left to Slack search.
+        const channels = await this.trackedSlackChannels();
+        if (channels.length)
+          instruction += `\nAlso read the recent history of these Slack conversations the PU is already working on (channel ids: ${channels.join(', ')}) and return any messages after ${since}, from anyone including the PU. Use the channel-history read tool for each; do not rely on search for them.`;
+      }
       const r = await this.backend.structured({
         systemPrompt: `You collect new work activity for ${s.pu.name} <${s.pu.email}> using read-only tools. Return only items with activity after the given time, with full message text. Return an empty list if nothing is new.`,
         prompt: instruction,

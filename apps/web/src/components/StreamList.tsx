@@ -12,9 +12,15 @@ interface Props {
   onToggleClosed: () => void;
   onSettings: () => void;
   demo: boolean;
+  /** Open a skipped item in the main pane (a temporary tab). */
+  onOpenSkipped: (id: string) => void;
+  onSkippedDismissed: (ids: string[]) => void;
+  /** Bumped when something changed the skipped list from elsewhere. */
+  skippedVersion: number;
+  peekId: string | null;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -111,7 +117,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         {showClosed && closed.length > 0 && <div className="section-label">Closed · {closed.length}</div>}
         {showClosed && closed.map(row)}
         {moveErr && <div className="small error pad">{moveErr}</div>}
-        <Skipped onSelect={onSelect} refreshKey={streams.length + moved} />
+        <Skipped onSelect={onSelect} refreshKey={streams.length + moved + skippedVersion} onOpen={onOpenSkipped} onDismissed={onSkippedDismissed} peekId={peekId} />
       </div>
       <div className="sidebar-foot">
         <label className="toggle">
@@ -128,7 +134,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
 type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string };
 
 /** Messages triage passed over in the last 14 days, with "Triage again" for any that should have been work. */
-function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; refreshKey: number }) {
+function Skipped({ onSelect, refreshKey, onOpen, onDismissed, peekId }: { onSelect: (id: string) => void; refreshKey: number; onOpen: (id: string) => void; onDismissed: (ids: string[]) => void; peekId: string | null }) {
   const [items, setItems] = useState<SkippedItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Record<string, string>>({});
@@ -151,6 +157,7 @@ function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; ref
   };
   const dismiss = async (ids: string[]) => {
     await Promise.all(ids.map((id) => post(`/api/items/${id}/dismiss`).catch(() => undefined)));
+    onDismissed(ids);
     await load();
   };
   return (
@@ -163,8 +170,8 @@ function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; ref
       </div>
       <p className="muted small pad">Messages from the last 14 days that triage didn't turn into work.</p>
       {items.map((i) => (
-        <div key={i.id} className="skipped-row" title="Drag onto a work stream to add it there" {...dragItem(i.id)}>
-          <div className="skipped-title">
+        <div key={i.id} className={`skipped-row ${peekId === i.id ? 'open' : ''}`} title="Click to view. Drag onto a work stream to add it there" {...dragItem(i.id)}>
+          <div className="skipped-title clickable" role="button" tabIndex={0} onClick={() => onOpen(i.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(i.id)}>
             <SourceBadge source={i.source} /> <span title={i.title}>{i.title}</span>
           </div>
           <div className="muted small" title={i.reason}>

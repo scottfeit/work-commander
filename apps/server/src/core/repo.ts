@@ -220,7 +220,8 @@ export class Repo {
 
   /** The channel id when `externalId` ("D…" or "D…:ts") is a Slack DM. */
   static slackDmChannel(source: string, externalId: string) {
-    return source === 'slack' ? /^(D[A-Z0-9]+)(?::.*)?$/.exec(externalId)?.[1] ?? null : null;
+    // D… is a DM; "<channel>:dm" is how the ingestor labels a whole conversation (including group DMs).
+    return source === 'slack' ? /^(D[A-Z0-9]+)(?::.*)?$/.exec(externalId)?.[1] ?? /^([A-Z][A-Z0-9]+):dm$/.exec(externalId)?.[1] ?? null : null;
   }
 
   /** The existing item for a Slack DM channel (the one already in a work stream first, else the oldest). */

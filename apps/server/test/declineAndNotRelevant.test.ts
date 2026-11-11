@@ -185,3 +185,12 @@ describe('ticket assignment', () => {
     expect((await repo.getProposal(a.id))!.status).toBe('withdrawn');
   });
 });
+
+describe('conversation-level Slack ids', () => {
+  it('treats "<channel>:dm" (incl. group DMs) as a whole conversation', () => {
+    expect(Repo.slackDmChannel('slack', 'C02CNSBK0H1:dm')).toBe('C02CNSBK0H1');
+    expect(Repo.slackDmChannel('slack', 'D02:1.1')).toBe('D02');
+    expect(Repo.slackDmChannel('slack', 'C02CNSBK0H1:1794.1')).toBeNull(); // a channel thread stays its own item
+    expect(Repo.slackDmChannel('gmail', 'C02:dm')).toBeNull();
+  });
+});

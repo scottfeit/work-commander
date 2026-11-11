@@ -133,6 +133,14 @@ export class StreamAgentRunner {
     } else {
       parts.push('You are in the general chat, not tied to one stream. Help the PU across all open streams; use create_stream for new work.');
     }
+    // The PU can preview an item triage skipped (it is in no stream); answer questions about it.
+    const sel = selectedItemId ? await this.repo.getItem(selectedItemId) : null;
+    if (sel && sel.streamId !== streamId) {
+      parts.push(
+        `The PU is previewing item ${sel.id} [${sel.source}] "${sel.title}", which is ${sel.streamId ? 'in a different work stream' : 'not in any work stream (triage skipped it)'}. ` +
+          'Answer their questions about it; use read_stream_item for its full content. Do not treat it as part of this stream unless they ask.',
+      );
+    }
     return parts.join('\n\n');
   }
 
