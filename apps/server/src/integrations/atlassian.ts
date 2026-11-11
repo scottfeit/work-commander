@@ -217,6 +217,22 @@ export class AtlassianCloud implements TicketApi {
     return { status: t.to?.name ?? t.name };
   }
 
+  async assign(input: { key: string; assignee: string | null }) {
+    let accountId: string | null = null;
+    let name: string | null = null;
+    if (input.assignee === 'me') {
+      const me = await this.myself();
+      accountId = me.accountId;
+      name = me.displayName;
+    } else if (input.assignee) {
+      accountId = await this.accountIdForEmail(input.assignee);
+      if (!accountId) throw new Error(`No Jira user found for ${input.assignee}`);
+      name = input.assignee;
+    }
+    await this.req('PUT', `/rest/api/3/issue/${input.key}/assignee`, { accountId });
+    return { assignee: name };
+  }
+
   async confluenceSearch(query: string, max = 10) {
     const cql = `type=page AND text ~ "${query.replace(/"/g, '\\"')}"`;
     const r = await this.req('GET', `/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${max}`);

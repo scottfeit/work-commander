@@ -33,6 +33,20 @@ const fmt = (m: ThreadMessage) =>
  * Claude whether it matters and where it belongs, then route it into a stream and either draft
  * a response (PU still approves) or offer to do the work.
  */
+const DONE_STATUS = /^(resolved|closed|done|completed|canceled|cancelled|declined|won'?t do)$/i;
+
+const WC_OUTCOME_DAYS = 14;
+
+/**
+ * True when a ticket's status moved to a finished state as the outcome of work WC itself did (it changed the status recently,
+ * or the ticket was already finished, e.g. Resolved -> Closed). Anything else, including an assignment to the PU or a reopen, is activity.
+ */
+export function isOutcomeChange(m: { status: [string, string]; assignee: [string | undefined, string | undefined] }, wcTransitionAt?: string) {
+  if (m.status[0] === m.status[1] || !DONE_STATUS.test(m.status[1])) return false; // only finished-state moves can be outcomes
+  const wcRecently = !!wcTransitionAt && Date.now() - Date.parse(wcTransitionAt) < WC_OUTCOME_DAYS * 86_400_000;
+  return wcRecently || DONE_STATUS.test(m.status[0]);
+}
+
 export class TriagePipeline {
   private chain: Promise<unknown> = Promise.resolve();
   constructor(
@@ -56,6 +70,12 @@ export class TriagePipeline {
     if (!changed) return;
     if (!(await this.repo.recordInbound(inbound.source, inbound.eventId, item.id))) return;
     if (!item.streamId) item = (await this.autoLink(item)) ?? item;
+    // A ticket moved to Resolved/Closed as the result of work WC did, with nothing new said on it, is not new activity: it must not
+    // trigger triage or withdraw a pending "close this stream" proposal. (An assignment to the PU, a reopen etc. still are.)
+    if (item.streamId && up.ticketMeta && newMessages.length === 0 && isOutcomeChange(up.ticketMeta, item.data.wcTransitionAt)) {
+      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'ticket moved to a finished state as an outcome of the work, not new activity' });
+      return;
+    }
     const fresh = newMessages.length ? newMessages : (item.data.messages ?? item.data.ticket?.comments ?? []).slice(-1);
     const fromOthers = fresh.filter((m) => !m.isFromPU);
     if (item.streamId) await this.repo.updateStream(item.streamId, { touch: true });

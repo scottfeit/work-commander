@@ -176,3 +176,12 @@ describe('a DM named ":dm" by the ingestor joins the conversation', () => {
     expect(await repo.mergeSlackDmItems()).toBe(1);
   });
 });
+
+describe('ticket assignment', () => {
+  it('replaces an older pending assign draft for the same ticket', async () => {
+    const mk = (assignee: string, runId: string) => repo.createProposal({ streamId, runId, kind: 'ticket_assign', system: 'atlassian', title: 'a', rationale: '', payload: { key: 'IT-1', assignee }, editable: [] });
+    const a = await mk('a@x.com', 'r1');
+    await mk('b@x.com', 'r2');
+    expect((await repo.getProposal(a.id))!.status).toBe('withdrawn');
+  });
+});

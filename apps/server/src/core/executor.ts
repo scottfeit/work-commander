@@ -230,6 +230,14 @@ export class Executor {
       case 'ticket_transition': {
         const t = await this.hub.api('tickets');
         const r = await t.transition({ key: x.key, to: x.to_status, resolution: x.resolution || undefined });
+        const moved = await this.attachInbound(p.streamId, await t.getIssue(x.key));
+        await this.repo.noteWcTransition(moved.id);
+        return { ...r, key: x.key };
+      }
+      case 'ticket_assign': {
+        const t = await this.hub.api('tickets');
+        const who = String(x.assignee ?? '').trim();
+        const r = await t.assign({ key: x.key, assignee: !who || /^unassign/i.test(who) ? null : /^(me|myself)$/i.test(who) ? 'me' : who });
         await this.attachInbound(p.streamId, await t.getIssue(x.key));
         return { ...r, key: x.key };
       }

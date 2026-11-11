@@ -72,3 +72,40 @@ describe('Triage again', () => {
     expect(seen).toHaveLength(0);
   });
 });
+
+describe('ticket outcomes are not new activity', () => {
+  let repo: Repo;
+  let calls = 0;
+  const triage = () => new TriagePipeline(repo, { structured: async () => (calls++, no) } as any, { run: async () => undefined } as any, async () => ({ ...defaultSettings(), pu: { ...defaultSettings().pu, name: 'Scott Feit', email: 's@x.com' } }));
+  const ticket = (status: string, assignee: string | undefined, eventId: string) => ({ source: 'jsm' as const, kind: 'ticket' as const, externalId: 'IT-1', title: 'IT-1 Thing', eventId, data: { ticket: { key: 'IT-1', summary: 's', status, assignee, flavor: 'jsm' as const, comments: [] } } });
+  const setup = async () => {
+    repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    calls = 0;
+    const streamId = (await repo.createStream({ title: 't', summary: '' })).id;
+    await repo.upsertItem({ ...ticket('In Progress', 'Someone', 'e0'), streamId });
+    const close = await repo.createProposal({ streamId, runId: 'r', kind: 'stream_close', system: 'internal', title: 'Close', rationale: '', payload: {}, editable: [] });
+    return { close };
+  };
+
+  it('a close WC requested (and the follow-on Resolved -> Closed) keeps the pending close and skips triage', async () => {
+    const { close } = await setup();
+    const it = (await repo.findItem('jsm', 'IT-1'))!;
+    await repo.noteWcTransition(it.id);
+    await triage().handle(ticket('Resolved', 'Scott Feit', 'e1'));
+    await triage().handle(ticket('Closed', 'Scott Feit', 'e2'));
+    expect(calls).toBe(0);
+    expect((await repo.getProposal(close.id))!.status).toBe('pending');
+  });
+  it('an assignment to the PU that WC did not make is new activity', async () => {
+    await setup();
+    await triage().handle(ticket('In Progress', 'Scott Feit', 'e1'));
+    expect(calls).toBe(1);
+  });
+  it('a close nobody at WC asked for, a reopen, or a hand-off is still activity', async () => {
+    await setup();
+    await triage().handle(ticket('Closed', 'Someone', 'e1'));
+    expect(calls).toBe(1);
+    await triage().handle(ticket('Waiting', 'Someone Else', 'e2'));
+    expect(calls).toBe(2);
+  });
+});

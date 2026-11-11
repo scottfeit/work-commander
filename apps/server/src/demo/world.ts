@@ -118,6 +118,10 @@ export class DemoWorld {
       this.tickets.get(i.key)!.data.ticket!.status = i.to;
       return { status: i.to };
     },
+    assign: async (i: { key: string; assignee: string | null }) => {
+      this.tickets.get(i.key)!.data.ticket!.assignee = i.assignee === 'me' ? PU.name : (i.assignee ?? undefined);
+      return { assignee: i.assignee };
+    },
     confluenceSearch: async () => [{ id: '42', title: 'Acme admin console: contractor access policy', url: 'https://wiki.example.com/42', excerpt: 'Contractors receive read-only role "auditor"; group must be approved by Security.' }],
     confluenceRead: async () => ({ title: 'Acme admin console: contractor access policy', url: 'https://wiki.example.com/42', text: 'Contractors receive the read-only "auditor" role via a named group. Security must approve the group.' }),
     listServiceDesks: async () => [{ id: '1', projectKey: 'OPS', name: 'IT Operations' }],

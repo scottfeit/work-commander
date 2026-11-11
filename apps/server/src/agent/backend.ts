@@ -115,6 +115,7 @@ export class ClaudeAgentBackend implements AgentBackend {
         maxTurns: s.claude.maxTurns,
         systemPrompt: i.systemPrompt,
         settingSources: [],
+        strictMcpConfig: true, // only the servers passed here; never the user's own plugins or account connectors
         tools: builtins,
         mcpServers: { wc, ...external },
         allowedTools: [...i.tools.map((t) => `mcp__wc__${t.name}`), ...builtins],
@@ -167,6 +168,7 @@ export class ClaudeAgentBackend implements AgentBackend {
         maxTurns: ext.length ? 15 : 3,
         systemPrompt: i.systemPrompt,
         settingSources: [],
+        strictMcpConfig: true,
         tools: [],
         mcpServers: Object.fromEntries(ext.map((e) => [e.name, e.config])),
         persistSession: false,

@@ -96,6 +96,8 @@ export interface ItemData {
   notRelevantTo?: string[];
   /** The PU dismissed this from the Skipped list at this time; new activity after it brings it back. */
   dismissedAt?: string;
+  /** When Work Commander last changed this ticket's status itself (so the resulting state isn't mistaken for new activity). */
+  wcTransitionAt?: string;
   /** Ticket-specific */
   ticket?: {
     key: string;
@@ -124,6 +126,7 @@ export type ProposalKind =
   | 'ticket_create'
   | 'ticket_comment'
   | 'ticket_transition'
+  | 'ticket_assign'
   | 'credential_request'
   | 'stream_close'
   | 'mcp_tool_call'

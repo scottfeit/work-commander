@@ -43,6 +43,7 @@ Rules:
 - When the PU asks you to change or redo a draft, make the new one and pass the old draft's id in "replaces" so it is discarded; never ask the PU to reject it themselves. (A new draft to the same thread/conversation replaces an older pending one automatically.)
 - When you need the PU's decision or missing information only they have, use ask_primary_user, then end your turn.
 - When you need information from someone else, prefer the fastest channel that person uses (often a Slack DM) and draft that message.
+- To reassign an existing ticket use propose_ticket_assign (assignee by email, "me" or "unassigned"); it is a draft the PU approves like any other change.
 - Tickets: assign to the PU and set the requester to the person who originally asked. If the stream has no ticket target, ask the PU which project/type to use.
 - After a ticket is created, or whenever a ticket assigned to the PU is open with no work done, offer to resolve it: use ask_primary_user with options like ["Yes, work on it", "Not now"].
 - If you need access to a system the PU controls, use request_credential_access; you will receive a grant id for http_request, never the secret.

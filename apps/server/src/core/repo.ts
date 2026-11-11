@@ -27,6 +27,8 @@ export function draftTarget(p: { kind: string; system: string; payload: Record<s
       return `slack:${x.channel ?? x.recipient_email ?? ''}:${x.thread_ts ?? ''}`;
     case 'ticket_comment':
       return x.key ? `ticket_comment:${x.key}:${x.visibility ?? ''}` : null;
+    case 'ticket_assign':
+      return x.key ? `ticket_assign:${x.key}` : null;
     case 'mcp_tool_call': {
       // Messaging tools: same tool to the same conversation.
       const a = x.args ?? {};
@@ -295,7 +297,7 @@ export class Repo {
       await this.db.insertInto('items').values(row).execute();
       const item = this.toItem(row);
       bus.publish({ type: 'item.updated', item });
-      return { item, newMessages: input.data.messages ?? [], created: true, changed: true };
+      return { item, newMessages: input.data.messages ?? [], created: true, changed: true, ticketMeta: undefined };
     }
     const prev = existing.data;
     const incoming = input.data.messages ?? [];
@@ -323,7 +325,8 @@ export class Repo {
       .execute();
     const item = { ...existing, title: input.title || existing.title, data, updatedAt: t, streamId };
     bus.publish({ type: 'item.updated', item });
-    return { item, newMessages, created: false, changed: newMessages.length > 0 || ticketChanged };
+    const ticketMeta = ticketChanged && prev.ticket && input.data.ticket ? { status: [prev.ticket.status, input.data.ticket.status] as [string, string], assignee: [prev.ticket.assignee, input.data.ticket.assignee] as [string | undefined, string | undefined] } : undefined;
+    return { item, newMessages, created: false, changed: newMessages.length > 0 || ticketChanged, ticketMeta };
   }
 
   /**
@@ -655,6 +658,12 @@ export class Repo {
   }
 
   /** Dedupe inbound events by (source, externalId). Returns false if already seen. */
+  /** WC just changed this ticket's status (e.g. resolved it): remember, so the resulting state isn't treated as new activity. */
+  async noteWcTransition(itemId: string) {
+    const it = await this.getItem(itemId);
+    if (it) await this.db.updateTable('items').set({ data: j({ ...it.data, wcTransitionAt: now() }) }).where('id', '=', itemId).execute();
+  }
+
   /** Hide a skipped item from the Skipped list until it has new activity. */
   async dismissSkipped(itemId: string) {
     const it = await this.getItem(itemId);

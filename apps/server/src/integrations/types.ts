@@ -57,6 +57,8 @@ export interface TicketApi {
   /** Attach files to an issue (used after creating a ticket). */
   attach(input: { key: string; files: OutFile[] }): Promise<{ count: number }>;
   transition(input: { key: string; to: string; resolution?: string }): Promise<{ status: string }>;
+  /** Set the assignee: an email address, "me" (the PU), or null to unassign. */
+  assign(input: { key: string; assignee: string | null }): Promise<{ assignee: string | null }>;
   confluenceSearch(query: string, max?: number): Promise<{ id: string; title: string; url: string; excerpt: string }[]>;
   confluenceRead(pageId: string): Promise<{ title: string; text: string; url: string }>;
   listServiceDesks(): Promise<{ id: string; projectKey: string; name: string }[]>;
