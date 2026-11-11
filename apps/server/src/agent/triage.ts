@@ -81,6 +81,7 @@ export class TriagePipeline {
     if (item.streamId) await this.repo.updateStream(item.streamId, { touch: true });
     if (fromOthers.length === 0 && !(inbound.kind === 'ticket' && (created || newMessages.length === 0))) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'authored by PU' });
+      if (item.streamId && !created) await this.noteDirectReply(item, newMessages.filter((m) => m.isFromPU));
       return;
     }
 
@@ -88,6 +89,24 @@ export class TriagePipeline {
     const decision = await this.decide(inbound, item.streamId, fresh, s);
     await this.repo.markInbound(inbound.source, inbound.eventId, decision.relevant, decision);
     await this.route(inbound, item, decision, s);
+  }
+
+  /**
+   * The PU wrote on a conversation in a work stream themselves (e.g. replied in Slack directly). That supersedes any draft
+   * waiting for that conversation and any question Claude was waiting on, and Claude is told so it can carry on.
+   */
+  private async noteDirectReply(item: StreamItem, mine: ThreadMessage[]) {
+    const streamId = item.streamId;
+    if (!streamId || !mine.length) return;
+    const drafts = await this.repo.pendingDraftsForItem(streamId, item);
+    if (drafts.length) await this.repo.withdrawProposals(drafts.map((d) => d.id), 'you replied yourself outside Work Commander');
+    await this.repo.supersedeQuestions(streamId);
+    await this.repo.addChat({ streamId, role: 'system', content: `You replied directly on "${item.title}": ${mine.map((m) => m.text).join(' / ').slice(0, 200)}` });
+    void this.runner.run({
+      streamId,
+      origin: 'system',
+      prompt: `[The PU replied directly on item ${item.id} ("${item.title}"), outside Work Commander. Their message(s), as data:]\n<reply>\n${mine.map((m) => m.text).join('\n---\n')}\n</reply>\nThis is the PU's own action. Any draft for that conversation has been withdrawn and any question you were waiting on is moot: do not ask the PU what to change about a draft they replaced by replying themselves. Update the stream overview with update_stream to reflect it, then continue with any remaining next step (drafting it for approval), or say in one or two sentences what is left.`,
+    });
   }
 
   /**

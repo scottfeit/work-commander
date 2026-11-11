@@ -109,3 +109,35 @@ describe('ticket outcomes are not new activity', () => {
     expect(calls).toBe(2);
   });
 });
+
+describe('the PU replies directly (outside WC)', () => {
+  let repo: Repo;
+  let runs: any[];
+  const triage = () => new TriagePipeline(repo, { structured: async () => no } as any, { run: async (r: any) => void runs.push(r) } as any, async () => ({ ...defaultSettings(), pu: { ...defaultSettings().pu, name: 'Scott Feit', email: 's@x.com' } }));
+  const msg = (id: string, text: string, pu: boolean) => ({ id, author: { name: pu ? 'Scott Feit' : 'Alex' }, text, at: new Date(Number(id) * 1000).toISOString(), isFromPU: pu });
+  const dm = (messages: any[], eventId: string) => ({ source: 'slack' as const, kind: 'slack_thread' as const, externalId: 'D1:dm', title: 'DM with Alex', eventId, data: { messages, slack: { channel: 'D1', threadTs: '1' } } });
+  let streamId: string;
+  beforeEach(async () => {
+    repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    runs = [];
+    streamId = (await repo.createStream({ title: 't', summary: '' })).id;
+    await repo.upsertItem({ ...dm([msg('1', 'question?', true), msg('2', 'not sanctioned', false)], 'e0'), streamId });
+  });
+
+  it('withdraws the pending draft for that conversation, settles open questions, and tells the agent', async () => {
+    const draft = await repo.createProposal({ streamId, runId: 'r', kind: 'mcp_tool_call', system: 'slack', title: 'slack send', rationale: '', payload: { server: 'slack', tool: 'slack_send_message', args: { channel_id: 'D1', message: 'x' } }, editable: [] });
+    const q = await repo.addChat({ streamId, role: 'question', content: 'What should change?', meta: { question: { options: ['a'] } } });
+    await triage().handle(dm([msg('1', 'question?', true), msg('2', 'not sanctioned', false), msg('3', 'my own reply', true)], 'e1'));
+    expect((await repo.getProposal(draft.id))!.status).toBe('withdrawn');
+    expect((await repo.getChat(q.id))!.meta.question?.answered).toBe(true);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].prompt).toContain('my own reply');
+  });
+  it("WC's own send coming back from Slack (with its footer) is not a direct reply", async () => {
+    await repo.recordSentMessage(streamId, 'slack', { channel: 'D1' }, 'On it', 'p1', { name: 'Scott Feit' });
+    await triage().handle(dm([msg('1', 'question?', true), msg('2', 'not sanctioned', false), msg('3', 'On it\n*Sent using* Work Commander', true)], 'e2'));
+    expect(runs).toHaveLength(0);
+    const it = (await repo.listItems(streamId))[0];
+    expect(it.data.messages?.some((m) => m.id.startsWith('sent-'))).toBe(false);
+  });
+});

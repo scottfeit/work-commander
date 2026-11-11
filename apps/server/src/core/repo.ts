@@ -303,9 +303,15 @@ export class Repo {
     const prev = existing.data;
     const incoming = input.data.messages ?? [];
     // A locally recorded copy of something the PU sent ("sent-…") gives way to the real message once it arrives.
-    const same = (a: string, b: string) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
-    if (prev.messages?.some((m) => m.id.startsWith('sent-')))
+    // (Slack sends carry a "Sent using Work Commander" footer that the local copy lacks.)
+    const norm = (t: string) => t.replace(/\s+/g, ' ').replace(/\s*\*?Sent using\*? Work Commander\s*$/i, '').trim();
+    const same = (a: string, b: string) => norm(a) === norm(b);
+    const echoes = new Set<string>(); // real messages that are just WC's own sends coming back
+    if (prev.messages?.some((m) => m.id.startsWith('sent-'))) {
+      const copies = prev.messages.filter((m) => m.id.startsWith('sent-'));
+      for (const x of incoming) if (x.isFromPU && copies.some((m) => same(x.text, m.text))) echoes.add(x.id);
       prev.messages = prev.messages.filter((m) => !(m.id.startsWith('sent-') && incoming.some((x) => x.isFromPU && same(x.text, m.text))));
+    }
     const known = new Set((prev.messages ?? []).map((m) => m.id));
     const newMessages = incoming.filter((m) => !known.has(m.id));
     const messages = [...(prev.messages ?? []), ...newMessages].sort((a, b) => a.at.localeCompare(b.at));
@@ -327,7 +333,8 @@ export class Repo {
     const item = { ...existing, title: input.title || existing.title, data, updatedAt: t, streamId };
     bus.publish({ type: 'item.updated', item });
     const ticketMeta = ticketChanged && prev.ticket && input.data.ticket ? { status: [prev.ticket.status, input.data.ticket.status] as [string, string], assignee: [prev.ticket.assignee, input.data.ticket.assignee] as [string | undefined, string | undefined] } : undefined;
-    return { item, newMessages, created: false, changed: newMessages.length > 0 || ticketChanged, ticketMeta };
+    const fresh = newMessages.filter((m) => !echoes.has(m.id));
+    return { item, newMessages: fresh, created: false, changed: fresh.length > 0 || ticketChanged, ticketMeta };
   }
 
   /**
@@ -541,6 +548,29 @@ export class Repo {
     if (filter.status) q = q.where('status', 'in', filter.status);
     if (filter.runId) q = q.where('run_id', '=', filter.runId);
     return (await q.execute()).map((r) => this.toProposal(r));
+  }
+
+  /** Pending drafts aimed at the conversation an item represents (same Slack channel / email thread). */
+  async pendingDraftsForItem(streamId: string, item: StreamItem) {
+    const channel = item.data.slack?.channel ?? (item.source === 'slack' ? item.externalId.split(':')[0] : undefined);
+    const thread = item.data.gmail?.threadId ?? (item.source === 'gmail' ? item.externalId : undefined);
+    return (await this.listProposals({ streamId, status: ['pending'] })).filter((p) => {
+      const x = p.payload as any;
+      const a = x.args ?? {};
+      return (!!channel && [x.channel, a.channel_id, a.channel].includes(channel)) || (!!thread && [x.thread_id, a.thread_id, a.threadId].includes(thread));
+    });
+  }
+
+  /** Mark open questions to the PU as answered-elsewhere (they replied on their own). */
+  async supersedeQuestions(streamId: string) {
+    let n = 0;
+    for (const m of await this.listChat(streamId)) {
+      if (m.role === 'question' && !m.meta.question?.answered) {
+        await this.updateChatMeta(m.id, { ...m.meta, question: { ...m.meta.question, answered: true } });
+        n++;
+      }
+    }
+    return n;
   }
 
   /** Withdraw pending drafts (never ones already approved or sent), noting it in their stream's chat. */

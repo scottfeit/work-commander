@@ -210,7 +210,7 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
           {stream.status === 'open' ? 'Close stream' : 'Reopen'}
         </button>
       </div>
-      <textarea className="summary-input" rows={2} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
+      <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="muted small">
         Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)} · {stream.labels.join(', ') || 'no labels'}
       </div>
