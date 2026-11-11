@@ -160,6 +160,12 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (id !== null && !(await repo.getStream(id))) throw notFound('Work stream');
     return id;
   };
+  f.get('/api/items/skipped', async () => repo.listSkipped(14));
+  f.post('/api/items/:id/retriage', async (req) => {
+    const b = z.object({ force: z.boolean().default(false) }).parse(req.body ?? {});
+    const r = await app.triage.retriage((req.params as any).id, b.force);
+    return { relevant: r.decision.relevant, reason: r.decision.reason, streamId: r.streamId };
+  });
   f.get('/api/streams/:id/items', async (req) => repo.listItems((await existing((req.params as any).id)) ?? ''));
   f.get('/api/streams/:id/grants', async (req) => app.grants.list((req.params as any).id));
   f.post('/api/grants/:id/revoke', async (req) => {

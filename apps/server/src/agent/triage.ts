@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Settings, ThreadMessage } from '@wc/shared';
+import type { StreamItem, Settings, ThreadMessage } from '@wc/shared';
 import type { Repo } from '../core/repo.js';
 import { bus } from '../core/bus.js';
 import type { InboundItem } from '../integrations/types.js';
@@ -64,6 +64,41 @@ export class TriagePipeline {
     const s = await this.settings();
     const decision = await this.decide(inbound, item.streamId, fresh, s);
     await this.repo.markInbound(inbound.source, inbound.eventId, decision.relevant, decision);
+    await this.route(inbound, item, decision, s);
+  }
+
+  /**
+   * "Triage again" for an item that triage passed over. Re-runs the decision on the item's latest messages
+   * from others; with `force`, the PU has said it matters, so it becomes a work stream regardless.
+   * Returns the decision and the stream it landed in (null if still not relevant).
+   */
+  async retriage(itemId: string, force = false): Promise<{ decision: TriageDecision; streamId: string | null }> {
+    const item = await this.repo.getItem(itemId);
+    if (!item) throw new Error('Item not found');
+    if (item.streamId) return { decision: { relevant: true, reason: 'Already in a work stream', stream: { action: 'existing', streamId: item.streamId, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: item.streamId };
+    const all = item.data.messages ?? item.data.ticket?.comments ?? [];
+    // What needs a response: everything others sent since the PU last wrote (or the last message).
+    const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
+    const fresh = all.slice(lastPU + 1).filter((m) => !m.isFromPU);
+    const inbound: InboundItem = { source: item.source, kind: item.kind, externalId: item.externalId, title: item.title, url: item.url, data: item.data, eventId: `retriage-${Date.now()}` };
+    const s = await this.settings();
+    let decision = await this.decide(inbound, null, fresh.length ? fresh : all.slice(-1), s);
+    if (force && (!decision.relevant || decision.stream.action === 'none')) {
+      decision = {
+        ...decision,
+        relevant: true,
+        reason: `Marked relevant by the PU. Triage said: ${decision.reason}`,
+        stream: { action: 'new', streamId: null, title: decision.stream.title || item.title.slice(0, 80), summary: decision.stream.summary || decision.reason, labels: decision.stream.labels },
+      };
+    }
+    await this.repo.audit('pu', 'item.retriaged', { itemId, force, relevant: decision.relevant, reason: decision.reason });
+    if (!decision.relevant) return { decision, streamId: null };
+    await this.route(inbound, item, decision, s);
+    return { decision, streamId: (await this.repo.getItem(itemId))?.streamId ?? null };
+  }
+
+  /** Steps after the decision: pick or create the stream, then draft or offer. */
+  private async route(inbound: InboundItem, item: StreamItem, decision: TriageDecision, s: Settings) {
     if (!decision.relevant && !item.streamId) return;
 
     let streamId = item.streamId;

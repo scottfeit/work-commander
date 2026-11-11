@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
-import { post, timeAgo } from '../api';
+import { get, post, timeAgo } from '../api';
+import { SourceBadge } from './TabBar';
 
 interface Props {
   streams: WorkStream[];
@@ -81,6 +82,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         {open.map(row)}
         {showClosed && closed.length > 0 && <div className="section-label">Closed · {closed.length}</div>}
         {showClosed && closed.map(row)}
+        <Skipped onSelect={onSelect} refreshKey={streams.length} />
       </div>
       <div className="sidebar-foot">
         <label className="toggle">
@@ -91,5 +93,61 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         </button>
       </div>
     </aside>
+  );
+}
+
+type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string };
+
+/** Messages triage passed over in the last 14 days, with "Triage again" for any that should have been work. */
+function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; refreshKey: number }) {
+  const [items, setItems] = useState<SkippedItem[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<Record<string, string>>({});
+  const load = () => get<SkippedItem[]>('/api/items/skipped').then(setItems).catch(() => undefined);
+  useEffect(() => void load(), [refreshKey]);
+  if (!items.length) return null;
+  const retriage = async (id: string, force: boolean) => {
+    setBusy(id);
+    try {
+      const r = await post<{ relevant: boolean; reason: string; streamId: string | null }>(`/api/items/${id}/retriage`, { force });
+      if (r.streamId) {
+        await load();
+        onSelect(r.streamId);
+      } else setVerdict((v) => ({ ...v, [id]: r.reason }));
+    } catch (e: any) {
+      setVerdict((v) => ({ ...v, [id]: `Error: ${e.message}` }));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <details className="skipped">
+      <summary className="section-label">Skipped · {items.length}</summary>
+      <p className="muted small pad">Messages from the last 14 days that triage didn't turn into work.</p>
+      {items.map((i) => (
+        <div key={i.id} className="skipped-row">
+          <div className="skipped-title">
+            <SourceBadge source={i.source} /> <span title={i.title}>{i.title}</span>
+          </div>
+          <div className="muted small" title={i.reason}>
+            {i.from ? `${i.from} · ` : ''}
+            {timeAgo(i.updatedAt)}
+            {i.reason ? ` · ${i.reason}` : ''}
+          </div>
+          {verdict[i.id] ? (
+            <div className="small">
+              <div className="muted">Still not work: {verdict[i.id]}</div>
+              <button className="btn small" disabled={busy === i.id} onClick={() => retriage(i.id, true)}>
+                {busy === i.id ? 'Creating…' : 'Create work stream anyway'}
+              </button>
+            </div>
+          ) : (
+            <button className="btn small ghost" disabled={busy === i.id} onClick={() => retriage(i.id, false)}>
+              {busy === i.id ? 'Triaging…' : 'Triage again'}
+            </button>
+          )}
+        </div>
+      ))}
+    </details>
   );
 }

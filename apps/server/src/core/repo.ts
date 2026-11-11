@@ -494,6 +494,21 @@ export class Repo {
   }
 
   /** Dedupe inbound events by (source, externalId). Returns false if already seen. */
+  /** Recent items triage passed over (in no stream), with the reason from their latest triage decision. */
+  async listSkipped(days = 14) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = await this.db.selectFrom('items').selectAll().where('stream_id', 'is', null).where('updated_at', '>=', since).orderBy('updated_at', 'desc').limit(50).execute();
+    const out = [];
+    for (const r of rows) {
+      const ev = await this.db.selectFrom('inbound_events').select(['decision', 'processed_at']).where('item_id', '=', r.id).where('processed_at', 'is not', null).orderBy('processed_at', 'desc').limit(1).executeTakeFirst();
+      const d = pj<{ reason?: string; skipped?: string }>(ev?.decision, {});
+      const it = this.toItem(r);
+      const last = (it.data.messages ?? it.data.ticket?.comments ?? []).slice(-1)[0];
+      out.push({ id: it.id, source: it.source, title: it.title, updatedAt: it.updatedAt, from: last?.author.name ?? last?.author.email ?? '', reason: d.reason ?? d.skipped ?? '' });
+    }
+    return out;
+  }
+
   async recordInbound(source: string, externalId: string, itemId: string | null) {
     try {
       await this.db.insertInto('inbound_events').values({ id: nanoid(12), source, external_id: externalId, item_id: itemId, received_at: now(), processed_at: null, relevant: null, decision: null }).execute();
