@@ -3,6 +3,10 @@
 // so the next start talked to a stale server.)
 import { spawn } from 'node:child_process';
 
+// The API server lives on PORT and the UI on WEB_PORT, so server-issued browser redirects
+// (e.g. the Google OAuth callback) must point at the UI's origin.
+process.env.WC_WEB_URL ??= `http://localhost:${process.env.WEB_PORT ?? 5173}`;
+
 const watch = !process.argv.includes('--no-watch');
 const run = (name, args) => spawn('npm', ['run', ...args], { stdio: 'inherit', detached: true });
 const kids = [run('server', [watch ? 'dev' : 'serve', '-w', '@wc/server']), run('web', ['dev', '-w', '@wc/web'])];

@@ -16,7 +16,7 @@ const until = async <T>(fn: () => Promise<T | null | undefined | false>, ms = 10
 
 async function boot(): Promise<App> {
   const app = await createApp(
-    { port: 0, host: '127.0.0.1', hosting: 'local', dataDir: `/tmp/wc-test-${Math.random()}`, databaseUrl: 'sqlite::memory:', publicUrl: 'http://localhost', authMode: 'local', demoMode: true, webDist: '', version: 'test' },
+    { port: 0, host: '127.0.0.1', hosting: 'local', dataDir: `/tmp/wc-test-${Math.random()}`, databaseUrl: 'sqlite::memory:', publicUrl: 'http://localhost', webUrl: '', authMode: 'local', demoMode: true, webDist: '', version: 'test' },
     demoOverrides(),
   );
   await seedDemo(app);

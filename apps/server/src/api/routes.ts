@@ -191,17 +191,17 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   });
   f.get('/api/oauth/google/callback', async (req, reply) => {
     const q = req.query as { code?: string; state?: string; error?: string };
-    if (q.error) return reply.redirect(`/settings?google=${encodeURIComponent(q.error)}`);
+    if (q.error) return reply.redirect(`${cfg.webUrl}/settings?google=${encodeURIComponent(q.error)}`);
     if (!q.state || q.state !== (await repo.getSync('google.oauthState'))) return reply.code(400).send('Invalid OAuth state');
     const s = await settings.get();
     const c = oauthClient(s.google.oauth.clientId, await secrets.get(s.google.oauth.clientSecretId!), hub.redirectUri);
     const { tokens } = await c.getToken(q.code!);
-    if (!tokens.refresh_token) return reply.redirect('/settings?google=no_refresh_token');
+    if (!tokens.refresh_token) return reply.redirect(`${cfg.webUrl}/settings?google=no_refresh_token`);
     const backend = (await secrets.list()).find((x) => x.id === 'google.oauth.clientSecret')?.backend ?? s.secrets.defaultBackend;
     await secrets.set('google.oauth.refreshToken', tokens.refresh_token, backend);
     const info = tokens.id_token ? await c.verifyIdToken({ idToken: tokens.id_token, audience: s.google.oauth.clientId }) : null;
     await settings.update({ google: { ...s.google, enabled: true, mode: 'oauth', oauth: { ...s.google.oauth, refreshTokenId: 'google.oauth.refreshToken', connectedEmail: info?.getPayload()?.email } } });
-    return reply.redirect('/settings?google=connected');
+    return reply.redirect(`${cfg.webUrl}/settings?google=connected`);
   });
 
   // ---------- integrations ----------

@@ -12,6 +12,8 @@ export interface AppConfig {
   dataDir: string;
   databaseUrl: string;
   publicUrl: string;
+  /** Where the web UI is served, for browser redirects. Empty = same origin as the API (built mode). */
+  webUrl: string;
   authMode: 'local' | 'iap';
   /** IAP audience: /projects/PROJECT_NUMBER/global/backendServices/SERVICE_ID or /projects/N/locations/R/services/S */
   iapAudience?: string;
@@ -35,6 +37,7 @@ export function loadConfig(env = process.env): AppConfig {
     dataDir,
     databaseUrl: env.DATABASE_URL ?? `sqlite:${path.join(dataDir, 'work-commander.sqlite')}`,
     publicUrl: (env.WC_PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, ''),
+    webUrl: (env.WC_WEB_URL ?? '').replace(/\/$/, ''),
     authMode: (env.WC_AUTH_MODE ?? (hosting === 'gcp' ? 'iap' : 'local')) as 'local' | 'iap',
     iapAudience: env.WC_IAP_AUDIENCE,
     demoMode,
