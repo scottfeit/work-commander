@@ -10,6 +10,7 @@ import { SlackWorkspace } from '../integrations/slack.js';
 import { DEFAULT_MAPPINGS, fetchJiraAssets, fetchWorkdayRaas, fetchWorkdayRest, mapRecords, parseFile } from '../orgchart/import.js';
 import { notFound } from '../core/errors.js';
 import { CREDENTIAL_LABELS } from '../secrets/store.js';
+import { buildBrief, defaultHandoffFolder, handoffCommand, openInTerminal, resolveHandoffFolder, writeHandoff } from '../core/handoff.js';
 
 const sid = (id: string) => (id === GENERAL_STREAM || id === 'general' ? null : id);
 
@@ -94,6 +95,29 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     return repo.getStream(id);
   });
   f.get('/api/streams/:id/summaries', async (req) => repo.listSummaries((req.params as any).id));
+
+  // ---------- hand off to Claude Code (local only: writes a folder on this machine) ----------
+  const handoffStream = async (id: string) => {
+    if (cfg.hosting !== 'local') throw Object.assign(new Error('Hand-off to Claude Code is only available when Work Commander runs on your own machine'), { statusCode: 400 });
+    const st = await repo.getStream(id);
+    if (!st) throw notFound('Work stream');
+    return st;
+  };
+  f.get('/api/streams/:id/handoff', async (req) => {
+    const st = await handoffStream((req.params as any).id);
+    return { folder: defaultHandoffFolder(st), canOpenTerminal: process.platform === 'darwin' };
+  });
+  f.post('/api/streams/:id/handoff', async (req) => {
+    const id = (req.params as any).id;
+    const st = await handoffStream(id);
+    const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true) }).parse(req.body);
+    const folder = resolveHandoffFolder(b.folder.trim());
+    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id)));
+    const opened = b.openTerminal ? await openInTerminal(folder) : false;
+    await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened });
+    await repo.addChat({ streamId: id, role: 'system', content: `Handed off to Claude Code: ${folder}/BRIEF.md` });
+    return { folder, command: handoffCommand(folder), opened };
+  });
   // 404 for streams that do not exist (the general stream is virtual and always exists).
   const existing = async (raw: string) => {
     const id = sid(raw);
