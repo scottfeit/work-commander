@@ -290,15 +290,17 @@ export class GmailIngestor implements Ingestor {
         let latest = cursor;
         const threads = new Map<string, string>();
         do {
-          const h = await this.g.gmail.users.history.list({ userId: 'me', startHistoryId: cursor, historyTypes: ['messageAdded'], pageToken });
+          // labelAdded catches mail that arrives elsewhere (e.g. Spam) and is later moved to the inbox.
+          const h = await this.g.gmail.users.history.list({ userId: 'me', startHistoryId: cursor, historyTypes: ['messageAdded', 'labelAdded'], pageToken });
+          const consider = (m: { id?: string | null; threadId?: string | null; labelIds?: string[] | null }) => {
+            const labels = m.labelIds ?? [];
+            if (labels.some((l) => SKIP_LABELS.has(l))) return;
+            if (!labels.includes('INBOX') && !labels.includes('SENT')) return;
+            threads.set(m.threadId!, m.id!);
+          };
           for (const rec of h.data.history ?? []) {
-            for (const added of rec.messagesAdded ?? []) {
-              const m = added.message!;
-              const labels = m.labelIds ?? [];
-              if (labels.some((l) => SKIP_LABELS.has(l))) continue;
-              if (!labels.includes('INBOX') && !labels.includes('SENT')) continue;
-              threads.set(m.threadId!, m.id!);
-            }
+            for (const added of rec.messagesAdded ?? []) consider(added.message!);
+            for (const l of rec.labelsAdded ?? []) if (l.labelIds?.includes('INBOX')) consider(l.message!);
           }
           latest = h.data.historyId ?? latest;
           pageToken = h.data.nextPageToken ?? undefined;
