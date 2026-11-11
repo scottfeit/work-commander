@@ -218,7 +218,7 @@ export class Repo {
 
   /** The channel id when `externalId` ("D…" or "D…:ts") is a Slack DM. */
   static slackDmChannel(source: string, externalId: string) {
-    return source === 'slack' ? /^(D[A-Z0-9]+)(?::[\d.]+)?$/.exec(externalId)?.[1] ?? null : null;
+    return source === 'slack' ? /^(D[A-Z0-9]+)(?::.*)?$/.exec(externalId)?.[1] ?? null : null;
   }
 
   /** The existing item for a Slack DM channel (the one already in a work stream first, else the oldest). */

@@ -20,7 +20,11 @@ const Polled = z.object({
 
 const DEFAULTS: Record<'google' | 'slack' | 'atlassian', string> = {
   google: 'Find email threads in the PU\'s inbox with messages received after {since}. Skip newsletters and promotions.',
-  slack: 'Find Slack messages after {since} that are direct messages to the PU, mention the PU, or reply in threads the PU is in.',
+  slack:
+    'Find Slack messages after {since} that are direct messages to the PU, mention the PU, or reply in threads the PU is in. ' +
+    'A direct-message conversation is ONE item: use externalId "<DM channel id>:dm" (the D… id) and put every new message in it, ' +
+    'including messages the PU wrote themself (e.g. replies sent from Slack directly), with authorName set to the sender\'s display name. ' +
+    'Also return the PU\'s own new messages in DM conversations and threads that already exist, even when nobody else has written since.',
   atlassian: 'Find Jira/JSM issues updated after {since} that are assigned to, reported by, or watched by the PU. Include comments.',
 };
 

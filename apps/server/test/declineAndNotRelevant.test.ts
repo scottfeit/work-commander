@@ -162,3 +162,17 @@ describe('items created through WC appear in the stream', () => {
     expect(await repo.listItems(other)).toHaveLength(1);
   });
 });
+
+describe('a DM named ":dm" by the ingestor joins the conversation', () => {
+  it('upserts into the existing DM item and merges old split items', async () => {
+    const msg = (id: string, name: string, pu = false) => ({ id, author: { name }, text: id, at: `2026-11-11T00:00:${id.padStart(2, '0')}Z`, isFromPU: pu });
+    const first = (await repo.upsertItem({ source: 'slack', kind: 'slack_thread', externalId: 'D5:1.1', title: 'DM with Pat', data: { messages: [msg('10', 'Pat')] }, streamId })).item;
+    const next = await repo.upsertItem({ source: 'slack', kind: 'slack_thread', externalId: 'D5:dm', title: 'DM with Pat', data: { messages: [msg('11', 'Me', true), msg('12', 'Pat')] } });
+    expect(next.item.id).toBe(first.id);
+    expect(next.item.data.messages?.map((m) => m.id)).toEqual(['10', '11', '12']);
+    // an older build had split them: the cleanup folds them back
+    await repo.db.insertInto('items').values({ id: 'z', stream_id: streamId, source: 'slack', kind: 'slack_thread', external_id: 'D6:dm', title: 'DM with Lee', url: null, data: JSON.stringify({ messages: [msg('20', 'Lee')] }), updated_at: '2026-01-01T00:00:00Z' }).execute();
+    await repo.db.insertInto('items').values({ id: 'y', stream_id: streamId, source: 'slack', kind: 'slack_thread', external_id: 'D6:5.5', title: 'DM with Lee', url: null, data: JSON.stringify({ messages: [msg('21', 'Lee')] }), updated_at: '2026-01-02T00:00:00Z' }).execute();
+    expect(await repo.mergeSlackDmItems()).toBe(1);
+  });
+});
