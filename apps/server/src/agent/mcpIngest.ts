@@ -63,10 +63,16 @@ export class McpPollIngestor implements Ingestor {
 
   /** Slack channels/DMs that have an item in an open work stream. */
   private async trackedSlackChannels() {
-    const ids = new Set<string>();
+    // Per conversation, "after" is the newest message already stored, so nothing between polls can fall through a gap.
+    const latest = new Map<string, string>();
     for (const st of await this.repo.listStreams(false))
-      for (const it of await this.repo.listItems(st.id)) if (it.source === 'slack') ids.add(it.data.slack?.channel ?? it.externalId.split(':')[0]);
-    return [...ids].slice(0, 20);
+      for (const it of await this.repo.listItems(st.id)) {
+        if (it.source !== 'slack') continue;
+        const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
+        const at = (it.data.messages ?? []).filter((m) => !m.id.startsWith('sent-')).map((m) => m.at).sort().pop() ?? it.updatedAt;
+        if (!latest.has(channel) || at > latest.get(channel)!) latest.set(channel, at);
+      }
+    return [...latest].slice(0, 20).map(([channel, after]) => ({ channel, after }));
   }
 
   async pollOnce() {
@@ -88,7 +94,10 @@ export class McpPollIngestor implements Ingestor {
         // Conversations already in open work streams are checked directly, not left to Slack search.
         const channels = await this.trackedSlackChannels();
         if (channels.length)
-          instruction += `\nAlso read the recent history of these Slack conversations the PU is already working on (channel ids: ${channels.join(', ')}) and return any messages after ${since}, from anyone including the PU. Use the channel-history read tool for each; do not rely on search for them.`;
+          instruction +=
+            '\nAlso read the history of these Slack conversations the PU is already working on and return every message after the time given for each, from anyone including the PU. ' +
+            'Use the channel-history read tool for each; do not rely on search for them.\n' +
+            channels.map((c) => `- channel ${c.channel}: messages after ${c.after}`).join('\n');
       }
       const r = await this.backend.structured({
         systemPrompt: `You collect new work activity for ${s.pu.name} <${s.pu.email}> using read-only tools. Return only items with activity after the given time, with full message text. Return an empty list if nothing is new.`,
