@@ -6,6 +6,7 @@ import type { GoogleSettings, PrimaryUser, ThreadMessage } from '@wc/shared';
 import type { CalendarApi, DocsApi, EmailApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import { htmlToText } from './types.js';
 import type { Repo } from '../core/repo.js';
+import type { OutFile } from '../core/attachments.js';
 
 export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
@@ -61,7 +62,12 @@ function parseFrom(v: string) {
   return { email, name: name && name !== email ? name : undefined };
 }
 
-export function encodeEmail(input: {
+export function encodeEmail(input: Parameters<typeof buildMime>[0]) {
+  return Buffer.from(buildMime(input)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The RFC 822 message as text; multipart/mixed when there are attachments. */
+export function buildMime(input: {
   from: string;
   to: string[];
   cc: string[];
@@ -69,21 +75,33 @@ export function encodeEmail(input: {
   body: string;
   inReplyTo?: string;
   references?: string;
+  files?: OutFile[];
 }) {
   const subj = /[^\x20-\x7e]/.test(input.subject) ? `=?UTF-8?B?${Buffer.from(input.subject).toString('base64')}?=` : input.subject;
-  const lines = [
+  const b64 = (b: Buffer) => b.toString('base64').replace(/.{76}/g, '$&\r\n');
+  const headers = [
     `From: ${input.from}`,
     `To: ${input.to.join(', ')}`,
     ...(input.cc.length ? [`Cc: ${input.cc.join(', ')}`] : []),
     `Subject: ${subj}`,
     ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`, `References: ${[input.references, input.inReplyTo].filter(Boolean).join(' ')}`] : []),
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
-    '',
-    Buffer.from(input.body, 'utf8').toString('base64').replace(/.{76}/g, '$&\r\n'),
   ];
-  return Buffer.from(lines.join('\r\n')).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const textPart = ['Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', b64(Buffer.from(input.body, 'utf8'))];
+  let lines: string[];
+  if (!input.files?.length) {
+    lines = [...headers, ...textPart];
+  } else {
+    const boundary = `wc_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+    // RFC 2231 filename* keeps non-ASCII names intact; the plain filename is an ASCII fallback.
+    const fname = (n: string) => `filename="${n.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(n)}`;
+    lines = [...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, '', `--${boundary}`, ...textPart];
+    for (const f of input.files) {
+      lines.push(`--${boundary}`, `Content-Type: ${f.mimeType}`, `Content-Disposition: attachment; ${fname(f.filename)}`, 'Content-Transfer-Encoding: base64', '', b64(f.data));
+    }
+    lines.push(`--${boundary}--`, '');
+  }
+  return lines.join('\r\n');
 }
 
 export class GoogleWorkspace implements EmailApi, CalendarApi {
@@ -159,11 +177,11 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
     return pu.name ? `${pu.name} <${pu.email}>` : pu.email;
   }
 
-  async reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string }) {
+  async reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }) {
     const t = await this.gmail.users.threads.get({ userId: 'me', id: input.threadId, format: 'metadata', metadataHeaders: ['Message-ID', 'References', 'Subject'] });
     const last = t.data.messages?.[t.data.messages.length - 1];
     const subject = input.subject || (last ? header(last, 'Subject') : '');
-    const raw = encodeEmail({
+    const msg = {
       from: await this.fromHeader(),
       to: input.to,
       cc: input.cc,
@@ -171,14 +189,20 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
       body: input.body,
       inReplyTo: last ? header(last, 'Message-ID') : undefined,
       references: last ? header(last, 'References') : undefined,
-    });
-    const r = await this.gmail.users.messages.send({ userId: 'me', requestBody: { raw, threadId: input.threadId } });
+      files: input.files,
+    };
+    const r = await this.sendMime(msg, input.threadId);
     return { messageId: r.data.id!, threadId: r.data.threadId! };
   }
 
-  async send(input: { to: string[]; cc: string[]; subject: string; body: string }) {
-    const raw = encodeEmail({ from: await this.fromHeader(), ...input });
-    const r = await this.gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+  /** Small messages go inline as `raw`; messages with attachments use the media upload endpoint, which allows up to 35 MB. */
+  private sendMime(msg: Parameters<typeof buildMime>[0], threadId?: string) {
+    if (!msg.files?.length) return this.gmail.users.messages.send({ userId: 'me', requestBody: { raw: encodeEmail(msg), threadId } });
+    return this.gmail.users.messages.send({ userId: 'me', requestBody: { threadId }, media: { mimeType: 'message/rfc822', body: buildMime(msg) } });
+  }
+
+  async send(input: { to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }) {
+    const r = await this.sendMime({ from: await this.fromHeader(), ...input });
     return { messageId: r.data.id!, threadId: r.data.threadId! };
   }
 

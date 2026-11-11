@@ -12,6 +12,7 @@ import { StreamAgentRunner } from './agent/runner.js';
 import { TriagePipeline } from './agent/triage.js';
 import { McpPollIngestor } from './agent/mcpIngest.js';
 import { runInternalTool, type ToolDeps } from './agent/tools.js';
+import { AttachmentStore } from './core/attachments.js';
 
 export interface App {
   cfg: AppConfig;
@@ -25,6 +26,7 @@ export interface App {
   backend: AgentBackend;
   runner: StreamAgentRunner;
   triage: TriagePipeline;
+  attachments: AttachmentStore;
 }
 
 export interface AppOverrides {
@@ -41,12 +43,13 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   const get = () => settings.get();
   const repo = new Repo(db);
   const secrets = new SecretStore(db, cfg, get);
+  const attachments = new AttachmentStore(db, repo);
   const hub = new IntegrationHub(cfg, settings, secrets, repo, o.world?.(repo));
   const grants = new GrantService(repo, secrets, get, o.onePassword, o.grantFetch);
   let toolDeps: ToolDeps;
-  const executor = new Executor(repo, hub, grants, get, secrets, () => (name, args, ctx) => runInternalTool(name, args, ctx, toolDeps));
-  toolDeps = { repo, hub, grants, executor, settings: get };
-  const partial = { cfg, db, settings, repo, secrets, hub, grants, executor };
+  const executor = new Executor(repo, hub, grants, get, secrets, () => (name, args, ctx) => runInternalTool(name, args, ctx, toolDeps), attachments);
+  toolDeps = { repo, hub, grants, executor, settings: get, attachments };
+  const partial = { cfg, db, settings, repo, secrets, hub, grants, executor, attachments };
   const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets);
   const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps);
   const triage = new TriagePipeline(repo, backend, runner, get);

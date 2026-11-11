@@ -96,6 +96,10 @@ export interface DB {
   sync_state: { key: string; value: string };
   /** Every version of a stream's summary (the Overview), oldest first. `at` = when it became current; null for a version written before history was kept. */
   stream_summaries: { id: Generated<number>; stream_id: string; summary: string; by: string; at: string | null };
+  /** Work handed off to Claude Code; RESULT.md in `folder` is brought back automatically. */
+  handoffs: { id: string; stream_id: string; folder: string; created_at: string; result_mtime: string | null; returned_at: string | null };
+  /** Files attached to drafts (uploaded by the PU or taken from a Claude Code hand-off folder). `data` is base64 so it works on SQLite and Postgres alike. */
+  attachments: { id: string; stream_id: string | null; filename: string; mime_type: string; size: number; source: string; data: string; created_at: string };
   audit_log: {
     id: Generated<number>;
     at: string;
@@ -257,6 +261,28 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('at', 'text')
     .execute();
   await s.createIndex('stream_summaries_stream').ifNotExists().on('stream_summaries').column('stream_id').execute();
+  await s
+    .createTable('handoffs')
+    .ifNotExists()
+    .addColumn('id', 'text', (c) => c.primaryKey())
+    .addColumn('stream_id', 'text', (c) => c.notNull())
+    .addColumn('folder', 'text', (c) => c.notNull())
+    .addColumn('created_at', 'text', (c) => c.notNull())
+    .addColumn('result_mtime', 'text')
+    .addColumn('returned_at', 'text')
+    .execute();
+  await s
+    .createTable('attachments')
+    .ifNotExists()
+    .addColumn('id', 'text', (c) => c.primaryKey())
+    .addColumn('stream_id', 'text')
+    .addColumn('filename', 'text', (c) => c.notNull())
+    .addColumn('mime_type', 'text', (c) => c.notNull())
+    .addColumn('size', 'integer', (c) => c.notNull())
+    .addColumn('source', 'text', (c) => c.notNull())
+    .addColumn('data', 'text', (c) => c.notNull())
+    .addColumn('created_at', 'text', (c) => c.notNull())
+    .execute();
   let audit = s.createTable('audit_log').ifNotExists();
   audit =
     dialect === 'postgres'

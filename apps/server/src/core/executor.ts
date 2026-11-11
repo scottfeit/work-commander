@@ -6,6 +6,12 @@ import type { GrantService, AuthScheme } from '../onepassword/grants.js';
 import type { SecretStore } from '../secrets/store.js';
 import { McpConnection, extractRefs } from '../integrations/mcp.js';
 import { bus } from './bus.js';
+import { MAX_EMAIL_ATTACHMENT_BYTES, type AttachmentStore, type OutFile } from './attachments.js';
+
+function checkEmailSize(files: OutFile[]) {
+  const total = files.reduce((n, f) => n + f.data.length, 0);
+  if (total > MAX_EMAIL_ATTACHMENT_BYTES) throw new Error(`Attachments total ${(total / 1048576).toFixed(1)} MB; Gmail allows about ${MAX_EMAIL_ATTACHMENT_BYTES / 1048576} MB. Share a Drive link instead.`);
+}
 
 type InternalRunner = (name: string, args: any, ctx: { streamId: string | null; runId: string }) => Promise<string>;
 
@@ -44,6 +50,7 @@ export class Executor {
     private settings: () => Promise<Settings>,
     private secrets: SecretStore,
     private runInternal: () => InternalRunner,
+    private attachments?: AttachmentStore,
   ) {}
 
   async approve(id: string, payload?: Record<string, unknown>, opts: { auto?: boolean } = {}) {
@@ -132,25 +139,30 @@ export class Executor {
   }
 
   private async run(p: Proposal, x: Record<string, any>): Promise<Record<string, unknown>> {
+    if (!this.attachments && Array.isArray(x.attachments) && x.attachments.length) throw new Error('Attachments are not available');
+    const files = this.attachments ? await this.attachments.resolve(x.attachments, p.streamId) : [];
+    const attached = files.length ? { attachments: files.map((f) => f.filename) } : {};
     switch (p.kind) {
       case 'email_reply': {
         const email = await this.hub.api('email');
-        const r = await email.reply({ threadId: x.thread_id, to: asList(x.to), cc: asList(x.cc), subject: x.subject ?? '', body: x.body });
+        checkEmailSize(files);
+        const r = await email.reply({ threadId: x.thread_id, to: asList(x.to), cc: asList(x.cc), subject: x.subject ?? '', body: x.body, files });
         await this.attachInbound(p.streamId, await email.getThread(r.threadId));
-        return r;
+        return { ...r, ...attached };
       }
       case 'email_send': {
         const email = await this.hub.api('email');
-        const r = await email.send({ to: asList(x.to), cc: asList(x.cc), subject: x.subject, body: x.body });
+        checkEmailSize(files);
+        const r = await email.send({ to: asList(x.to), cc: asList(x.cc), subject: x.subject, body: x.body, files });
         await this.attachInbound(p.streamId, await email.getThread(r.threadId));
-        return r;
+        return { ...r, ...attached };
       }
       case 'slack_post': {
         const chat = await this.hub.api('chat');
-        const r = await chat.postMessage({ channel: x.channel, userEmail: x.recipient_email, text: x.text, threadTs: x.thread_ts });
+        const r = await chat.postMessage({ channel: x.channel, userEmail: x.recipient_email, text: x.text, threadTs: x.thread_ts, files });
         // Track the thread so replies flow back into this stream.
         await this.attachInbound(p.streamId, await chat.getThread(r.channel, x.thread_ts ?? r.ts));
-        return r;
+        return { ...r, ...attached };
       }
       case 'ticket_create': {
         const t = await this.hub.api('tickets');
@@ -158,15 +170,16 @@ export class Executor {
           x.flavor === 'jsm'
             ? await t.createJsmRequest({ serviceDeskId: x.service_desk_id, requestTypeId: x.type_id, summary: x.summary, description: x.description, requesterEmail: x.requester_email, assignToSelf: true })
             : await t.createJiraIssue({ projectKey: x.project_key, issueType: x.type_id, summary: x.summary, description: x.description, requesterEmail: x.requester_email, assignToSelf: true });
+        if (files.length) await t.attach({ key: r.key, files });
         await this.attachInbound(p.streamId, await t.getIssue(r.key));
-        return r;
+        return { ...r, ...attached };
       }
       case 'ticket_comment': {
         const t = await this.hub.api('tickets');
         const issue = await t.getIssue(x.key);
-        const r = await t.comment({ key: x.key, body: x.body, public: x.visibility !== 'internal', flavor: issue.data.ticket?.flavor ?? 'jira' });
+        const r = await t.comment({ key: x.key, body: x.body, public: x.visibility !== 'internal', flavor: issue.data.ticket?.flavor ?? 'jira', files });
         await this.attachInbound(p.streamId, await t.getIssue(x.key));
-        return { ...r, key: x.key };
+        return { ...r, key: x.key, ...attached };
       }
       case 'ticket_transition': {
         const t = await this.hub.api('tickets');

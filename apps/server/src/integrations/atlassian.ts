@@ -2,6 +2,7 @@ import type { AtlassianSettings, ThreadMessage } from '@wc/shared';
 import type { InboundItem, InboundSink, Ingestor, TicketApi } from './types.js';
 import { htmlToText } from './types.js';
 import type { Repo } from '../core/repo.js';
+import type { OutFile } from '../core/attachments.js';
 
 // ---------- Atlassian Document Format helpers ----------
 export function adfToText(node: any): string {
@@ -51,6 +52,25 @@ export class AtlassianCloud implements TicketApi {
     if (r.status === 204) return undefined as T;
     const t = await r.text();
     return (t ? JSON.parse(t) : undefined) as T;
+  }
+
+  /** Multipart upload (Jira attachments, JSM temporary files). Atlassian requires X-Atlassian-Token: no-check. */
+  private async upload<T = any>(path: string, files: OutFile[]): Promise<T> {
+    const form = new FormData();
+    for (const f of files) form.append('file', new Blob([new Uint8Array(f.data)], { type: f.mimeType }), f.filename);
+    const r = await this.fetchImpl(this.base + path, {
+      method: 'POST',
+      headers: { Authorization: this.auth, Accept: 'application/json', 'X-Atlassian-Token': 'no-check', 'X-ExperimentalApi': 'opt-in' },
+      body: form,
+    });
+    if (!r.ok) throw new Error(`Atlassian upload ${path} -> ${r.status}: ${(await r.text()).slice(0, 500)}`);
+    return (await r.json()) as T;
+  }
+
+  async attach(input: { key: string; files: OutFile[] }) {
+    if (!input.files.length) return { count: 0 };
+    const r = await this.upload<unknown[]>(`/rest/api/3/issue/${input.key}/attachments`, input.files);
+    return { count: Array.isArray(r) ? r.length : input.files.length };
   }
 
   async myself() {
@@ -164,12 +184,25 @@ export class AtlassianCloud implements TicketApi {
     return { key: r.key as string, url: this.issueUrl(r.key) };
   }
 
-  async comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira' }) {
+  async comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[] }) {
+    if (input.flavor === 'jsm' && input.files?.length) {
+      // JSM: upload as temporary files, then add them to the request with the comment in one step,
+      // so the customer sees the files on a public reply (Jira-API attachments are agent-only).
+      const req = await this.req('GET', `/rest/servicedeskapi/request/${input.key}`);
+      const tmp = await this.upload<{ temporaryAttachments: { temporaryAttachmentId: string }[] }>(`/rest/servicedeskapi/servicedesk/${req.serviceDeskId}/attachTemporaryFile`, input.files);
+      const r = await this.req('POST', `/rest/servicedeskapi/request/${input.key}/attachment`, {
+        temporaryAttachmentIds: tmp.temporaryAttachments.map((t) => t.temporaryAttachmentId),
+        public: input.public,
+        additionalComment: { body: input.body },
+      });
+      return { id: String(r?.comment?.id ?? '') };
+    }
     if (input.flavor === 'jsm') {
       const r = await this.req('POST', `/rest/servicedeskapi/request/${input.key}/comment`, { body: input.body, public: input.public });
       return { id: String(r.id) };
     }
     const r = await this.req('POST', `/rest/api/3/issue/${input.key}/comment`, { body: textToAdf(input.body) });
+    if (input.files?.length) await this.attach({ key: input.key, files: input.files });
     return { id: String(r.id) };
   }
 

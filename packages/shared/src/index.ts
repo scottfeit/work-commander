@@ -125,6 +125,16 @@ export type ProposalKind =
   | 'mcp_tool_call'
   | 'read_approval';
 
+/** A file attached to a draft. The bytes live server-side; drafts carry only this reference in payload.attachments. */
+export interface AttachmentRef {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+/** Draft kinds that can carry attachments. */
+export const ATTACHABLE_KINDS: ProposalKind[] = ['email_reply', 'email_send', 'slack_post', 'ticket_create', 'ticket_comment'];
+
 export type ProposalStatus =
   | 'pending'
   | 'approved'

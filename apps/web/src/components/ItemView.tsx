@@ -66,8 +66,10 @@ export function ItemView({ item }: { item: StreamItem }) {
 }
 
 /** Coding work goes to Claude Code: Work Commander's agent has no shell or file tools by design. */
-function Handoff({ streamId }: { streamId: string }) {
-  const [info, setInfo] = useState<{ folder: string; canOpenTerminal: boolean } | null>(null);
+type HandoffInfo = { folder: string; canOpenTerminal: boolean; last: { folder: string; createdAt: string; returnedAt: string | null } | null };
+
+function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string }) {
+  const [info, setInfo] = useState<HandoffInfo | null>(null);
   const [open, setOpen] = useState(false);
   const [folder, setFolder] = useState('');
   const [openTerminal, setOpenTerminal] = useState(true);
@@ -79,20 +81,23 @@ function Handoff({ streamId }: { streamId: string }) {
     setOpen(false);
     setDone(null);
     setErr(null);
-    get<{ folder: string; canOpenTerminal: boolean }>(`/api/streams/${streamId}/handoff`)
+  }, [streamId]);
+  useEffect(() => {
+    get<HandoffInfo>(`/api/streams/${streamId}/handoff`)
       .then((r) => {
         setInfo(r);
-        setFolder(r.folder);
+        setFolder((f) => f || r.folder);
         setOpenTerminal(r.canOpenTerminal);
       })
       .catch(() => setInfo(null)); // not available (e.g. hosted on GCP)
-  }, [streamId]);
+  }, [streamId, updatedAt]);
   if (!info) return null;
   const go = async () => {
     setBusy(true);
     setErr(null);
     try {
       setDone(await post(`/api/streams/${streamId}/handoff`, { folder, openTerminal }));
+      setInfo(await get<HandoffInfo>(`/api/streams/${streamId}/handoff`));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -101,6 +106,19 @@ function Handoff({ streamId }: { streamId: string }) {
   };
   return (
     <div className="handoff">
+      {info.last && (
+        <p className="small handoff-status">
+          {info.last.returnedAt ? (
+            <>
+              <span className="chip">Results back</span> Claude Code reported back {fmtFull(info.last.returnedAt)} from <code>{info.last.folder}</code>
+            </>
+          ) : (
+            <>
+              <span className="chip running">With Claude Code</span> Handed off {fmtFull(info.last.createdAt)} to <code>{info.last.folder}</code>. Results come back here automatically when it writes RESULT.md.
+            </>
+          )}
+        </p>
+      )}
       {!open ? (
         <button className="btn small" onClick={() => setOpen(true)}>
           Hand off to Claude Code
@@ -200,7 +218,7 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
         </>
       )}
 
-      <Handoff streamId={stream.id} />
+      <Handoff streamId={stream.id} updatedAt={stream.updatedAt} />
 
       <h3>Linked items</h3>
       {items.length === 0 && <p className="muted">Nothing linked yet.</p>}

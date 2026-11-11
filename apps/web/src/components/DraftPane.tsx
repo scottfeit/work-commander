@@ -1,6 +1,6 @@
-import { useEffect, useId, useState } from 'react';
-import type { EditableField, Proposal } from '@wc/shared';
-import { patch, post } from '../api';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ATTACHABLE_KINDS, type AttachmentRef, type EditableField, type Proposal } from '@wc/shared';
+import { api, patch, post } from '../api';
 
 const SYSTEM_LABEL: Record<string, string> = { google: 'Gmail', slack: 'Slack', atlassian: 'Atlassian', onepassword: '1Password', internal: 'Work Commander' };
 
@@ -94,6 +94,22 @@ function DraftCard({ p, dependsOn, edited, onEdit }: { p: Proposal; dependsOn: s
           <Field key={f.key} f={f} value={getPath(payload, f.key)} onChange={(v) => update(f.key, v)} />
         ))}
       </div>
+      {ATTACHABLE_KINDS.includes(p.kind) && (
+        <Attachments
+          streamId={p.streamId}
+          value={(payload.attachments as AttachmentRef[] | undefined) ?? []}
+          disabled={busy}
+          onChange={(attachments) =>
+            act(async () => {
+              // Persist straight away (with any unsaved text edits) so an upload is never lost.
+              const next = { ...payload, attachments };
+              onEdit(next);
+              await patch(`/api/proposals/${p.id}`, { payload: next });
+              onEdit(null);
+            })
+          }
+        />
+      )}
       {hasPlaceholder && <div className="small muted">Text in {'{{ }}'} is filled in automatically when the step it depends on runs.</div>}
       {err && <div className="error small">{err}</div>}
       {rejecting ? (
@@ -175,5 +191,57 @@ function ListInput({ id, value, onChange }: { id: string; value: unknown; onChan
         onChange(parseList(e.target.value));
       }}
     />
+  );
+}
+
+const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
+/** Files on a draft: download, remove, or attach more from this computer. */
+function Attachments({ streamId, value, disabled, onChange }: { streamId: string | null; value: AttachmentRef[]; disabled: boolean; onChange: (v: AttachmentRef[]) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const upload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setErr(null);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      for (const f of Array.from(files)) form.append('file', f, f.name);
+      const added = await api<AttachmentRef[]>('POST', `/api/attachments${streamId ? `?streamId=${encodeURIComponent(streamId)}` : ''}`, form);
+      onChange([...value, ...added]);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setUploading(false);
+      if (input.current) input.current.value = '';
+    }
+  };
+  return (
+    <div className="field attachments">
+      <label>Attachments</label>
+      <div>
+        {value.length > 0 && (
+          <ul className="attach-list">
+            {value.map((a) => (
+              <li key={a.id} className="attach-chip">
+                <a href={`/api/attachments/${a.id}`} download={a.filename} title={`Download ${a.filename}`}>
+                  {a.filename}
+                </a>
+                <span className="muted small">{fmtSize(a.size)}</span>
+                <button type="button" className="x" aria-label={`Remove ${a.filename}`} disabled={disabled} onClick={() => onChange(value.filter((x) => x.id !== a.id))}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <input ref={input} type="file" multiple hidden onChange={(e) => upload(e.target.files)} />
+        <button type="button" className="btn small ghost" disabled={disabled || uploading} onClick={() => input.current?.click()}>
+          {uploading ? 'Uploading…' : '📎 Attach'}
+        </button>
+        {err && <div className="error small">{err}</div>}
+      </div>
+    </div>
   );
 }

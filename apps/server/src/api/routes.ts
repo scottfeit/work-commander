@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import os from 'node:os';
 import { z } from 'zod';
 import { GENERAL_STREAM, type EnvironmentInfo, type SecretBackend, type Settings } from '@wc/shared';
 import type { App } from '../app.js';
@@ -96,6 +97,29 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   });
   f.get('/api/streams/:id/summaries', async (req) => repo.listSummaries((req.params as any).id));
 
+  // ---------- draft attachments ----------
+  f.post('/api/attachments', async (req) => {
+    const streamId = ((req.query as any).streamId as string | undefined) || null;
+    if (streamId && !(await repo.getStream(streamId))) throw notFound('Work stream');
+    const out = [];
+    for await (const part of (req as any).files()) {
+      const data: Buffer = await part.toBuffer();
+      if (part.file?.truncated) throw Object.assign(new Error(`${part.filename} is larger than 20 MB`), { statusCode: 413 });
+      out.push(await app.attachments.save({ streamId, filename: part.filename, mimeType: part.mimetype, data, source: 'upload' }));
+    }
+    if (!out.length) throw Object.assign(new Error('No file received'), { statusCode: 400 });
+    return out;
+  });
+  f.get('/api/attachments/:id', async (req, reply) => {
+    const { file } = await app.attachments.read((req.params as any).id);
+    // Always a download, never rendered inline: attachments can come from anyone's email or a coding session.
+    return reply
+      .header('Content-Type', 'application/octet-stream')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Disposition', `attachment; filename="${file.filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
+      .send(file.data);
+  });
+
   // ---------- hand off to Claude Code (local only: writes a folder on this machine) ----------
   const handoffStream = async (id: string) => {
     if (cfg.hosting !== 'local') throw Object.assign(new Error('Hand-off to Claude Code is only available when Work Commander runs on your own machine'), { statusCode: 400 });
@@ -105,7 +129,12 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   };
   f.get('/api/streams/:id/handoff', async (req) => {
     const st = await handoffStream((req.params as any).id);
-    return { folder: defaultHandoffFolder(st), canOpenTerminal: process.platform === 'darwin' };
+    const last = await repo.latestHandoff(st.id);
+    return {
+      folder: last?.folder.replace(os.homedir(), '~') ?? defaultHandoffFolder(st),
+      canOpenTerminal: process.platform === 'darwin',
+      last: last ? { folder: last.folder, createdAt: last.created_at, returnedAt: last.returned_at } : null,
+    };
   });
   f.post('/api/streams/:id/handoff', async (req) => {
     const id = (req.params as any).id;
@@ -113,6 +142,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true) }).parse(req.body);
     const folder = resolveHandoffFolder(b.folder.trim());
     writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id)));
+    await repo.createHandoff(id, folder);
     const opened = b.openTerminal ? await openInTerminal(folder) : false;
     await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened });
     await repo.addChat({ streamId: id, role: 'system', content: `Handed off to Claude Code: ${folder}/BRIEF.md` });

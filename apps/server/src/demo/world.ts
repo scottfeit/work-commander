@@ -5,6 +5,10 @@ import type { InboundItem, InboundSink } from '../integrations/types.js';
 import type { OnePasswordClient } from '../onepassword/client.js';
 import { ScriptedBackend } from './scripted.js';
 
+type DemoFile = { filename: string; data: Buffer };
+/** The demo has no real mailbox, so attachments show as a line under the message. */
+const withFiles = (text: string, files?: DemoFile[]) => (files?.length ? `${text}\n\n[Attached: ${files.map((f) => `${f.filename} (${f.data.length} bytes)`).join(', ')}]`.trim() : text);
+
 /**
  * DEMO_MODE: in-memory stand-ins for Gmail, Slack, JSM and 1Password plus a scripted agent, so the
  * whole dashboard flow can be clicked through (and tested) without credentials. Nothing leaves
@@ -46,15 +50,15 @@ export class DemoWorld {
       [...this.threads.values()]
         .filter((t) => t.title.toLowerCase().includes(q.toLowerCase()) || q === 'in:inbox')
         .map((t) => ({ threadId: t.externalId, subject: t.title, from: t.data.messages![0].author.email!, snippet: t.data.messages![0].text.slice(0, 80), at: t.data.messages![0].at })),
-    reply: async (i: { threadId: string; to: string[]; cc: string[]; subject: string; body: string }) => {
+    reply: async (i: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; files?: DemoFile[] }) => {
       const t = this.threads.get(i.threadId)!;
       const id = `m${this.seq++}`;
-      t.data.messages!.push(msg(id, PU, i.body, new Date().toISOString(), i.to, i.cc, `Re: ${t.title}`));
+      t.data.messages!.push(msg(id, PU, withFiles(i.body, i.files), new Date().toISOString(), i.to, i.cc, `Re: ${t.title}`));
       return { messageId: id, threadId: i.threadId };
     },
-    send: async (i: { to: string[]; cc: string[]; subject: string; body: string }) => {
+    send: async (i: { to: string[]; cc: string[]; subject: string; body: string; files?: DemoFile[] }) => {
       const tid = `t${this.seq++}`;
-      this.threads.set(tid, { source: 'gmail', kind: 'email_thread', externalId: tid, title: i.subject, data: { messages: [msg(`m${this.seq++}`, PU, i.body, new Date().toISOString(), i.to, i.cc, i.subject)], gmail: { threadId: tid } }, eventId: tid });
+      this.threads.set(tid, { source: 'gmail', kind: 'email_thread', externalId: tid, title: i.subject, data: { messages: [msg(`m${this.seq++}`, PU, withFiles(i.body, i.files), new Date().toISOString(), i.to, i.cc, i.subject)], gmail: { threadId: tid } }, eventId: tid });
       return { messageId: tid, threadId: tid };
     },
   };
@@ -68,13 +72,13 @@ export class DemoWorld {
       const p = PEOPLE.find((x) => x.email === email);
       return p ? { id: p.slackUserId ?? `U${p.name.split(' ')[0].toUpperCase()}`, name: p.name } : null;
     },
-    postMessage: async (i: { channel?: string; userEmail?: string; text: string; threadTs?: string }) => {
+    postMessage: async (i: { channel?: string; userEmail?: string; text: string; threadTs?: string; files?: DemoFile[] }) => {
       const person = PEOPLE.find((p) => p.email === i.userEmail);
       const channel = i.channel ?? `D${(person?.name ?? 'X').split(' ')[0].toUpperCase()}`;
       const ts = i.threadTs ?? `${Math.floor(Date.now() / 1000)}.000${this.seq++}`;
       const key = `${channel}:${ts}`;
       const existing = this.slackThreads.get(key);
-      const m = msg(`${Date.now() / 1000}`, PU, i.text, new Date().toISOString());
+      const m = msg(`${Date.now() / 1000}`, PU, withFiles(i.text, i.files), new Date().toISOString());
       m.author.slackUserId = 'UALEX';
       if (existing) existing.data.messages!.push(m);
       else
@@ -99,10 +103,15 @@ export class DemoWorld {
     search: async () => [...this.tickets.values()].map((t) => ({ key: t.externalId, summary: t.data.ticket!.summary, status: t.data.ticket!.status, updated: '' })),
     createJsmRequest: async (i: { summary: string; description: string; requesterEmail: string }) => this.newTicket('jsm', i.summary, i.description, i.requesterEmail),
     createJiraIssue: async (i: { summary: string; description: string; requesterEmail?: string }) => this.newTicket('jira', i.summary, i.description, i.requesterEmail ?? PU.email),
-    comment: async (i: { key: string; body: string; public: boolean }) => {
+    attach: async (i: { key: string; files: DemoFile[] }) => {
+      const t = this.tickets.get(i.key)!;
+      t.data.ticket!.comments.push(msg(`c${this.seq++}`, PU, withFiles('', i.files), new Date().toISOString()));
+      return { count: i.files.length };
+    },
+    comment: async (i: { key: string; body: string; public: boolean; files?: DemoFile[] }) => {
       const t = this.tickets.get(i.key)!;
       const id = `c${this.seq++}`;
-      t.data.ticket!.comments.push(msg(id, PU, `${i.public ? '' : '[internal] '}${i.body}`, new Date().toISOString()));
+      t.data.ticket!.comments.push(msg(id, PU, withFiles(`${i.public ? '' : '[internal] '}${i.body}`, i.files), new Date().toISOString()));
       return { id };
     },
     transition: async (i: { key: string; to: string }) => {

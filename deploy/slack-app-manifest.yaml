@@ -24,6 +24,7 @@ oauth_config:
       - users:read.email
       - search:read
       - chat:write
+      - files:write
     bot:
       - users:read
 settings:

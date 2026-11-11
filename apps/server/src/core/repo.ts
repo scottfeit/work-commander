@@ -130,6 +130,33 @@ export class Repo {
     return rows.map((r) => ({ id: r.id, summary: r.summary, by: r.by as SummaryAuthor | 'unknown', at: r.at }));
   }
 
+  // ---------- Claude Code hand-offs ----------
+  async createHandoff(streamId: string, folder: string) {
+    const row = { id: nanoid(10), stream_id: streamId, folder, created_at: now(), result_mtime: null, returned_at: null };
+    await this.db.insertInto('handoffs').values(row).execute();
+    return row;
+  }
+  listHandoffs() {
+    return this.db.selectFrom('handoffs').selectAll().execute();
+  }
+  latestHandoff(streamId: string) {
+    return this.db.selectFrom('handoffs').selectAll().where('stream_id', '=', streamId).orderBy('created_at', 'desc').limit(1).executeTakeFirst();
+  }
+  async markHandoffReturned(id: string, resultMtime: string) {
+    await this.db.updateTable('handoffs').set({ result_mtime: resultMtime, returned_at: now() }).where('id', '=', id).execute();
+  }
+  /** Hand-offs made before they were tracked are only in the audit log; adopt them so their results still come back. */
+  async adoptLoggedHandoffs() {
+    const known = new Set((await this.listHandoffs()).map((h) => `${h.stream_id}|${h.folder}`));
+    const logged = await this.db.selectFrom('audit_log').selectAll().where('action', '=', 'stream.handoff').orderBy('id', 'asc').execute();
+    for (const a of logged) {
+      const d = pj<{ streamId?: string; folder?: string }>(a.detail, {});
+      if (!d.streamId || !d.folder || known.has(`${d.streamId}|${d.folder}`)) continue;
+      known.add(`${d.streamId}|${d.folder}`);
+      await this.db.insertInto('handoffs').values({ id: nanoid(10), stream_id: d.streamId, folder: d.folder, created_at: a.at, result_mtime: null, returned_at: null }).execute();
+    }
+  }
+
   async emitStream(id: string | null) {
     if (!id) return;
     const s = await this.getStream(id);

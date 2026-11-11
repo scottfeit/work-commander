@@ -2,6 +2,7 @@ import { WebClient } from '@slack/web-api';
 import type { SlackSettings, ThreadMessage } from '@wc/shared';
 import type { ChatApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import type { Repo } from '../core/repo.js';
+import type { OutFile } from '../core/attachments.js';
 
 /**
  * Slack via a *user* token (xoxp-) so approved messages post as the PU. Socket Mode (app-level
@@ -110,7 +111,7 @@ export class SlackWorkspace implements ChatApi {
     }
   }
 
-  async postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string }) {
+  async postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string; files?: OutFile[] }) {
     let channel = input.channel;
     if (!channel) {
       const uid = input.userId ?? (input.userEmail ? (await this.lookupUserByEmail(input.userEmail))?.id : undefined);
@@ -119,6 +120,15 @@ export class SlackWorkspace implements ChatApi {
       channel = dm.channel!.id!;
     }
     const r = await this.web.chat.postMessage({ channel, text: input.text, thread_ts: input.threadTs });
+    if (input.files?.length) {
+      // Files go in the same thread as the message (a new thread under it when the message is top-level).
+      try {
+        await this.web.files.uploadV2({ channel_id: channel, thread_ts: input.threadTs ?? r.ts!, file_uploads: input.files.map((f) => ({ file: f.data, filename: f.filename })) } as any);
+      } catch (e: any) {
+        const scope = /missing_scope|not_allowed_token_type/.test(e?.data?.error ?? e?.message ?? '');
+        throw new Error(`Message posted, but attaching files failed: ${scope ? 'the Slack app needs the files:write user scope (update it from deploy/slack-app-manifest.yaml and reinstall)' : e.message}`);
+      }
+    }
     let permalink: string | undefined;
     try {
       permalink = (await this.web.chat.getPermalink({ channel, message_ts: r.ts! })).permalink as string;

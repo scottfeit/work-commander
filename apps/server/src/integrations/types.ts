@@ -1,3 +1,4 @@
+import type { OutFile } from '../core/attachments.js';
 import type { ItemData, ItemSource, StreamItem, ThreadMessage } from '@wc/shared';
 
 /** What every ingestion source hands to the triage pipeline. */
@@ -25,8 +26,8 @@ export interface Ingestor {
 export interface EmailApi {
   getThread(threadId: string): Promise<InboundItem>;
   search(query: string, max?: number): Promise<{ threadId: string; subject: string; from: string; snippet: string; at: string }[]>;
-  reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string }): Promise<{ messageId: string; threadId: string }>;
-  send(input: { to: string[]; cc: string[]; subject: string; body: string }): Promise<{ messageId: string; threadId: string }>;
+  reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
+  send(input: { to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
 }
 
 export interface DocsApi {
@@ -42,7 +43,7 @@ export interface ChatApi {
   selfUserId(): Promise<string>;
   getThread(channel: string, threadTs: string): Promise<InboundItem>;
   search(query: string, max?: number): Promise<{ channel: string; ts: string; threadTs?: string; user: string; text: string; permalink: string }[]>;
-  postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string }): Promise<{ channel: string; ts: string; permalink?: string }>;
+  postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string; files?: OutFile[] }): Promise<{ channel: string; ts: string; permalink?: string }>;
   lookupUserByEmail(email: string): Promise<{ id: string; name: string } | null>;
 }
 
@@ -52,7 +53,9 @@ export interface TicketApi {
   search(jql: string, max?: number): Promise<{ key: string; summary: string; status: string; updated: string }[]>;
   createJsmRequest(input: { serviceDeskId: string; requestTypeId: string; summary: string; description: string; requesterEmail: string; assignToSelf: boolean }): Promise<{ key: string; url: string }>;
   createJiraIssue(input: { projectKey: string; issueType: string; summary: string; description: string; requesterEmail?: string; assignToSelf: boolean }): Promise<{ key: string; url: string }>;
-  comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira' }): Promise<{ id: string }>;
+  comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[] }): Promise<{ id: string }>;
+  /** Attach files to an issue (used after creating a ticket). */
+  attach(input: { key: string; files: OutFile[] }): Promise<{ count: number }>;
   transition(input: { key: string; to: string; resolution?: string }): Promise<{ status: string }>;
   confluenceSearch(query: string, max?: number): Promise<{ id: string; title: string; url: string; excerpt: string }[]>;
   confluenceRead(pageId: string): Promise<{ title: string; text: string; url: string }>;
