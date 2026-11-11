@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   EditableField,
   ItemData,
+  ThreadMessage,
   Person,
   Proposal,
   ProposalKind,
@@ -15,6 +16,27 @@ import type {
 import type { Database, DB } from '../db/index.js';
 import { j, now, pj } from '../db/index.js';
 import { bus } from './bus.js';
+
+/** Where a draft goes: two pending drafts with the same target are versions of one message. null = not comparable. */
+export function draftTarget(p: { kind: string; system: string; payload: Record<string, any> }): string | null {
+  const x = p.payload ?? {};
+  switch (p.kind) {
+    case 'email_reply':
+      return x.thread_id ? `email_reply:${x.thread_id}` : null;
+    case 'slack_post':
+      return `slack:${x.channel ?? x.recipient_email ?? ''}:${x.thread_ts ?? ''}`;
+    case 'ticket_comment':
+      return x.key ? `ticket_comment:${x.key}:${x.visibility ?? ''}` : null;
+    case 'mcp_tool_call': {
+      // Messaging tools: same tool to the same conversation.
+      const a = x.args ?? {};
+      const where = a.channel_id ?? a.channel ?? a.thread_id ?? a.issueIdOrKey ?? a.key;
+      return where ? `mcp:${x.server}:${String(x.tool).replace(/_?drafts?/i, '')}:${where}:${a.thread_ts ?? ''}` : null;
+    }
+    default:
+      return null;
+  }
+}
 
 export type SummaryAuthor = 'claude' | 'you';
 
@@ -224,8 +246,12 @@ export class Repo {
       return { item, newMessages: input.data.messages ?? [], created: true, changed: true };
     }
     const prev = existing.data;
-    const known = new Set((prev.messages ?? []).map((m) => m.id));
     const incoming = input.data.messages ?? [];
+    // A locally recorded copy of something the PU sent ("sent-…") gives way to the real message once it arrives.
+    const same = (a: string, b: string) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
+    if (prev.messages?.some((m) => m.id.startsWith('sent-')))
+      prev.messages = prev.messages.filter((m) => !(m.id.startsWith('sent-') && incoming.some((x) => x.isFromPU && same(x.text, m.text))));
+    const known = new Set((prev.messages ?? []).map((m) => m.id));
     const newMessages = incoming.filter((m) => !known.has(m.id));
     const messages = [...(prev.messages ?? []), ...newMessages].sort((a, b) => a.at.localeCompare(b.at));
     let ticket = input.data.ticket ?? prev.ticket;
@@ -246,6 +272,23 @@ export class Repo {
     const item = { ...existing, title: input.title || existing.title, data, updatedAt: t, streamId };
     bus.publish({ type: 'item.updated', item });
     return { item, newMessages, created: false, changed: newMessages.length > 0 || ticketChanged };
+  }
+
+  /**
+   * Add a message the PU just sent through an MCP server to the stream's matching conversation item.
+   * MCP servers give no reliable way to re-fetch the thread, so this records it until the next poll brings the real copy.
+   */
+  async recordSentMessage(streamId: string, source: 'slack', match: { channel: string; threadTs?: string }, text: string, id: string, pu: { name?: string; email?: string }) {
+    const items = (await this.listItems(streamId)).filter((i) => i.source === source && i.data.slack?.channel === match.channel);
+    const it = (match.threadTs ? items.find((i) => i.data.slack?.threadTs === match.threadTs) : undefined) ?? items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    if (!it) return null;
+    const m: ThreadMessage = { id: `sent-${id}`, author: { name: pu.name, email: pu.email }, text, at: now(), isFromPU: true };
+    const data: ItemData = { ...it.data, messages: [...(it.data.messages ?? []), m] };
+    const t = now();
+    await this.db.updateTable('items').set({ data: j(data), updated_at: t }).where('id', '=', it.id).execute();
+    const item = { ...it, data, updatedAt: t };
+    bus.publish({ type: 'item.updated', item });
+    return item;
   }
 
   async attachItem(itemId: string, streamId: string) {
@@ -313,6 +356,12 @@ export class Repo {
     await this.emitStream(input.streamId);
     // New work on a stream means it isn't finished: drop a close suggestion from an earlier turn.
     if (p.streamId && p.kind !== 'stream_close') await this.withdrawStaleClose(p.streamId, 'Claude started more work on this stream', p.runId);
+    // A new draft to the same place from a later turn replaces the older unsent one (e.g. "change that reply").
+    const target = draftTarget(p);
+    if (target) {
+      const older = (await this.listProposals({ streamId: p.streamId, status: ['pending'] })).filter((x) => x.id !== p.id && x.runId !== p.runId && draftTarget(x) === target);
+      await this.withdrawProposals(older.map((x) => x.id), `replaced by the new draft "${p.title}"`);
+    }
     return p;
   }
 
@@ -327,6 +376,23 @@ export class Repo {
     if (filter.status) q = q.where('status', 'in', filter.status);
     if (filter.runId) q = q.where('run_id', '=', filter.runId);
     return (await q.execute()).map((r) => this.toProposal(r));
+  }
+
+  /** Withdraw pending drafts (never ones already approved or sent), noting it in their stream's chat. */
+  async withdrawProposals(ids: string[], why: string) {
+    let n = 0;
+    for (const id of ids) {
+      const x = await this.getProposal(id);
+      if (!x || x.status !== 'pending') continue;
+      await this.updateProposal(x.id, { status: 'withdrawn', error: why });
+      await this.audit('system', 'proposal.withdrawn', { id: x.id, kind: x.kind, why });
+      if (x.streamId) {
+        await this.addChat({ streamId: x.streamId, role: 'system', content: `Draft "${x.title}" withdrawn: ${why}.` });
+        await this.emitStream(x.streamId);
+      }
+      n++;
+    }
+    return n;
   }
 
   /** Withdraw pending "close this stream" suggestions (except ones from `keepRunId`, the turn that is proposing more work alongside them). */

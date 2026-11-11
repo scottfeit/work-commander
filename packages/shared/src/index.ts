@@ -304,6 +304,8 @@ export interface Settings {
     apiKeyId?: string;
     allowWebResearch: boolean;
     autoDraft: boolean;
+    /** New activity on a closed stream reopens it only if it closed within this many days; otherwise a new stream starts. */
+    reopenClosedWithinDays: number;
     maxTurns: number;
   };
   secrets: { defaultBackend: SecretBackend; gcpProjectId: string };

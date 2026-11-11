@@ -96,7 +96,7 @@ export class Executor {
         let progressed = false;
         for (const p of all.filter((x) => x.status === 'approved')) {
           const deps = p.dependsOn.map((d) => byId.get(d)).filter((x): x is Proposal => !!x);
-          if (deps.some((d) => ['rejected', 'failed', 'expired'].includes(d.status))) {
+          if (deps.some((d) => ['rejected', 'failed', 'expired', 'withdrawn'].includes(d.status))) {
             await this.repo.updateProposal(p.id, { status: 'failed', error: 'Not executed: a proposal it depends on was rejected or failed' });
             progressed = true;
             continue;
@@ -136,6 +136,18 @@ export class Executor {
     const { item } = await this.repo.upsertItem({ ...inbound, streamId });
     if (streamId && item.streamId !== streamId) await this.repo.attachItem(item.id, streamId);
     return item;
+  }
+
+  /** After a Slack message is sent through an MCP server, show it in the stream's conversation tab. Native drafts aren't sent, so they're skipped. */
+  private async recordMcpSend(p: Proposal, x: Record<string, any>, resultText: string) {
+    if (!p.streamId || x.system !== 'slack' || /draft/i.test(x.tool) || !/(send|post|reply)/i.test(x.tool)) return;
+    const a = x.args ?? {};
+    const channel = a.channel_id ?? a.channel;
+    const text = a.message ?? a.text;
+    if (!channel || typeof text !== 'string') return;
+    const ts = resultText.match(/"(?:message_ts|ts)"\s*:\s*"([\d.]+)"/)?.[1];
+    const pu = (await this.settings()).pu;
+    await this.repo.recordSentMessage(p.streamId, 'slack', { channel, threadTs: a.thread_ts }, text, ts ?? p.id, { name: pu.name, email: pu.email }).catch(() => undefined);
   }
 
   private async run(p: Proposal, x: Record<string, any>): Promise<Record<string, unknown>> {
@@ -208,6 +220,7 @@ export class Executor {
         const conn = await McpConnection.open(mcp, (id) => this.secrets.get(id));
         try {
           const r = await conn.call(x.tool, x.args ?? {});
+          await this.recordMcpSend(p, x, r.text);
           return { text: r.text.slice(0, 20_000), ...extractRefs(r.text) };
         } finally {
           await conn.close();

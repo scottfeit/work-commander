@@ -187,7 +187,11 @@ export function App() {
           {drafts.length > 0 && (
             <DraftPane
               drafts={drafts}
-              onDecided={(p) => setDrafts((xs) => (p.status === 'pending' ? xs.map((x) => (x.id === p.id ? p : x)) : xs.filter((x) => x.id !== p.id)))}
+              onDecided={(p) => {
+                setDrafts((xs) => (p.status === 'pending' ? xs.map((x) => (x.id === p.id ? p : x)) : xs.filter((x) => x.id !== p.id)));
+                // Once it has run, the server has re-fetched the thread/ticket: reload so the item tab shows what was sent.
+                if (p.status === 'executed' || p.status === 'failed') void loadSelected(selRef.current);
+              }}
               onStale={() => void loadSelected(selRef.current)}
             />
           )}

@@ -122,6 +122,9 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <Row label="Draft automatically" hint="When triage spots something that needs a reply or a ticket, Claude prepares drafts right away. Nothing is sent without your approval unless a system's write policy is automatic.">
               <Toggle checked={s.claude.autoDraft} onChange={(autoDraft) => up('claude', { autoDraft })} label="Prepare drafts without asking first" />
             </Row>
+            <Row label="Reopen closed streams" hint="New activity on a stream closed within this many days reopens it. Older closed streams stay closed and the activity starts a new work stream.">
+              <input className="num" type="number" min={0} max={365} aria-label="Reopen closed streams within days" value={s.claude.reopenClosedWithinDays} onChange={(e) => up('claude', { reopenClosedWithinDays: Math.max(0, Number(e.target.value)) })} /> <span className="small muted">days</span>
+            </Row>
             <Row label="Web research" hint="Lets Claude use web search and fetch during research">
               <Toggle checked={s.claude.allowWebResearch} onChange={(allowWebResearch) => up('claude', { allowWebResearch })} label="Allow web search" />
             </Row>

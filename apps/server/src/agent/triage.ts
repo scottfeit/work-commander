@@ -24,7 +24,9 @@ export const TriageDecision = z.object({
 });
 export type TriageDecision = z.infer<typeof TriageDecision>;
 
-const fmt = (m: ThreadMessage) => `[${m.at}] ${m.author.name ?? ''} <${m.author.email ?? m.author.slackUserId ?? ''}>${m.isFromPU ? ' (PU)' : ''}${m.to?.length ? ` to ${m.to.join(', ')}` : ''}${m.cc?.length ? ` cc ${m.cc.join(', ')}` : ''}:\n${stripQuoted(m.text).slice(0, 2500)}`;
+// Message bodies are wrapped as data: they are written to the PU by other people, never instructions or questions for the triage model.
+const fmt = (m: ThreadMessage) =>
+  `<message from="${m.author.name ?? ''} <${m.author.email ?? m.author.slackUserId ?? ''}>"${m.isFromPU ? ' pu="true"' : ''} at="${m.at}"${m.to?.length ? ` to="${m.to.join(', ')}"` : ''}${m.cc?.length ? ` cc="${m.cc.join(', ')}"` : ''}>\n${stripQuoted(m.text).slice(0, 2500).replace(/<\/?message\b[^>]*>/gi, '')}\n</message>`;
 
 /**
  * The inbound pipeline: store the item, skip what's already seen or authored by the PU, ask
@@ -73,8 +75,26 @@ export class TriagePipeline {
         streamId = (await this.repo.createStream({ title: decision.stream.title || inbound.title.slice(0, 80), summary: decision.stream.summary || decision.reason, labels: decision.stream.labels ?? [] })).id;
       }
       if (streamId) await this.repo.attachItem(item.id, streamId);
-    } else if ((await this.repo.getStream(streamId))?.status === 'closed' && decision.relevant) {
-      await this.repo.updateStream(streamId, { status: 'open' }); // new activity reopens a closed stream
+    } else {
+      const prev = await this.repo.getStream(streamId);
+      if (prev?.status === 'closed' && decision.relevant) {
+        const days = s.claude.reopenClosedWithinDays ?? 14;
+        const closedAt = prev.closedAt ? Date.parse(prev.closedAt) : 0;
+        if (Date.now() - closedAt <= days * 86_400_000) {
+          await this.repo.updateStream(streamId, { status: 'open' }); // recent: carry on in the same stream
+        } else {
+          // Closed too long ago: this is new work. Start a fresh stream and move the thread over to it.
+          const fresh = await this.repo.createStream({
+            title: decision.stream.title || inbound.title.slice(0, 80),
+            summary: `${decision.stream.summary || decision.reason} (Follow-up to "${prev.title}", closed ${new Date(closedAt).toLocaleDateString()}.)`,
+            labels: decision.stream.labels ?? prev.labels,
+            ticketTarget: prev.ticketTarget,
+          });
+          await this.repo.attachItem(item.id, fresh.id);
+          await this.repo.addChat({ streamId: fresh.id, role: 'system', content: `New activity on "${prev.title}", which was closed more than ${days} days ago, so it starts a new work stream.` });
+          streamId = fresh.id;
+        }
+      }
     }
     if (!streamId) return;
     await this.repo.updateStream(streamId, { touch: true, unread: true, ...(decision.updatedSummary ? { summary: decision.updatedSummary } : {}) });

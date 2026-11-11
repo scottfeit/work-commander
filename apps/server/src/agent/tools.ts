@@ -84,7 +84,24 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
   };
 
   const raw: RawTool[] = [];
-  const add = (t: RawTool) => raw.push(t);
+  /** Every drafting tool also takes `replaces`: earlier pending drafts this one supersedes are withdrawn. */
+  const add = (t: RawTool) => {
+    if (!t.kind || t.kind === 'credential_request') return raw.push(t);
+    const inner = t.handler;
+    raw.push({
+      ...t,
+      shape: { ...t.shape, replaces: z.array(z.string()).optional().describe('Ids of your earlier pending drafts that this one replaces. They are discarded so only the new one is shown.') },
+      handler: async (a: any) => {
+        const out = await inner(a);
+        if (a.replaces?.length) {
+          const mine = (await d.repo.listProposals({ streamId: ctx.streamId, status: ['pending'] })).map((x) => x.id);
+          const n = await d.repo.withdrawProposals(a.replaces.filter((id: string) => mine.includes(id)), 'replaced by a newer draft');
+          return `${out}\n(${n} earlier draft${n === 1 ? '' : 's'} discarded.)`;
+        }
+        return out;
+      },
+    });
+  };
 
   // ---------- internal ----------
   add({
