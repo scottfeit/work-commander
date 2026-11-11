@@ -149,6 +149,25 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                   <a className={`btn small ${dirty || !s.google.oauth.clientId ? 'disabled' : 'primary'}`} href={dirty ? undefined : '/api/oauth/google/start'}>
                     {s.google.oauth.connectedEmail ? 'Reconnect Google' : 'Connect Google'}
                   </a>
+                  {s.google.oauth.connectedEmail && (
+                    <button
+                      className="btn small danger"
+                      disabled={dirty}
+                      onClick={async () => {
+                        if (!confirm(`Disconnect ${s.google.oauth.connectedEmail}? Gmail, Drive and Calendar will stop syncing until you connect again.`)) return;
+                        try {
+                          const r = await post<{ revoked: boolean }>('/api/oauth/google/disconnect');
+                          history.replaceState(null, '', location.pathname);
+                          await load();
+                          setMsg({ ok: true, text: r.revoked ? 'Google disconnected and access revoked.' : 'Google disconnected. Revoking at Google failed, so also remove access at myaccount.google.com/permissions.' });
+                        } catch (e: any) {
+                          setMsg({ ok: false, text: e.message });
+                        }
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  )}
                   {dirty && <span className="small muted"> Save first</span>}
                 </Row>
                 <Row label="Inbox filter" hint="Gmail query used for the first sync">

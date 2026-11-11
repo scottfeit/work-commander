@@ -203,6 +203,24 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await settings.update({ google: { ...s.google, enabled: true, mode: 'oauth', oauth: { ...s.google.oauth, refreshTokenId: 'google.oauth.refreshToken', connectedEmail: info?.getPayload()?.email } } });
     return reply.redirect(`${cfg.webUrl}/settings?google=connected`);
   });
+  f.post('/api/oauth/google/disconnect', async () => {
+    const s = await settings.get();
+    const tokenId = s.google.oauth.refreshTokenId;
+    let revoked = false;
+    if (tokenId && s.google.oauth.clientId && s.google.oauth.clientSecretId) {
+      // Best effort: revoke at Google so the grant disappears from the user's account too.
+      try {
+        const c = oauthClient(s.google.oauth.clientId, await secrets.get(s.google.oauth.clientSecretId), hub.redirectUri);
+        await c.revokeToken(await secrets.get(tokenId));
+        revoked = true;
+      } catch (e) {
+        f.log.warn({ err: (e as Error).message }, 'Google token revoke failed; removing it locally anyway');
+      }
+    }
+    if (tokenId) await secrets.remove(tokenId).catch(() => undefined);
+    await settings.update({ google: { ...s.google, enabled: false, oauth: { ...s.google.oauth, refreshTokenId: undefined, connectedEmail: undefined } } });
+    return { ok: true, revoked };
+  });
 
   // ---------- integrations ----------
   f.get('/api/integrations/status', async () => hub.status);
