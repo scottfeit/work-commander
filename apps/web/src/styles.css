@@ -230,3 +230,8 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .table th { font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .table tr.me td { background: var(--accent-soft); }
 .preview pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; }
+
+/* ---------- overview history ---------- */
+.summary-history { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.summary-history li { border-left: 2px solid var(--line-2); padding: 2px 0 2px 10px; }
+.summary-history li > div:last-child { margin-top: 2px; white-space: pre-wrap; }

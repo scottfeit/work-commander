@@ -16,6 +16,8 @@ import type { Database, DB } from '../db/index.js';
 import { j, now, pj } from '../db/index.js';
 import { bus } from './bus.js';
 
+export type SummaryAuthor = 'claude' | 'you';
+
 type StreamRow = DB['streams'];
 type ItemRow = DB['items'];
 type ProposalRow = DB['proposals'];
@@ -67,7 +69,7 @@ export class Repo {
     return this.db.selectFrom('streams').selectAll().where('id', '=', id).executeTakeFirst();
   }
 
-  async createStream(input: { title: string; summary: string; labels?: string[]; ticketTarget?: TicketTarget }) {
+  async createStream(input: { title: string; summary: string; labels?: string[]; ticketTarget?: TicketTarget }, by: SummaryAuthor = 'claude') {
     const t = now();
     const row: StreamRow = {
       id: nanoid(10),
@@ -84,6 +86,7 @@ export class Repo {
       last_activity_at: t,
     };
     await this.db.insertInto('streams').values(row).execute();
+    await this.db.insertInto('stream_summaries').values({ stream_id: row.id, summary: row.summary, by, at: t }).execute();
     const s = await this.toStream(row);
     bus.publish({ type: 'stream.updated', stream: s });
     return s;
@@ -92,8 +95,10 @@ export class Repo {
   async updateStream(
     id: string,
     patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; agentSessionId: string | null; touch: boolean }>,
+    by: SummaryAuthor = 'claude',
   ) {
     const t = now();
+    if (patch.summary !== undefined) await this.recordSummary(id, patch.summary, by, t);
     const set: Partial<StreamRow> = { updated_at: t };
     if (patch.title !== undefined) set.title = patch.title;
     if (patch.summary !== undefined) set.summary = patch.summary;
@@ -108,6 +113,21 @@ export class Repo {
     if (patch.touch) set.last_activity_at = t;
     await this.db.updateTable('streams').set(set).where('id', '=', id).execute();
     await this.emitStream(id);
+  }
+
+  /** Keep every version of the Overview. Streams created before history existed get their old summary saved undated first. */
+  private async recordSummary(id: string, next: string, by: SummaryAuthor, at: string) {
+    const cur = await this.db.selectFrom('streams').select('summary').where('id', '=', id).executeTakeFirst();
+    if (!cur || cur.summary === next) return;
+    const has = await this.db.selectFrom('stream_summaries').select('id').where('stream_id', '=', id).limit(1).executeTakeFirst();
+    if (!has && cur.summary) await this.db.insertInto('stream_summaries').values({ stream_id: id, summary: cur.summary, by: 'unknown', at: null }).execute();
+    await this.db.insertInto('stream_summaries').values({ stream_id: id, summary: next, by, at }).execute();
+  }
+
+  /** All versions of a stream's Overview, newest first (the first is the current one). */
+  async listSummaries(id: string) {
+    const rows = await this.db.selectFrom('stream_summaries').selectAll().where('stream_id', '=', id).orderBy('id', 'desc').execute();
+    return rows.map((r) => ({ id: r.id, summary: r.summary, by: r.by as SummaryAuthor | 'unknown', at: r.at }));
   }
 
   async emitStream(id: string | null) {

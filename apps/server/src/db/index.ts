@@ -94,6 +94,8 @@ export interface DB {
     created_at: string;
   };
   sync_state: { key: string; value: string };
+  /** Every version of a stream's summary (the Overview), oldest first. `at` = when it became current; null for a version written before history was kept. */
+  stream_summaries: { id: Generated<number>; stream_id: string; summary: string; by: string; at: string | null };
   audit_log: {
     id: Generated<number>;
     at: string;
@@ -243,6 +245,18 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('created_at', 'text', (c) => c.notNull())
     .execute();
   await s.createTable('sync_state').ifNotExists().addColumn('key', 'text', (c) => c.primaryKey()).addColumn('value', 'text', (c) => c.notNull()).execute();
+  let hist = s.createTable('stream_summaries').ifNotExists();
+  hist =
+    dialect === 'postgres'
+      ? hist.addColumn('id', 'serial', (c) => c.primaryKey())
+      : hist.addColumn('id', 'integer', (c) => c.primaryKey().autoIncrement());
+  await hist
+    .addColumn('stream_id', 'text', (c) => c.notNull())
+    .addColumn('summary', 'text', (c) => c.notNull())
+    .addColumn('by', 'text', (c) => c.notNull())
+    .addColumn('at', 'text')
+    .execute();
+  await s.createIndex('stream_summaries_stream').ifNotExists().on('stream_summaries').column('stream_id').execute();
   let audit = s.createTable('audit_log').ifNotExists();
   audit =
     dialect === 'postgres'

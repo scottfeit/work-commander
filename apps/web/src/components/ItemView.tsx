@@ -65,6 +65,9 @@ export function ItemView({ item }: { item: StreamItem }) {
   );
 }
 
+type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
+const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
 export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
@@ -79,6 +82,12 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
   useEffect(() => {
     get(`/api/streams/${stream.id}/grants`).then(setGrants).catch(() => setGrants([]));
   }, [stream.id, stream.updatedAt]);
+  const [history, setHistory] = useState<SummaryVersion[]>([]);
+  useEffect(() => {
+    get<SummaryVersion[]>(`/api/streams/${stream.id}/summaries`)
+      .then((all) => setHistory(all.slice(1))) // first = the current overview, shown above
+      .catch(() => setHistory([]));
+  }, [stream.id, stream.summary]);
   const save = (b: Partial<Omit<WorkStream, "ticketTarget">> & { ticketTarget?: TicketTarget | null }) => patch(`/api/streams/${stream.id}`, b);
 
   return (
@@ -93,6 +102,23 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
       <div className="muted small">
         Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)} · {stream.labels.join(', ') || 'no labels'}
       </div>
+
+      {history.length > 0 && (
+        <>
+          <h3>Previous overviews</h3>
+          <ol className="summary-history">
+            {history.map((v) => (
+              <li key={v.id}>
+                <div className="muted small">
+                  {v.at ? <time dateTime={v.at}>{fmtFull(v.at)}</time> : 'Before history was kept'}
+                  {v.by === 'you' ? ' · edited by you' : v.by === 'claude' ? ' · by Claude' : ''}
+                </div>
+                <div>{v.summary}</div>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
 
       <h3>Linked items</h3>
       {items.length === 0 && <p className="muted">Nothing linked yet.</p>}

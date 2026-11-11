@@ -76,7 +76,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.get('/api/streams', async (req) => repo.listStreams((req.query as any).includeClosed === '1'));
   f.post('/api/streams', async (req) => {
     const b = z.object({ title: z.string().min(1), summary: z.string().default('') }).parse(req.body);
-    return repo.createStream(b);
+    return repo.createStream(b, 'you');
   });
   f.patch('/api/streams/:id', async (req) => {
     const id = (req.params as any).id;
@@ -90,9 +90,10 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
         ticketTarget: z.object({ flavor: z.enum(['jsm', 'jira']), projectKey: z.string(), typeId: z.string(), serviceDeskId: z.string().optional() }).nullable().optional(),
       })
       .parse(req.body);
-    await repo.updateStream(id, b);
+    await repo.updateStream(id, b, 'you');
     return repo.getStream(id);
   });
+  f.get('/api/streams/:id/summaries', async (req) => repo.listSummaries((req.params as any).id));
   // 404 for streams that do not exist (the general stream is virtual and always exists).
   const existing = async (raw: string) => {
     const id = sid(raw);
