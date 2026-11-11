@@ -10,7 +10,7 @@ test('Settings round trip keeps the dashboard fully usable (regression: could no
   const problems = watchPage(page);
   await page.goto(WEB);
   await stream(page, /contractor access/i).click();
-  await expect(page.locator('.tabbar')).toContainText('Email');
+  await expect(page.locator('.tabbar').getByRole('img', { name: 'Gmail' })).toBeVisible();
 
   await page.getByRole('button', { name: /settings/i }).first().click();
   await expect(page).toHaveURL(/\/settings/);
@@ -24,8 +24,8 @@ test('Settings round trip keeps the dashboard fully usable (regression: could no
   await page.getByRole('button', { name: /all open work/i }).click();
   await expect(page.locator('.top-pane')).toContainText(/open work streams/i);
   await stream(page, /contractor access/i).click();
-  await expect(page.locator('.tabbar')).toContainText('Email');
-  await page.locator('.tabbar').getByText('Email').click();
+  await expect(page.locator('.tabbar').getByRole('img', { name: 'Gmail' })).toBeVisible();
+  await page.locator('.tabbar').getByRole('img', { name: 'Gmail' }).click();
   await expect(page.locator('.top-pane')).toContainText(/Priya Shah/);
   await expect(page.locator('.draft')).toHaveCount(2);
   expect(problems, problems.join('\n')).toEqual([]);

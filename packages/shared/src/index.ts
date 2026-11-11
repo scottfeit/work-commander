@@ -142,7 +142,9 @@ export type ProposalStatus =
   | 'executing'
   | 'executed'
   | 'failed'
-  | 'expired';
+  | 'expired'
+  /** Superseded without the PU deciding, e.g. a close suggestion once work on the stream continued. */
+  | 'withdrawn';
 
 export interface Proposal {
   id: string;

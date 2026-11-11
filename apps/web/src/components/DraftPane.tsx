@@ -15,7 +15,11 @@ function setPath(o: any, path: string, v: unknown) {
 }
 
 /** Bottom-right pane: every draft Claude prepared, directly editable before it is posted anywhere. */
-export function DraftPane({ drafts }: { drafts: Proposal[] }) {
+/**
+ * `onDecided` reports the server's answer to an approve/reject so the pane updates at once, without waiting for
+ * the live event stream (which may have dropped). `onStale` reloads the list when a draft was already handled.
+ */
+export function DraftPane({ drafts, onDecided, onStale }: { drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void }) {
   // Unsaved PU edits, keyed by proposal id. Kept here so "Approve all" sends the edited text.
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
   const titles = new Map(drafts.map((d) => [d.id, d.title]));
@@ -25,8 +29,12 @@ export function DraftPane({ drafts }: { drafts: Proposal[] }) {
     // Approve in creation order so dependencies are already approved when their dependents are.
     for (const d of drafts) {
       try {
-        await post(`/api/proposals/${d.id}/approve`, { payload: edits[d.id] ?? d.payload });
+        onDecided(await post<Proposal>(`/api/proposals/${d.id}/approve`, { payload: edits[d.id] ?? d.payload }));
       } catch (e: any) {
+        if (/^Proposal is /.test(e.message)) {
+          onStale();
+          continue;
+        }
         setAllErr(`${d.title}: ${e.message}`);
         return;
       }
@@ -52,14 +60,28 @@ export function DraftPane({ drafts }: { drafts: Proposal[] }) {
       {allErr && <div className="error small" style={{ padding: '6px 12px' }}>{allErr}</div>}
       <div className="drafts-scroll">
         {drafts.map((d) => (
-          <DraftCard key={d.id} p={d} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
+          <DraftCard key={d.id} p={d} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
         ))}
       </div>
     </div>
   );
 }
 
-function DraftCard({ p, dependsOn, edited, onEdit }: { p: Proposal; dependsOn: string[]; edited: Record<string, unknown> | null; onEdit: (v: Record<string, unknown> | null) => void }) {
+function DraftCard({
+  p,
+  dependsOn,
+  edited,
+  onEdit,
+  onDecided,
+  onStale,
+}: {
+  p: Proposal;
+  dependsOn: string[];
+  edited: Record<string, unknown> | null;
+  onEdit: (v: Record<string, unknown> | null) => void;
+  onDecided: (p: Proposal) => void;
+  onStale: () => void;
+}) {
   const payload = edited ?? p.payload;
   const dirty = edited !== null;
   const [busy, setBusy] = useState(false);
@@ -73,7 +95,9 @@ function DraftCard({ p, dependsOn, edited, onEdit }: { p: Proposal; dependsOn: s
     try {
       await fn();
     } catch (e: any) {
-      setErr(e.message);
+      // Already approved/rejected (e.g. in another tab, or the update event was missed): just refresh.
+      if (/^Proposal is /.test(e.message)) onStale();
+      else setErr(e.message);
     } finally {
       setBusy(false);
     }
@@ -115,7 +139,7 @@ function DraftCard({ p, dependsOn, edited, onEdit }: { p: Proposal; dependsOn: s
       {rejecting ? (
         <div className="row-form">
           <input autoFocus placeholder="Why? (optional, Claude sees this)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button className="btn small danger" disabled={busy} onClick={() => act(() => post(`/api/proposals/${p.id}/reject`, { reason }))}>
+          <button className="btn small danger" disabled={busy} onClick={() => act(async () => (await post(`/api/proposals/${p.id}/reject`, { reason }), onDecided({ ...p, status: 'rejected' })))}>
             Reject
           </button>
           <button className="btn small ghost" onClick={() => setRejecting(false)}>
@@ -124,7 +148,7 @@ function DraftCard({ p, dependsOn, edited, onEdit }: { p: Proposal; dependsOn: s
         </div>
       ) : (
         <div className="actions">
-          <button className="btn small primary" disabled={busy} onClick={() => act(() => post(`/api/proposals/${p.id}/approve`, { payload }))}>
+          <button className="btn small primary" disabled={busy} onClick={() => act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}>
             {p.kind === 'credential_request' ? 'Grant access' : p.kind === 'read_approval' ? 'Allow' : p.kind === 'stream_close' ? 'Close stream' : 'Approve & send'}
           </button>
           {dirty && (

@@ -184,7 +184,13 @@ export function App() {
             live={live?.text ?? null}
             running={running}
           />
-          {drafts.length > 0 && <DraftPane drafts={drafts} />}
+          {drafts.length > 0 && (
+            <DraftPane
+              drafts={drafts}
+              onDecided={(p) => setDrafts((xs) => (p.status === 'pending' ? xs.map((x) => (x.id === p.id ? p : x)) : xs.filter((x) => x.id !== p.id)))}
+              onStale={() => void loadSelected(selRef.current)}
+            />
+          )}
         </section>
       </main>
       <Toasts toasts={toasts} onOpen={(id) => setSelected(id)} onDismiss={(id) => setToasts((x) => x.filter((y) => y.id !== id))} />

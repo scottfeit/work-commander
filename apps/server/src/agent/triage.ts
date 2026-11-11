@@ -78,6 +78,7 @@ export class TriagePipeline {
     }
     if (!streamId) return;
     await this.repo.updateStream(streamId, { touch: true, unread: true, ...(decision.updatedSummary ? { summary: decision.updatedSummary } : {}) });
+    await this.repo.withdrawStaleClose(streamId, `new activity arrived (${inbound.title.slice(0, 60)})`);
     if (!decision.relevant) return;
 
     if (decision.notify) {

@@ -251,3 +251,20 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .attach-chip a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .attach-chip .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 999px; }
 .attach-chip .x:hover { background: var(--line); color: var(--text, inherit); }
+
+/* ---------- source brand marks ---------- */
+.src-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; }
+.src-icon svg { display: block; fill: var(--brand); }
+.brand-gmail { --brand: #ea4335; }
+.brand-slack { --brand: #4a154b; }
+.brand-jira { --brand: #0052cc; }
+.brand-confluence { --brand: #172b4d; }
+.brand-drive { --brand: #4285f4; }
+.brand-calendar { --brand: #4285f4; }
+.brand-onepassword { --brand: #3b66bc; }
+/* The darkest brand colours disappear on a dark background; use each brand's lighter accent there. */
+@media (prefers-color-scheme: dark) {
+  .brand-slack { --brand: #e01e5a; }
+  .brand-jira, .brand-confluence { --brand: #4c9aff; }
+  .brand-onepassword { --brand: #6b93e6; }
+}

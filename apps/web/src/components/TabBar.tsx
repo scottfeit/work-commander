@@ -1,4 +1,5 @@
 import type { StreamItem, WorkStream } from '@wc/shared';
+import { BRAND_PATHS } from './brandIcons';
 
 export const OVERVIEW_TAB = '__overview__';
 
@@ -15,8 +16,21 @@ export const SOURCE_LABEL: Record<string, string> = {
   note: 'Note',
 };
 
+/** Which brand mark each source shows; sources without one keep a text label. */
+const SOURCE_ICON: Record<string, string> = { gmail: 'gmail', slack: 'slack', jira: 'jira', jsm: 'jira', confluence: 'confluence', drive: 'drive', calendar: 'calendar', grant: 'onepassword' };
+const SOURCE_NAME: Record<string, string> = { gmail: 'Gmail', jsm: 'Jira Service Management', grant: '1Password access' };
+
 export function SourceBadge({ source }: { source: string }) {
-  return <span className={`src src-${source}`}>{SOURCE_LABEL[source] ?? source}</span>;
+  const icon = SOURCE_ICON[source];
+  const name = SOURCE_NAME[source] ?? SOURCE_LABEL[source] ?? source;
+  if (!icon) return <span className={`src src-${source}`}>{SOURCE_LABEL[source] ?? source}</span>;
+  return (
+    <span className={`src-icon brand-${icon}`} role="img" aria-label={name} title={name}>
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <path d={BRAND_PATHS[icon]} />
+      </svg>
+    </span>
+  );
 }
 
 export function TabBar({ stream, items, tab, onTab }: { stream: WorkStream | null; items: StreamItem[]; tab: string; onTab: (id: string) => void }) {

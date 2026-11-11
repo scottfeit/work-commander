@@ -311,6 +311,8 @@ export class Repo {
     const p = this.toProposal(row);
     bus.publish({ type: 'proposal.updated', proposal: p });
     await this.emitStream(input.streamId);
+    // New work on a stream means it isn't finished: drop a close suggestion from an earlier turn.
+    if (p.streamId && p.kind !== 'stream_close') await this.withdrawStaleClose(p.streamId, 'Claude started more work on this stream', p.runId);
     return p;
   }
 
@@ -325,6 +327,20 @@ export class Repo {
     if (filter.status) q = q.where('status', 'in', filter.status);
     if (filter.runId) q = q.where('run_id', '=', filter.runId);
     return (await q.execute()).map((r) => this.toProposal(r));
+  }
+
+  /** Withdraw pending "close this stream" suggestions (except ones from `keepRunId`, the turn that is proposing more work alongside them). */
+  async withdrawStaleClose(streamId: string, why: string, keepRunId?: string) {
+    const stale = (await this.listProposals({ streamId, status: ['pending'] })).filter((x) => x.kind === 'stream_close' && x.runId !== keepRunId);
+    for (const x of stale) {
+      await this.updateProposal(x.id, { status: 'withdrawn', error: why });
+      await this.audit('system', 'proposal.withdrawn', { id: x.id, kind: x.kind, why });
+    }
+    if (stale.length) {
+      await this.emitStream(streamId);
+      await this.addChat({ streamId, role: 'system', content: `Close suggestion withdrawn: ${why.charAt(0).toLowerCase() + why.slice(1)}.` });
+    }
+    return stale.length;
   }
 
   async updateProposal(id: string, patch: Partial<{ payload: Record<string, unknown>; status: ProposalStatus; result: unknown; error: string | null }>) {
