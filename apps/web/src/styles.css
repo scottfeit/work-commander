@@ -277,3 +277,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .skipped-row .muted.small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .skipped-title { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 .skipped-title span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* dragging an item onto a work stream */
+.stream.drop-target { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+[draggable=true] { cursor: grab; }

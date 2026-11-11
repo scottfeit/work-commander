@@ -50,9 +50,12 @@ export class TriagePipeline {
   };
 
   async handle(inbound: InboundItem) {
-    const { item, newMessages, created, changed } = await this.repo.upsertItem(inbound);
+    const up = await this.repo.upsertItem(inbound);
+    let item = up.item;
+    const { newMessages, created, changed } = up;
     if (!changed) return;
     if (!(await this.repo.recordInbound(inbound.source, inbound.eventId, item.id))) return;
+    if (!item.streamId) item = (await this.autoLink(item)) ?? item;
     const fresh = newMessages.length ? newMessages : (item.data.messages ?? item.data.ticket?.comments ?? []).slice(-1);
     const fromOthers = fresh.filter((m) => !m.isFromPU);
     if (item.streamId) await this.repo.updateStream(item.streamId, { touch: true });
@@ -68,6 +71,21 @@ export class TriagePipeline {
   }
 
   /**
+   * A ticket that an open work stream already mentions (typically the email the stream started from) joins that stream,
+   * even when its only activity is the PU's own, which never reaches the model.
+   */
+  private async autoLink(item: StreamItem): Promise<StreamItem | null> {
+    const key = item.data.ticket?.key;
+    if (!key) return null;
+    const stream = await this.repo.findOpenStreamMentioning(key, item.data.notRelevantTo);
+    if (!stream) return null;
+    await this.repo.attachItem(item.id, stream.id);
+    await this.repo.updateStream(stream.id, { touch: true });
+    await this.repo.addChat({ streamId: stream.id, role: 'system', content: `${key} added to this work stream: it is already referenced here.` });
+    return (await this.repo.getItem(item.id)) ?? null;
+  }
+
+  /**
    * "Triage again" for an item that triage passed over. Re-runs the decision on the item's latest messages
    * from others; with `force`, the PU has said it matters, so it becomes a work stream regardless.
    * Returns the decision and the stream it landed in (null if still not relevant).
@@ -76,6 +94,8 @@ export class TriagePipeline {
     const item = await this.repo.getItem(itemId);
     if (!item) throw new Error('Item not found');
     if (item.streamId) return { decision: { relevant: true, reason: 'Already in a work stream', stream: { action: 'existing', streamId: item.streamId, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: item.streamId };
+    const linked = await this.autoLink(item);
+    if (linked) return { decision: { relevant: true, reason: 'Already referenced by an open work stream', stream: { action: 'existing', streamId: linked.streamId, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: linked.streamId };
     const all = item.data.messages ?? item.data.ticket?.comments ?? [];
     // What needs a response: everything others sent since the PU last wrote (or the last message).
     const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
@@ -92,19 +112,28 @@ export class TriagePipeline {
       };
     }
     await this.repo.audit('pu', 'item.retriaged', { itemId, force, relevant: decision.relevant, reason: decision.reason });
-    if (!decision.relevant) return { decision, streamId: null };
-    await this.route(inbound, item, decision, s);
+    await this.route(inbound, item, decision, s); // even when nothing is needed: the model may still say which stream it belongs to
+    if (!decision.relevant) return { decision, streamId: (await this.repo.getItem(itemId))?.streamId ?? null };
     return { decision, streamId: (await this.repo.getItem(itemId))?.streamId ?? null };
   }
 
   /** Steps after the decision: pick or create the stream, then draft or offer. */
   private async route(inbound: InboundItem, item: StreamItem, decision: TriageDecision, s: Settings) {
-    if (!decision.relevant && !item.streamId) return;
+    if (!decision.relevant && !item.streamId) {
+      // No action needed, but if triage says it belongs to an open stream, file it there anyway.
+      const home = decision.stream.action === 'existing' ? decision.stream.streamId : null;
+      if (home && !item.data.notRelevantTo?.includes(home) && (await this.repo.listStreams(false)).some((o) => o.id === home)) {
+        await this.repo.attachItem(item.id, home);
+        await this.repo.updateStream(home, { touch: true });
+        await this.repo.addChat({ streamId: home, role: 'system', content: `"${item.title}" added to this work stream (no action needed).` });
+      }
+      return;
+    }
 
     let streamId = item.streamId;
     if (!streamId) {
       const open = await this.repo.listStreams(false);
-      if (decision.stream.action === 'existing' && decision.stream.streamId && open.some((o) => o.id === decision.stream.streamId)) {
+      if (decision.stream.action === 'existing' && decision.stream.streamId && !item.data.notRelevantTo?.includes(decision.stream.streamId) && open.some((o) => o.id === decision.stream.streamId)) {
         streamId = decision.stream.streamId;
       } else if (decision.stream.action !== 'none') {
         streamId = (await this.repo.createStream({ title: decision.stream.title || inbound.title.slice(0, 80), summary: decision.stream.summary || decision.reason, labels: decision.stream.labels ?? [] })).id;
@@ -165,7 +194,9 @@ export class TriagePipeline {
     const participants = new Set<string>();
     for (const m of msgs) for (const e of [m.author.email, ...(m.to ?? []), ...(m.cc ?? [])]) if (e) participants.add(e.toLowerCase());
     const known = people.filter((p) => participants.has(p.email)).map((p) => `${p.name} <${p.email}>: ${p.title ?? ''} ${p.department ?? ''}${p.managerEmail ? `, reports to ${p.managerEmail}` : ''}`);
-    const open = await this.repo.listStreams(false);
+    // Streams the PU has said this item doesn't belong to are not offered as a home for it.
+    const excluded = new Set((await this.repo.findItem(inbound.source, inbound.externalId))?.data.notRelevantTo ?? []);
+    const open = (await this.repo.listStreams(false)).filter((o) => !excluded.has(o.id));
 
     // Deterministic hint: a top-level Slack DM in a channel where a stream recently posted.
     const hints: string[] = [];

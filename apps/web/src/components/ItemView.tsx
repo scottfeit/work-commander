@@ -3,7 +3,7 @@ import type { StreamItem, ThreadMessage, TicketTarget, WorkStream } from '@wc/sh
 import { fmtTime, get, patch, post, timeAgo } from '../api';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
-import { SourceBadge } from './TabBar';
+import { SourceBadge, dragItem } from './TabBar';
 
 function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
   return (
@@ -24,7 +24,7 @@ function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
   );
 }
 
-export function ItemView({ item }: { item: StreamItem }) {
+export function ItemView({ item, onRemoved }: { item: StreamItem; onRemoved?: () => void }) {
   const t = item.data.ticket;
   return (
     <div className="item-view">
@@ -36,6 +36,13 @@ export function ItemView({ item }: { item: StreamItem }) {
             Open ↗
           </a>
         )}
+        <button
+          className="btn ghost small"
+          title="Remove this from the work stream. It won't be added back to it."
+          onClick={() => void post(`/api/items/${item.id}/not-relevant`).then(() => onRemoved?.())}
+        >
+          Not relevant
+        </button>
       </div>
       {t ? (
         <>
@@ -225,7 +232,7 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
       <ul className="linked">
         {items.map((i) => (
           <li key={i.id}>
-            <button className="link-row" onClick={() => onOpen(i.id)}>
+            <button className="link-row" onClick={() => onOpen(i.id)} title="Drag to another work stream to move it" {...dragItem(i.id)}>
               <SourceBadge source={i.source} /> <span>{i.title}</span>
               <span className="muted small right">{timeAgo(i.updatedAt)}</span>
             </button>

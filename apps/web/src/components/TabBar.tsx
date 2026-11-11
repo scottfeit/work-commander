@@ -3,6 +3,16 @@ import { BRAND_PATHS } from './brandIcons';
 
 export const OVERVIEW_TAB = '__overview__';
 
+/** Drag payload for moving an item to another work stream (drop it on a stream in the sidebar). */
+export const ITEM_DRAG = 'application/x-wc-item';
+export const dragItem = (id: string) => ({
+  draggable: true,
+  onDragStart: (e: React.DragEvent) => {
+    e.dataTransfer.setData(ITEM_DRAG, id);
+    e.dataTransfer.effectAllowed = 'move';
+  },
+});
+
 export const SOURCE_LABEL: Record<string, string> = {
   gmail: 'Email',
   slack: 'Slack',
@@ -41,7 +51,7 @@ export function TabBar({ stream, items, tab, onTab }: { stream: WorkStream | nul
         Overview
       </button>
       {items.map((i) => (
-        <button key={i.id} role="tab" className={`tab ${tab === i.id ? 'active' : ''}`} onClick={() => onTab(i.id)} title={i.title}>
+        <button key={i.id} role="tab" className={`tab ${tab === i.id ? 'active' : ''}`} onClick={() => onTab(i.id)} title={`${i.title}\nDrag to another work stream to move it`} {...dragItem(i.id)}>
           <SourceBadge source={i.source} />
           <span className="tab-title">{i.data.ticket?.key ?? i.title}</span>
         </button>

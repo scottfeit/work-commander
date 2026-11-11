@@ -162,10 +162,25 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     return id;
   };
   f.get('/api/items/skipped', async () => repo.listSkipped(14));
+  f.post('/api/items/:id/dismiss', async (req) => {
+    await repo.dismissSkipped((req.params as any).id);
+    return { ok: true };
+  });
   f.post('/api/items/:id/retriage', async (req) => {
     const b = z.object({ force: z.boolean().default(false) }).parse(req.body ?? {});
     const r = await app.triage.retriage((req.params as any).id, b.force);
     return { relevant: r.decision.relevant, reason: r.decision.reason, streamId: r.streamId };
+  });
+  f.post('/api/items/:id/not-relevant', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item?.streamId) throw new Error('Item is not in a work stream');
+    await repo.markItemNotRelevant(item.id, item.streamId);
+    return { ok: true };
+  });
+  f.post('/api/items/:id/move', async (req) => {
+    const b = z.object({ streamId: z.string() }).parse(req.body);
+    await repo.moveItem((req.params as any).id, b.streamId);
+    return { ok: true };
   });
   f.get('/api/streams/:id/items', async (req) => repo.listItems((await existing((req.params as any).id)) ?? ''));
   f.get('/api/streams/:id/grants', async (req) => app.grants.list((req.params as any).id));
@@ -193,6 +208,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const accept = z.object({ accept: z.boolean() }).parse(req.body).accept;
     await repo.updateChatMeta(m.id, { ...m.meta, suggestion: { ...m.meta.suggestion, status: accept ? 'accepted' : 'dismissed' } });
     if (accept) void runner.run({ streamId: m.streamId, origin: 'user', prompt: `The PU accepted your offer: ${m.meta.suggestion.instruction}` });
+    else await repo.offerCloseAfterDecline(m.streamId, m.id);
     return { ok: true };
   });
 

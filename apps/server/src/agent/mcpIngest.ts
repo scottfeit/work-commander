@@ -84,7 +84,7 @@ export class McpPollIngestor implements Ingestor {
           cc: x.cc ?? undefined,
           text: x.text,
           at: x.at,
-          isFromPU: !!x.authorEmail && x.authorEmail.toLowerCase() === pu,
+          isFromPU: (!!x.authorEmail && x.authorEmail.toLowerCase() === pu) || (!!x.authorName && x.authorName.trim().toLowerCase() === s.pu.name.trim().toLowerCase()),
         }));
         const last = messages[messages.length - 1];
         await this.sink({

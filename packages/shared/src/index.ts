@@ -92,6 +92,10 @@ export interface StreamItem {
 
 export interface ItemData {
   messages?: ThreadMessage[];
+  /** Work streams the PU said this item does not belong to; triage won't put it back there. */
+  notRelevantTo?: string[];
+  /** The PU dismissed this from the Skipped list at this time; new activity after it brings it back. */
+  dismissedAt?: string;
   /** Ticket-specific */
   ticket?: {
     key: string;

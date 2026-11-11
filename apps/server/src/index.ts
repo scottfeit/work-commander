@@ -46,6 +46,7 @@ async function main() {
     f.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') ? reply.code(404).send({ error: 'Not found' }) : reply.sendFile('index.html')));
   }
 
+  await app.repo.mergeSlackDmItems().then((n) => n && f.log.info(`merged ${n} duplicate Slack DM item(s)`)).catch((e) => f.log.warn(`DM merge: ${e.message}`));
   await app.hub.start(app.triage.sink);
 
   // Claude Code hand-offs: bring RESULT.md back into the stream automatically (local only: the folders live on this machine).

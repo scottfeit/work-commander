@@ -88,7 +88,8 @@ export function App() {
           });
           break;
         case 'item.updated':
-          if (e.item.streamId === cur) setItems((xs) => (xs.some((x) => x.id === e.item.id) ? xs.map((x) => (x.id === e.item.id ? e.item : x)) : [...xs, e.item]));
+          if (e.item.streamId !== cur) setItems((xs) => xs.filter((x) => x.id !== e.item.id));
+          else setItems((xs) => (xs.some((x) => x.id === e.item.id) ? xs.map((x) => (x.id === e.item.id ? e.item : x)) : [...xs, e.item]));
           break;
         case 'proposal.updated':
           if (sidOf(e.proposal.streamId) === cur)
@@ -169,7 +170,7 @@ export function App() {
               </p>
             </div>
           ) : selectedItem ? (
-            <ItemView item={selectedItem} />
+            <ItemView item={selectedItem} onRemoved={() => setTab(OVERVIEW_TAB)} />
           ) : stream ? (
             <StreamOverview stream={stream} items={items} onOpen={setTab} />
           ) : null}

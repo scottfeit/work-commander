@@ -30,7 +30,7 @@ export function defaultSettings(): Settings {
       enabled: false,
       mode: 'api',
       api: {},
-      mcp: { transport: 'http', readOnlyToolPatterns: DEFAULT_READ_ONLY },
+      mcp: { transport: 'http', url: 'https://mcp.slack.com/mcp', readOnlyToolPatterns: DEFAULT_READ_ONLY },
       ingestion: 'realtime',
       pollSeconds: 60,
       policy: { read: 'auto', write: 'approve' },

@@ -51,4 +51,24 @@ describe('Triage again', () => {
     expect(newPart).toContain('new question');
     expect(newPart).not.toContain('old question');
   });
+
+  it('files a no-action item into the existing stream triage names (SEUS-2260 case)', async () => {
+    const stream = await repo.createStream({ title: 'SEUS-2260 access request', summary: '' });
+    const { item: it } = await item([{ id: 'm1', author: { name: 'Scott' }, text: 'Checking, more info tomorrow', at: '2026-11-11T05:00:00Z', isFromPU: true }]);
+    answer = { ...no, reason: 'Own reply; belongs to the existing stream', stream: { action: 'existing', streamId: stream.id, title: null, summary: null, labels: null } };
+    const r = await triage().retriage(it.id);
+    expect(r.decision.relevant).toBe(false);
+    expect(r.streamId).toBe(stream.id);
+    expect((await repo.getItem(it.id))!.streamId).toBe(stream.id);
+  });
+
+  it('links a ticket to the one open stream already mentioning its key, without asking the model', async () => {
+    const stream = await repo.createStream({ title: 'x', summary: '' });
+    await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g1', title: 'Re: SEUS-2260 access', data: { messages: [] }, streamId: stream.id });
+    const { item: tk } = await repo.upsertItem({ source: 'jsm', kind: 'ticket', externalId: 'SEUS-2260', title: 'SEUS-2260 Access', data: { ticket: { key: 'SEUS-2260', summary: 's', status: 'Open', flavor: 'jsm', comments: [] } } });
+    answer = no;
+    const r = await triage().retriage(tk.id);
+    expect(r.streamId).toBe(stream.id);
+    expect(seen).toHaveLength(0);
+  });
 });
