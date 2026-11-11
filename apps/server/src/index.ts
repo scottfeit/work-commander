@@ -8,6 +8,7 @@ import { installGuard } from './auth/guard.js';
 import { registerRoutes } from './api/routes.js';
 import { HandoffWatcher, RESULT_FILE } from './core/handoff.js';
 import { bus } from './core/bus.js';
+import { OrgChartRefresher } from './orgchart/refresh.js';
 
 async function main() {
   const cfg = loadConfig();
@@ -65,6 +66,9 @@ async function main() {
     );
     await watcher.start();
   }
+
+  // Workday report as org chart source: re-pull it periodically (a failed pull leaves the org chart as it was).
+  new OrgChartRefresher({ repo: app.repo, secrets: app.secrets, settings: () => app.settings.get() }, (m) => f.log.warn(m)).start();
 
   // On GCP, Jira webhooks arrive through the IAP-free relay service via Pub/Sub.
   if (process.env.WC_JIRA_SUBSCRIPTION) {

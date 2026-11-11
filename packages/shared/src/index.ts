@@ -282,9 +282,18 @@ export type OrgChartSourceSettings =
       refreshTokenId?: string;
       mapping: FieldMapping;
     }
-  | { type: 'workday-raas'; url: string; username: string; passwordId?: string; mapping: FieldMapping }
+  | { type: 'workday-raas'; url: string; username: string; passwordId?: string; /** How often to re-pull the report, in hours (default 24). */ updateEveryHours?: number; mapping: FieldMapping }
   | { type: 'file'; mapping: FieldMapping }
   | { type: 'jira-assets'; workspaceId: string; aql: string; mapping: FieldMapping };
+
+export interface OrgChartSyncStatus {
+  /** Last attempt, successful or not (ISO). */
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  /** Set when the last attempt failed; the existing org chart was left as it was. */
+  lastError?: string;
+  lastCount?: number;
+}
 
 export interface FieldMapping {
   name: string;
@@ -292,7 +301,12 @@ export interface FieldMapping {
   title?: string;
   department?: string;
   managerEmail?: string;
-  slackUserId?: string;
+  /** This person's employee ID (needed when managers are linked by employee ID). */
+  employeeId?: string;
+  /** The manager's employee ID. */
+  managerEmployeeId?: string;
+  /** Which field links a person to their manager. Defaults to 'email'. */
+  managerLink?: 'email' | 'employeeId';
 }
 
 export interface Settings {

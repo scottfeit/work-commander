@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CredentialInfo, EnvironmentInfo, FieldMapping, OrgChartSourceSettings, Person, Settings } from '@wc/shared';
+import type { CredentialInfo, EnvironmentInfo, FieldMapping, OrgChartSourceSettings, OrgChartSyncStatus, Person, Settings } from '@wc/shared';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
 
@@ -397,7 +397,26 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
   const [out, setOut] = useState<{ ok: boolean; text: string } | null>(null);
   const [q, setQ] = useState('');
   const loadPeople = () => get<Person[]>('/api/people').then(setPeople);
-  useEffect(() => void loadPeople(), []);
+  const [sync, setSync] = useState<OrgChartSyncStatus>({});
+  const [updating, setUpdating] = useState(false);
+  const loadSync = () => get<OrgChartSyncStatus>('/api/orgchart/sync').then(setSync).catch(() => undefined);
+  useEffect(() => {
+    void loadPeople();
+    void loadSync();
+  }, []);
+  const updateNow = async () => {
+    setOut(null);
+    setUpdating(true);
+    try {
+      const st = await post<OrgChartSyncStatus>('/api/orgchart/refresh');
+      setSync(st);
+      void loadPeople();
+    } catch (e: any) {
+      setOut({ ok: false, text: e.message });
+    } finally {
+      setUpdating(false);
+    }
+  };
   const oc = s.orgChart;
   const setOc = async (type: OrgChartSourceSettings['type']) => {
     if (type === 'none') return up('orgChart', { type: 'none' } as any);
@@ -497,6 +516,27 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
             <Text value={oc.username} onChange={(username) => setS({ ...oc, username })} />
           </Row>
           <CredentialField id="workday.raasPassword" label="Integration user password" {...credProps} />
+          <Row label="Update every" hint="hours. The report is re-pulled on this schedule to pick up org changes">
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={oc.updateEveryHours ?? 24}
+              onChange={(e) => setS({ ...oc, updateEveryHours: Math.max(1, Math.floor(Number(e.target.value)) || 1) })}
+            />
+          </Row>
+          <div className="inline">
+            <button className="btn small" disabled={updating} onClick={() => void updateNow()}>
+              {updating ? 'Updating…' : 'Update now'}
+            </button>
+            <span className="small muted">Uses the saved settings. If the report can't be read or a mapped field is missing, the current org chart is kept.</span>
+          </div>
+          {sync.lastSuccessAt && <div className="small muted">Last updated {new Date(sync.lastSuccessAt).toLocaleString()} · {sync.lastCount} people</div>}
+          {sync.lastError && (
+            <div className="small error">
+              Last update failed{sync.lastAttemptAt ? ` (${new Date(sync.lastAttemptAt).toLocaleString()})` : ''}: {sync.lastError}. The existing org chart was kept.
+            </div>
+          )}
         </>
       )}
       {oc.type === 'jira-assets' && (
@@ -518,9 +558,25 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
         <>
           <h3>Field mapping</h3>
           <p className="muted small">Column names or dot paths in the source records. Preview shows the available fields.</p>
-          {(['name', 'email', 'title', 'department', 'managerEmail', 'slackUserId'] as (keyof FieldMapping)[]).map((k) => (
-            <Row key={k} label={k === 'managerEmail' ? 'Manager email' : k === 'slackUserId' ? 'Slack user id' : k[0].toUpperCase() + k.slice(1)}>
-              <Text value={mapping[k]} onChange={(v) => setS({ ...oc, mapping: { ...mapping, [k]: v } })} />
+          {(['name', 'email', 'title', 'department'] as (keyof FieldMapping)[]).map((k) => (
+            <Row key={k} label={k[0].toUpperCase() + k.slice(1)}>
+              <Text value={mapping[k] as string | undefined} onChange={(v) => setS({ ...oc, mapping: { ...mapping, [k]: v } })} />
+            </Row>
+          ))}
+          {oc.type === 'workday-raas' && (
+            <Row label="Manager link" hint="How each person is matched to their manager">
+              <select value={mapping.managerLink ?? 'email'} onChange={(e) => setS({ ...oc, mapping: { ...mapping, managerLink: e.target.value as 'email' | 'employeeId' } })}>
+                <option value="email">Manager email</option>
+                <option value="employeeId">Manager employee ID</option>
+              </select>
+            </Row>
+          )}
+          {(oc.type === 'workday-raas' && mapping.managerLink === 'employeeId'
+            ? (['employeeId', 'managerEmployeeId'] as (keyof FieldMapping)[])
+            : (['managerEmail'] as (keyof FieldMapping)[])
+          ).map((k) => (
+            <Row key={k} label={{ managerEmail: 'Manager email', employeeId: 'Employee ID', managerEmployeeId: 'Manager employee ID'}[k as string]!}>
+              <Text value={mapping[k] as string | undefined} onChange={(v) => setS({ ...oc, mapping: { ...mapping, [k]: v } })} />
             </Row>
           ))}
           <div className="inline">
