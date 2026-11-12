@@ -54,6 +54,8 @@ export interface WorkStream {
   lastActivityAt: string;
   pendingProposals: number;
   unread: boolean;
+  /** The PU has done all they can for now and is waiting on others. Still open; listed under "Pending" until something new arrives. */
+  pending: boolean;
   /** The tool the most recently updated item came from (shown as an icon on the stream). */
   lastSource?: ItemSource;
   runState: 'idle' | 'running' | 'waiting_approval';
@@ -139,6 +141,7 @@ export type ProposalKind =
   | 'ticket_comment'
   | 'ticket_transition'
   | 'ticket_assign'
+  | 'playbook'
   | 'credential_request'
   | 'stream_close'
   | 'mcp_tool_call'
@@ -316,6 +319,13 @@ export interface OrgChartSyncStatus {
   lastCount?: number;
 }
 
+export interface SilencingSettings {
+  /** Don't check silenced items for updates at all (nothing about them is stored or re-read while they are silenced). */
+  skipPolling: boolean;
+  /** An update that directly refers to the PU (a mention, their name or email) breaks through a silenced item. Ignored when skipPolling is on. */
+  mentionsOverride: boolean;
+}
+
 /** Scheduled copies of Work Commander's local database into a folder (e.g. a Google Drive folder). */
 export interface BackupSettings {
   enabled: boolean;
@@ -368,8 +378,14 @@ export interface Settings {
   ui: { showClosedByDefault: boolean; /** Put the most recently active item tab right after Overview. */ recentTabFirst?: boolean;
     /** What a work stream shows when you open it: its Overview, or its most recently updated item tab. */
     openTab?: 'overview' | 'recent';
+    /** How emails show by default: the plain-text copy, or the original HTML. Each message can still be flipped. */
+    emailView?: 'text' | 'original';
   };
   backup: BackupSettings;
+  /** How silenced work items behave. */
+  silencing: SilencingSettings;
+  /** The PU's standing instructions ("playbooks"): what to suggest when a kind of thing comes up. Given to triage and to Claude. */
+  playbooks: string;
   setupComplete: boolean;
 }
 

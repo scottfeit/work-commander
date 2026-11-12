@@ -294,3 +294,25 @@ describe('one Slack channel discussion is one item per work stream', () => {
     expect(await repo.listItems(streamId)).toHaveLength(1);
   });
 });
+
+describe('which Slack items get re-read each poll', () => {
+  it('reads DMs and group DMs by history, and channel threads by their parent message', async () => {
+    const { planTrackedSlackReads } = await import('../src/agent/mcpIngest.js');
+    const it = (externalId: string, over: any = {}): any => ({ id: externalId, streamId: 's', source: 'slack', kind: 'slack_thread', externalId, title: externalId, data: { messages: [{ id: '1', at: '2026-11-12T10:00:00Z', author: {}, text: 'x' }] }, updatedAt: '2026-11-12T11:00:00Z', ...over });
+    const plan = planTrackedSlackReads([
+      it('D02KE1LG799:1794429387.123779'), // DM
+      it('C02CNSBK0H1:dm'), // group DM
+      it('C0CFGV9BFT3:1794505189.732339'), // a thread in a channel
+      it('C0274PW81B6:1794494949.377959', { data: { messages: [], mergedExternalIds: ['C0274PW81B6:1794494964.474369', 'C0274PW81B6:1794495491.652019'] } }), // a "#channel" item folded from several messages
+      { ...it('x'), source: 'gmail' },
+    ]);
+    expect(plan.conversations.map((c) => c.channel).sort()).toEqual(['C02CNSBK0H1', 'D02KE1LG799']);
+    expect(plan.conversations[0].after).toBe('2026-11-12T10:00:00Z');
+    expect(plan.threads.map((t) => `${t.channel}:${t.ts}`).sort()).toEqual([
+      'C0274PW81B6:1794494949.377959',
+      'C0274PW81B6:1794494964.474369',
+      'C0274PW81B6:1794495491.652019',
+      'C0CFGV9BFT3:1794505189.732339',
+    ]);
+  });
+});

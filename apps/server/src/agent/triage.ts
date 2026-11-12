@@ -6,7 +6,8 @@ import type { InboundItem } from '../integrations/types.js';
 import { stripQuoted } from '../integrations/types.js';
 import type { AgentBackend } from './backend.js';
 import type { StreamAgentRunner } from './runner.js';
-import { TRIAGE_RULES, puBlock, streamsBlock } from './prompts.js';
+import { TRIAGE_RULES, playbookBlock, puBlock, streamsBlock } from './prompts.js';
+import { referencesPU } from '../core/mentions.js';
 import { timeAgo } from '../core/time.js';
 
 export const TriageDecision = z.object({
@@ -67,9 +68,9 @@ export class TriagePipeline {
   };
 
   /** After routing: if the item ended up in a work stream and others added something new, flag its tab. */
-  private async flagUnread(itemId: string, fresh: ThreadMessage[]) {
+  private async flagUnread(itemId: string, fresh: ThreadMessage[], force = false) {
     if (!fresh.some((m) => !m.isFromPU)) return;
-    await this.repo.markItemUnread(itemId);
+    await this.repo.markItemUnread(itemId, force);
   }
 
   /**
@@ -94,7 +95,6 @@ export class TriagePipeline {
   private async recoverOne(ev: { source: string; external_id: string; item_id: string | null }) {
     const item = ev.item_id ? await this.repo.getItem(ev.item_id) : null;
     if (!item) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'item no longer exists' });
-    if (item.streamId && item.data.muted) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'item is silenced' });
     if (!item.streamId) {
       const linked = await this.autoLink(item);
       if (linked) return this.repo.markInbound(ev.source, ev.external_id, true, { recovered: true, linked: linked.streamId, reason: 'References a ticket an open work stream already tracks' });
@@ -103,24 +103,42 @@ export class TriagePipeline {
     const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
     const fresh = all.slice(lastPU + 1).filter((m) => !m.isFromPU);
     if (!fresh.length && item.kind !== 'ticket') return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'nothing new from others' });
+    let brokeThrough = false;
+    if (item.streamId && item.data.muted) {
+      const cfg = await this.settings();
+      brokeThrough = !!cfg.silencing?.mentionsOverride && !cfg.silencing.skipPolling && referencesPU(fresh, cfg.pu);
+      if (!brokeThrough) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'item is silenced' });
+    }
     const inbound: InboundItem = { source: item.source, kind: item.kind, externalId: item.externalId, title: item.title, url: item.url, data: item.data, eventId: ev.external_id };
     const s = await this.settings();
     const decision = await this.decide(inbound, item.streamId, fresh.length ? fresh : all.slice(-1), s);
     await this.repo.markInbound(ev.source, ev.external_id, decision.relevant, { ...decision, recovered: true });
     await this.route(inbound, item, decision, s);
-    await this.flagUnread(item.id, fresh);
+    await this.flagUnread(item.id, fresh, brokeThrough);
   }
 
   async handle(inbound: InboundItem) {
+    // "Don't poll silenced items": a silenced thread is not even stored while it is silenced (it catches up once it is un-silenced).
+    const sil = (await this.settings()).silencing;
+    if (sil?.skipPolling) {
+      const there = await this.repo.findExistingItem(inbound.source, inbound.externalId);
+      if (there?.streamId && there.data.muted) return;
+    }
     const up = await this.repo.upsertItem(inbound);
     let item = up.item;
     const { newMessages, created, changed } = up;
     if (!changed) return;
     if (!(await this.repo.recordInbound(inbound.source, inbound.eventId, item.id))) return;
     // A silenced item keeps receiving updates (already stored above) but makes no noise: no triage, notification, unread dot or reopening.
+    let brokeThrough = false;
     if (item.streamId && item.data.muted) {
-      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'item is silenced' });
-      return;
+      // ...unless the PU chose to let direct references through (not possible when silenced items aren't polled at all).
+      const others = newMessages.filter((m) => !m.isFromPU);
+      brokeThrough = !!sil?.mentionsOverride && !sil.skipPolling && referencesPU(others, (await this.settings()).pu);
+      if (!brokeThrough) {
+        await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'item is silenced' });
+        return;
+      }
     }
     if (!item.streamId) item = (await this.autoLink(item)) ?? item;
     // A ticket moved to Resolved/Closed as the result of work WC did, with nothing new said on it, is not new activity: it must not
@@ -131,7 +149,9 @@ export class TriagePipeline {
     }
     const fresh = newMessages.length ? newMessages : (item.data.messages ?? item.data.ticket?.comments ?? []).slice(-1);
     const fromOthers = fresh.filter((m) => !m.isFromPU);
-    if (item.streamId) await this.repo.updateStream(item.streamId, { touch: true });
+    // New activity from others (or a ticket change) takes a pending stream out of Pending and to the top; the PU's own messages don't.
+    const fromOthersNew = newMessages.some((m) => !m.isFromPU) || !!up.ticketMeta;
+    if (item.streamId) await this.repo.updateStream(item.streamId, { touch: true, ...(fromOthersNew ? { pending: false } : {}) });
     if (fromOthers.length === 0 && !(inbound.kind === 'ticket' && (created || newMessages.length === 0))) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'authored by PU' });
       if (item.streamId && !created) await this.noteDirectReply(item, newMessages.filter((m) => m.isFromPU));
@@ -142,7 +162,7 @@ export class TriagePipeline {
     const decision = await this.decide(inbound, item.streamId, fresh, s);
     await this.repo.markInbound(inbound.source, inbound.eventId, decision.relevant, decision);
     await this.route(inbound, item, decision, s);
-    await this.flagUnread(item.id, fresh);
+    await this.flagUnread(item.id, fresh, brokeThrough);
   }
 
   /**
@@ -180,7 +200,7 @@ export class TriagePipeline {
     if (found.size !== 1) return null; // none, or several candidates: leave it to triage
     const { stream, key } = [...found.values()][0];
     await this.repo.attachItem(item.id, stream.id);
-    await this.repo.updateStream(stream.id, { touch: true });
+    await this.repo.updateStream(stream.id, { touch: true, pending: false });
     await this.repo.addChat({ streamId: stream.id, role: 'system', content: `"${item.title}" added to this work stream: it references ${key}, which is already tracked here.` });
     return (await this.repo.getItem(item.id)) ?? null;
   }
@@ -228,7 +248,7 @@ export class TriagePipeline {
       const home = decision.stream.action === 'existing' ? decision.stream.streamId : null;
       if (home && !item.data.notRelevantTo?.includes(home) && (await this.repo.listStreams(false)).some((o) => o.id === home)) {
         await this.repo.attachItem(item.id, home);
-        await this.repo.updateStream(home, { touch: true });
+        await this.repo.updateStream(home, { touch: true, pending: false });
         await this.repo.addChat({ streamId: home, role: 'system', content: `"${item.title}" added to this work stream (no action needed).` });
       }
       return;
@@ -265,7 +285,7 @@ export class TriagePipeline {
       }
     }
     if (!streamId) return;
-    await this.repo.updateStream(streamId, { touch: true, unread: true, ...(decision.updatedSummary ? { summary: decision.updatedSummary } : {}) });
+    await this.repo.updateStream(streamId, { touch: true, unread: true, pending: false, ...(decision.updatedSummary ? { summary: decision.updatedSummary } : {}) });
     await this.repo.withdrawStaleClose(streamId, `new activity arrived (${inbound.title.slice(0, 60)})`);
     if (!decision.relevant) return;
     // Earlier skipped messages that turn out to be part of the same event join this stream.
@@ -322,14 +342,23 @@ export class TriagePipeline {
       ? 'Recently skipped messages (last 24h, in no work stream). If this new message and any of them are about the same event or piece of work, list their ids in relatedItemIds:\n' +
         recentSkipped.map((x) => `- item ${x.id} [${x.source}] "${x.title}"${x.from ? ` from ${x.from}` : ''} (${timeAgo(x.updatedAt)}); skipped because: ${x.reason.slice(0, 160)}`).join('\n')
       : '';
+    // How similar work went before (closed streams only; open ones are already listed above): the basis for "do it like last time" offers.
+    const queryText = `${inbound.title} ${fresh.map((m) => m.text).join(' ').slice(0, 400)}`;
+    const past = (await this.repo.searchPastWork(queryText, { excludeStreamId: existingStreamId, closedOnly: true, limit: 3, minMatched: 2 })).filter((x) => x.id !== (self_ as any)?.streamId);
+    const pastBlock = past.length
+      ? 'Similar past work (closed work streams; how it was handled before). Mention it in "next" only if it truly applies:\n' +
+        past.map((x) => `- "${x.title}"${x.closedAt ? ` (closed ${x.closedAt.slice(0, 10)})` : ''}: ${x.summary.replace(/\s+/g, ' ').slice(0, 300)}${x.snippet ? ` | from its chat: ${x.snippet.slice(0, 200)}` : ''}`).join('\n')
+      : '';
     const t = inbound.data.ticket;
     const prompt = [
       puBlock(s.pu, { self, manager, reports }),
+      playbookBlock(s.playbooks),
       known.length ? `People in this conversation (org chart):\n${known.join('\n')}` : '',
       streamsBlock(open),
       existingStreamId ? `This item is ALREADY attached to stream ${existingStreamId}; use action "existing" with that id.` : '',
       hints.join('\n'),
       skippedBlock,
+      pastBlock,
       `Incoming ${inbound.source} ${inbound.kind}: "${inbound.title}" ${inbound.url ?? ''}`,
       t ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? 'unassigned'} requester=${t.requester ?? '?'}\n${(t.description ?? '').slice(0, 2000)}` : '',
       `Earlier context:\n${msgs.filter((m) => !fresh.includes(m)).slice(-4).map(fmt).join('\n\n') || '(none)'}`,

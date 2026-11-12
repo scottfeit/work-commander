@@ -72,19 +72,38 @@ test('the work item header stays put while the content scrolls', async ({ page }
   await expect(head.getByRole('button', { name: 'Not relevant' })).toBeInViewport();
 });
 
-test('the close icon left of Overview closes the stream only on the second click', async ({ page }) => {
+test('the selected work stream tile (not the work item) carries Mark unread and Close stream at its bottom', async ({ page }) => {
+  await api.post('/api/streams', { title: 'Second tile test', summary: '' });
   await page.goto(WEB);
   await stream(page, /item view test/i).click();
-  const icon = page.getByRole('button', { name: 'Close work stream' });
-  const overview = page.locator('.tabbar [role=tab]', { hasText: 'Overview' });
-  expect((await icon.boundingBox())!.x).toBeLessThan((await overview.boundingBox())!.x);
+  await expect(page.getByRole('button', { name: 'Close work stream' })).toHaveCount(0); // no close icon in the tab bar
+  await page.locator('.tabbar [role=tab]', { hasText: 'Automation' }).click();
+  await expect(page.locator('.item-view .item-foot')).toHaveCount(0); // and nothing at the bottom of the work item
 
-  await icon.click(); // arms
-  await expect(icon).toContainText('Close?');
+  const tile = page.locator('.stream', { hasText: /item view test/i });
+  const actions = tile.locator('.stream-actions');
+  await expect(actions.getByRole('button', { name: 'Mark unread' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Close stream' })).toBeVisible();
+  // other tiles don't have them
+  await expect(page.locator('.stream', { hasText: /second tile test/i }).locator('.stream-actions')).toHaveCount(0);
+  // they sit at the bottom of the tile, below its title
+  const [t, a] = await Promise.all([tile.locator('.stream-title').boundingBox(), actions.boundingBox()]);
+  expect(a!.y).toBeGreaterThan(t!.y + t!.height);
+
+  // Mark unread: back to the list, with the stream showing its unread dot
+  await actions.getByRole('button', { name: 'Mark unread' }).click();
+  await expect(page.locator('.top-pane')).toContainText(/open work streams/i);
+  await expect(page.locator('.stream', { hasText: /item view test/i }).getByLabel('unread')).toBeVisible();
+
+  // Close stream takes two clicks
+  await stream(page, /item view test/i).click();
+  const close = page.locator('.stream', { hasText: /item view test/i }).locator('.stream-actions').getByRole('button', { name: 'Close stream' });
+  await close.click();
+  await expect(page.getByRole('button', { name: /click again/i })).toBeVisible();
   await page.waitForTimeout(300);
-  expect((await api.get('/api/streams')).json.some((s: any) => /item view test/i.test(s.title))).toBe(true); // still open
-  await icon.click(); // confirms
-  await expect.poll(async () => (await api.get('/api/streams')).json.some((s: any) => /item view test/i.test(s.title))).toBe(false);
+  expect((await api.get('/api/streams')).json.some((x: any) => /item view test/i.test(x.title))).toBe(true); // still open after one click
+  await page.getByRole('button', { name: /click again/i }).click();
+  await expect.poll(async () => (await api.get('/api/streams')).json.some((x: any) => /item view test/i.test(x.title))).toBe(false);
 });
 
 test('the Overview "Close stream" button also needs two clicks', async ({ page }) => {

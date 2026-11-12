@@ -19,7 +19,7 @@ export function googleFileLinks(text: string): GoogleFileLink[] {
  * Put a Google file (Doc, Sheet, Slides) in a work stream as a work item. The same file may sit in several streams,
  * so each stream gets its own item (the id includes the stream). Calling it again refreshes the item's content.
  */
-export async function attachDriveFile(repo: Repo, docs: Pick<DocsApi, 'read'> | null, streamId: string, file: { id: string; url?: string }) {
+export async function attachDriveFile(repo: Repo, docs: Pick<DocsApi, 'read'> | null, streamId: string, file: { id: string; url?: string }, opts: { quiet?: boolean } = {}) {
   let title = `Google file ${file.id.slice(0, 8)}…`;
   let url = file.url ?? `https://drive.google.com/open?id=${file.id}`;
   let body = '(Open it in Drive to see the current version.)';
@@ -35,6 +35,6 @@ export async function attachDriveFile(repo: Repo, docs: Pick<DocsApi, 'read'> | 
   }
   const { item } = await repo.upsertItem({ source: 'drive', kind: 'doc', externalId: `${file.id}@${streamId}`, title, url, data: { body }, streamId });
   if (item.streamId !== streamId) await repo.attachItem(item.id, streamId);
-  await repo.markItemUnread(item.id);
-  return item;
+  if (!opts.quiet) await repo.markItemUnread(item.id); // quiet: the PU added it themselves, so no dot
+  return (await repo.getItem(item.id)) ?? item;
 }

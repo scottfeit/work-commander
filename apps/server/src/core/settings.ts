@@ -57,6 +57,8 @@ export function defaultSettings(): Settings {
     orgChart: { type: 'none' },
     ui: { showClosedByDefault: false, recentTabFirst: false, openTab: 'overview' },
     backup: { enabled: false, folder: '', everyHours: 24, keep: 14 },
+    silencing: { skipPolling: false, mentionsOverride: false },
+    playbooks: '',
     setupComplete: false,
   };
 }

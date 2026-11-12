@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ItemSource, Settings } from '@wc/shared';
+import type { ItemSource, Settings, StreamItem } from '@wc/shared';
 import type { Repo } from '../core/repo.js';
 import type { SecretStore } from '../secrets/store.js';
 import type { InboundSink, Ingestor } from '../integrations/types.js';
@@ -40,6 +40,35 @@ const KIND = { google: 'email_thread', slack: 'slack_thread', atlassian: 'ticket
  * "list since" call, so on each poll Claude uses the server's read-only tools to collect new
  * activity and return it in a fixed shape. Only polling is possible in this mode.
  */
+/**
+ * Which Slack items to re-read on every poll. DMs and group DMs are flat, so their history is read from the newest message we hold.
+ * A thread in a channel is different: its replies never appear in the channel's history, so each thread (and every thread folded into
+ * a "#channel" item) is re-read by its parent message.
+ */
+export function planTrackedSlackReads(items: StreamItem[], opts: { skipMuted?: boolean } = {}) {
+  const latest = new Map<string, string>();
+  const threads = new Map<string, { channel: string; ts: string }>();
+  for (const it of items) {
+    if (it.source !== 'slack') continue;
+    if (opts.skipMuted && it.data.muted) continue; // "don't poll silenced items"
+    const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
+    const flat = channel.startsWith('D') || it.externalId.endsWith(':dm') || it.externalId === channel;
+    if (flat) {
+      const at = (it.data.messages ?? []).filter((m) => !m.id.startsWith('sent-')).map((m) => m.at).sort().pop() ?? it.updatedAt;
+      if (!latest.has(channel) || at > latest.get(channel)!) latest.set(channel, at);
+      continue;
+    }
+    for (const id of [it.externalId, ...(it.data.mergedExternalIds ?? [])]) {
+      const m = /^([A-Z][A-Z0-9]+):(\d+\.\d+)$/.exec(id);
+      if (m) threads.set(id, { channel: m[1], ts: m[2] });
+    }
+  }
+  return {
+    conversations: [...latest].slice(0, 20).map(([channel, after]) => ({ channel, after })),
+    threads: [...threads.values()].slice(0, 20),
+  };
+}
+
 export class McpPollIngestor implements Ingestor {
   private timer?: NodeJS.Timeout;
   private busy = false;
@@ -62,18 +91,11 @@ export class McpPollIngestor implements Ingestor {
     clearInterval(this.timer);
   }
 
-  /** Slack channels/DMs that have an item in an open work stream. */
-  private async trackedSlackChannels() {
-    // Per conversation, "after" is the newest message already stored, so nothing between polls can fall through a gap.
-    const latest = new Map<string, string>();
-    for (const st of await this.repo.listStreams(false))
-      for (const it of await this.repo.listItems(st.id)) {
-        if (it.source !== 'slack') continue;
-        const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
-        const at = (it.data.messages ?? []).filter((m) => !m.id.startsWith('sent-')).map((m) => m.at).sort().pop() ?? it.updatedAt;
-        if (!latest.has(channel) || at > latest.get(channel)!) latest.set(channel, at);
-      }
-    return [...latest].slice(0, 20).map(([channel, after]) => ({ channel, after }));
+  /** What to re-read for the Slack items in open work streams (see planTrackedSlackReads). */
+  private async trackedSlackReads() {
+    const items: StreamItem[] = [];
+    for (const st of await this.repo.listStreams(false)) items.push(...(await this.repo.listItems(st.id)));
+    return planTrackedSlackReads(items, { skipMuted: !!(await this.settings()).silencing?.skipPolling });
   }
 
   async pollOnce() {
@@ -98,12 +120,17 @@ export class McpPollIngestor implements Ingestor {
             `\nAlso watch these Slack channels: ${watched.map((w) => (/^[CG][A-Z0-9]{6,}$/.test(w) ? w : `#${w}`)).join(', ')}. Find each one (the channel search tool resolves names), read its recent history with the channel-history read tool, ` +
             `and return every top-level message and thread with activity after ${since}, even when it does not mention the PU. One item per thread: externalId "<channel id>:<thread_ts>".`;
         // Conversations already in open work streams are checked directly, not left to Slack search.
-        const channels = await this.trackedSlackChannels();
-        if (channels.length)
+        const { conversations, threads } = await this.trackedSlackReads();
+        if (conversations.length)
           instruction +=
             '\nAlso read the history of these Slack conversations the PU is already working on and return every message after the time given for each, from anyone including the PU. ' +
             'Use the channel-history read tool for each; do not rely on search for them.\n' +
-            channels.map((c) => `- channel ${c.channel}: messages after ${c.after}`).join('\n');
+            conversations.map((c) => `- channel ${c.channel}: messages after ${c.after}`).join('\n');
+        if (threads.length)
+          instruction +=
+            '\nAlso re-read these Slack threads the PU is following. Replies do not show up in channel history, so use the thread-read tool (channel id + parent message ts) for each, ' +
+            'and return the whole current thread (the parent and every reply) as one item with externalId "<channel id>:<thread_ts>", from anyone including the PU.\n' +
+            threads.map((t) => `- thread ${t.channel}:${t.ts}`).join('\n');
       }
       const r = await this.backend.structured({
         systemPrompt: `You collect new work activity for ${s.pu.name} <${s.pu.email}> using read-only tools. Return only items with activity after the given time, with full message text. Return an empty list if nothing is new.`,

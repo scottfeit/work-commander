@@ -1,4 +1,5 @@
 import { notFound, conflict } from './errors.js';
+import { isQuickRun } from './quickReply.js';
 import type { Proposal, Settings, ThreadMessage } from '@wc/shared';
 import type { Repo } from './repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
@@ -51,6 +52,7 @@ export class Executor {
     private secrets: SecretStore,
     private runInternal: () => InternalRunner,
     private attachments?: AttachmentStore,
+    private saveSettings?: (patch: Partial<Settings>) => Promise<unknown>,
   ) {}
 
   async approve(id: string, payload?: Record<string, unknown>, opts: { auto?: boolean } = {}) {
@@ -109,7 +111,8 @@ export class Executor {
       }
       const after = await this.repo.listProposals({ runId });
       const open = after.some((p) => ['pending', 'approved', 'executing'].includes(p.status));
-      if (!open && !suppressSettle && this.onRunSettled) await this.onRunSettled(runId, after[0]?.streamId ?? null, after);
+      // Claude is told how its own drafts turned out; a Quick Reply is the PU's and Claude is never woken for it.
+      if (!open && !suppressSettle && !isQuickRun(runId) && this.onRunSettled) await this.onRunSettled(runId, after[0]?.streamId ?? null, after);
     } finally {
       this.draining.delete(runId);
     }
@@ -247,6 +250,16 @@ export class Executor {
       case 'credential_request': {
         const g = await this.grants.create({ streamId: p.streamId, item: x.item, allowedHosts: asList(x.allowed_hosts), authScheme: (x.auth_scheme || 'bearer') as AuthScheme });
         return { grant_id: g.id, item: g.title, allowed_hosts: g.hosts, expires_at: g.expiresAt };
+      }
+      case 'playbook': {
+        // Approving adds the (possibly edited) instruction to the PU's standing instructions.
+        const text = String(x.text ?? '').trim();
+        if (!text) throw new Error('Write the instruction first');
+        if (!this.saveSettings) throw new Error('Cannot save settings here');
+        const current = ((await this.settings()).playbooks ?? '').trim();
+        if (current.toLowerCase().includes(text.toLowerCase())) return { saved: false, note: 'Already in your playbooks' };
+        await this.saveSettings({ playbooks: `${current}${current ? '\n' : ''}- ${text}` });
+        return { saved: true };
       }
       case 'stream_close': {
         if (p.streamId) await this.repo.updateStream(p.streamId, { status: 'closed' });

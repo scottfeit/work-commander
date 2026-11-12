@@ -123,6 +123,15 @@ export function App() {
     if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification(t.title, { body: t.body });
   }, []);
 
+  // The + on the tab bar: add a work item from a pasted link, show it, and Claude reviews it in the background.
+  const addByUrl = useCallback(async (url: string) => {
+    const id = selRef.current;
+    const r = await post<{ item: StreamItem }>(`/api/streams/${id}/items/from-url`, { url });
+    if (selRef.current !== id) return;
+    setItems((xs) => (xs.some((x) => x.id === r.item.id) ? xs.map((x) => (x.id === r.item.id ? r.item : x)) : [...xs, r.item]));
+    setTab(r.item.id);
+  }, []);
+
   // Quick Reply: open (or jump to) a blank, pre-addressed draft for this item without asking Claude.
   const quickReply = useCallback(
     async (item: StreamItem) => {
@@ -245,9 +254,11 @@ export function App() {
         skippedVersion={skippedVersion}
         peekId={peek?.id ?? null}
         onMarkUnread={(id) => void markUnread(id)}
+        onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
+        onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
       />
       <main className="main" ref={mainRef} style={{ gridTemplateRows: `auto ${split}fr 6px ${1 - split}fr` }}>
-        <TabBar stream={stream} items={tabItems} tab={tab} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onClose={() => stream && void patch(`/api/streams/${stream.id}`, { status: 'closed' })} />
+        <TabBar stream={stream} items={tabItems} tab={tab} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
         <section className="top-pane">
           {selectedItem ? (
             <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} />
@@ -260,7 +271,7 @@ export function App() {
               </p>
             </div>
           ) : stream ? (
-            <StreamOverview stream={stream} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream.id)} />
+            <StreamOverview stream={stream} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream.id)} onTogglePending={() => void patch(`/api/streams/${stream.id}`, { pending: !stream.pending })} />
           ) : null}
         </section>
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />

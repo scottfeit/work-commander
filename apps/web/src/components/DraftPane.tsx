@@ -189,7 +189,7 @@ function DraftCard({
             </ConfirmButton>
           ) : (
           <button className="btn small primary" disabled={busy || blank} title={blank ? 'Write a message first' : undefined} onClick={() => act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}>
-            {p.kind === 'credential_request' ? 'Grant access' : p.kind === 'read_approval' ? 'Allow' : 'Approve & send'}
+            {p.kind === 'credential_request' ? 'Grant access' : p.kind === 'read_approval' ? 'Allow' : p.kind === 'playbook' ? 'Save playbook' : 'Approve & send'}
           </button>
           )}
           {dirty && (

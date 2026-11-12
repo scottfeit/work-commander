@@ -53,7 +53,7 @@ test('unknown URLs do not leave a blank page', async ({ page }) => {
 test('stream filter and new-stream creation', async ({ page }) => {
   await page.goto(WEB);
   await page.getByPlaceholder('Filter streams').fill('zzz-no-such-stream');
-  await expect(page.locator('button.stream:not(.general)')).toHaveCount(0);
+  await expect(page.locator('button.stream-open')).toHaveCount(0);
   await page.getByPlaceholder('Filter streams').fill('');
   await page.getByTitle('New work stream').click();
   await page.getByPlaceholder('Work stream title').fill('QA manual stream');

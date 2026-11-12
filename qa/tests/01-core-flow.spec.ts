@@ -23,7 +23,7 @@ test('dashboard layout has every pane from the brief', async ({ page }) => {
 test('incoming email becomes an AI-labelled work stream; the newsletter does not', async ({ page }) => {
   await page.goto(WEB);
   await expect(stream(page, /contractor access/i)).toBeVisible({ timeout: 30_000 });
-  const titles = await page.locator('button.stream .stream-title').allInnerTexts();
+  const titles = await page.locator('button.stream-open .stream-title').allInnerTexts();
   expect(titles.join('|')).not.toMatch(/SaaS|newsletter|10 tools/i);
   // AI-generated label chips on the stream row
   await expect(stream(page, /contractor access/i).locator('.chip').first()).toBeVisible();

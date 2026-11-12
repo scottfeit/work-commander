@@ -10,6 +10,7 @@ const SECTIONS = [
   ['slack', 'Slack'],
   ['atlassian', 'Atlassian'],
   ['onepassword', '1Password'],
+  ['playbooks', 'Playbooks'],
   ['display', 'Display'],
   ['secrets', 'Secrets'],
   ['backup', 'Backup'],
@@ -339,6 +340,24 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </section>
         )}
 
+        {section === 'playbooks' && (
+          <section>
+            <h2>Playbooks</h2>
+            <p className="muted small">
+              Standing instructions in your own words: what to suggest when a kind of thing comes up. Triage and Claude both read them. When one applies, you get a one-click suggestion that does what it says, and anything it
+              would send or change still waits for your approval. Claude can also suggest new ones when you ask for the same thing again (they appear as drafts to edit and approve).
+            </p>
+            <textarea
+              aria-label="Playbooks"
+              className="summary-input"
+              rows={14}
+              value={s.playbooks}
+              placeholder={'- When a Gainsight sync failure arrives, offer to add it to the tracking sheet <link> (columns: date, ticket, cause).\n- Okta lockout reports from the helpdesk: offer to look up the user in Okta and reply with the unlock steps.'}
+              onChange={(e) => setS({ ...s, playbooks: e.target.value })}
+            />
+            <p className="muted small">One instruction per line works best. Include links and what to put where. Press Save changes to apply.</p>
+          </section>
+        )}
         {section === 'display' && (
           <section>
             <h2>Display</h2>
@@ -352,6 +371,16 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
+            <Row label="Emails" hint="How an email shows when you open it; each message has an Original / Text link to flip it">
+              <Select
+                value={s.ui.emailView ?? 'text'}
+                onChange={(emailView) => up('ui', { emailView })}
+                options={[
+                  { value: 'text', label: 'Plain text' },
+                  { value: 'original', label: 'Original (HTML, as sent)' },
+                ]}
+              />
+            </Row>
             <Row label="Work item tabs">
               <Toggle
                 checked={!!s.ui.recentTabFirst}
@@ -361,6 +390,28 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             </Row>
             <p className="muted small">
               You can also drag tabs into any order within a work stream; Overview always stays first. With this on, the tab with the newest activity jumps to the front of the others.
+            </p>
+            <h3>Silenced work items</h3>
+            <p className="muted small">An item you silence (Ignore updates on its tab) normally keeps pulling in updates quietly. These options change that.</p>
+            <Row label="Polling">
+              <Toggle
+                checked={!!s.silencing.skipPolling}
+                onChange={(skipPolling) => up('silencing', { skipPolling })}
+                label="Don't poll silenced items at all"
+              />
+            </Row>
+            <p className="muted small">While an item is silenced, nothing about it is checked or stored. When you unsilence it, it catches up from where it left off.</p>
+            <Row label="Mentions">
+              <Toggle
+                checked={!!s.silencing.mentionsOverride && !s.silencing.skipPolling}
+                disabled={!!s.silencing.skipPolling}
+                onChange={(mentionsOverride) => up('silencing', { mentionsOverride })}
+                label="Let direct references to me override silencing"
+              />
+            </Row>
+            <p className="muted small">
+              An update that mentions you (a Slack mention, your name or email) is handled as normal even on a silenced item: it notifies, marks the stream unread and can reopen it.
+              {s.silencing.skipPolling ? ' This can\'t work while silenced items are not polled, since those updates are never seen.' : ''}
             </p>
           </section>
         )}

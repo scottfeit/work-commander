@@ -1,6 +1,10 @@
 import type { EditableField, Proposal, Settings, StreamItem } from '@wc/shared';
 import { Repo, draftTarget } from './repo.js';
 
+/** Quick Reply drafts are the PU's own: they run under this id prefix, and deciding them never wakes Claude. */
+export const QUICK_RUN_PREFIX = 'quick-';
+export const isQuickRun = (runId: string) => runId.startsWith(QUICK_RUN_PREFIX);
+
 export interface QuickDraft {
   kind: Proposal['kind'];
   system: Proposal['system'];
@@ -97,7 +101,7 @@ export async function startQuickReply(repo: Repo, item: StreamItem, s: Settings)
   }
   const proposal = await repo.createProposal({
     streamId: item.streamId,
-    runId: `quick-${Math.random().toString(36).slice(2, 10)}`,
+    runId: `${QUICK_RUN_PREFIX}${Math.random().toString(36).slice(2, 10)}`,
     kind: d.kind,
     system: d.system,
     title: d.title,

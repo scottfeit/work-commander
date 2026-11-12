@@ -3,6 +3,7 @@ import type { WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, post, timeAgo } from '../api';
 import { ITEM_DRAG, SourceBadge, dragItem } from './TabBar';
+import { ConfirmButton } from './ConfirmButton';
 
 interface Props {
   streams: WorkStream[];
@@ -20,13 +21,33 @@ interface Props {
   peekId: string | null;
   /** Mark a work stream unread (swipe a tile sideways). */
   onMarkUnread: (id: string) => void;
+  /** Close a work stream (the selected tile's Close stream button, after its second click). */
+  onCloseStream: (id: string) => void;
+  /** Mark a work stream Pending (waiting on others) or put it back in Open. */
+  onTogglePending: (id: string, pending: boolean) => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
+  const [pendingCollapsed, setPendingCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('wc.pendingCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const togglePendingSection = () =>
+    setPendingCollapsed((c) => {
+      try {
+        localStorage.setItem('wc.pendingCollapsed', c ? '0' : '1');
+      } catch {
+        /* private window */
+      }
+      return !c;
+    });
   const [moved, setMoved] = useState(0);
   const [moveErr, setMoveErr] = useState<string | null>(null);
   const [showDismissed, setShowDismissed] = useState(false);
@@ -34,7 +55,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   const loadSkipped = () => get<SkippedItem[]>('/api/items/skipped?dismissed=1').then(setSkipped).catch(() => undefined);
   useEffect(() => void loadSkipped(), [streams.length, moved, skippedVersion]);
   const shown = streams.filter((s) => (showClosed || s.status === 'open') && (!q || `${s.title} ${s.summary}`.toLowerCase().includes(q.toLowerCase())));
-  const open = shown.filter((s) => s.status === 'open');
+  const open = shown.filter((s) => s.status === 'open' && !s.pending);
+  const pendingStreams = shown.filter((s) => s.status === 'open' && s.pending);
   const closed = shown.filter((s) => s.status === 'closed');
   // Items triage passed over sit among the open work streams, marked with a "?"; the ones you dismissed get their own list (Show dismissed).
   type Entry = { key: string; at: string; stream?: WorkStream; item?: SkippedItem };
@@ -44,6 +66,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
     ...open.map((s) => ({ key: s.id, at: s.lastActivityAt, stream: s })),
     ...skipped.filter((i) => !i.dismissed && matches(i)).map((i) => ({ key: i.id, at: i.updatedAt, item: i })),
   ].sort(byTime);
+  // Pending (waiting on others): same ordering as everything else, by last update, in their own collapsible section below Open.
+  const pendingEntries: Entry[] = pendingStreams.map((s) => ({ key: s.id, at: s.lastActivityAt, stream: s })).sort(byTime);
   const closedEntries: Entry[] = closed.map((s) => ({ key: s.id, at: s.lastActivityAt, stream: s }));
   const dismissedEntries: Entry[] = skipped.filter((i) => i.dismissed && matches(i)).map((i) => ({ key: i.id, at: i.updatedAt, item: i })).sort(byTime);
   const entry = (e: Entry) =>
@@ -90,9 +114,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   };
   const row = (s: WorkStream) => (
     <SwipeRow key={s.id} onSwipe={() => onMarkUnread(s.id)} label="Unread">
-    <button
-      className={`stream ${s.id === selected ? 'active' : ''} ${s.status} ${dropOn === s.id ? 'drop-target' : ''}`}
-      onClick={() => onSelect(s.id)}
+    <div
+      className={`stream ${s.id === selected ? 'active' : ''} ${s.status} ${s.pending ? 'pending' : ''} ${dropOn === s.id ? 'drop-target' : ''}`}
       onDragOver={(e) => {
         if (!accepts(e, s)) return;
         e.preventDefault();
@@ -101,19 +124,46 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       onDragLeave={() => setDropOn((d) => (d === s.id ? null : d))}
       onDrop={(e) => void drop(e, s)}
     >
-      <div className="stream-head">
-        {s.unread && s.id !== selected && <span className="dot" aria-label="unread" />}
-        {s.lastSource && <SourceBadge source={s.lastSource} />}
-        <span className="stream-title">{s.title}</span>
-        <span className="muted small">{timeAgo(s.lastActivityAt)}</span>
-      </div>
-      {s.summary && <div className="stream-summary">{s.summary}</div>}
-      <div className="stream-meta">
-        {s.runState === 'running' && <span className="chip running">working…</span>}
-        {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
-        {s.status === 'closed' && <span className="chip">closed</span>}
-      </div>
-    </button>
+      <button type="button" className="stream-open" onClick={() => onSelect(s.id)}>
+        <div className="stream-head">
+          {s.unread && s.id !== selected && <span className="dot" aria-label="unread" />}
+          {s.lastSource && <SourceBadge source={s.lastSource} />}
+          <span className="stream-title">{s.title}</span>
+          <span className="muted small">{timeAgo(s.lastActivityAt)}</span>
+        </div>
+        {s.summary && <div className="stream-summary">{s.summary}</div>}
+        <div className="stream-meta">
+          {s.runState === 'running' && <span className="chip running">working…</span>}
+          {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
+          {s.status === 'closed' && <span className="chip">closed</span>}
+        </div>
+      </button>
+      {s.id === selected && (
+        // Like Accept / Dismiss on a skipped item: the open work stream's own actions sit at the bottom of its tile.
+        <div className="stream-meta stream-actions">
+          <button type="button" className="btn small" title="Mark this work stream unread and go back to the list" onClick={() => onMarkUnread(s.id)}>
+            Mark unread
+          </button>
+          {s.status === 'open' && (
+            <ConfirmButton onConfirm={() => onCloseStream(s.id)} armedChildren="Click again to close" title="Close this work stream (asks you to click twice)" armedTitle="Click again to close this work stream">
+              Close stream
+            </ConfirmButton>
+          )}
+          {s.status === 'open' && (
+            <button
+              type="button"
+              className={`btn small pending-btn ${s.pending ? 'on' : ''}`}
+              aria-label={s.pending ? 'Pending: put back in Open' : 'Mark pending'}
+              aria-pressed={s.pending}
+              title={s.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending: I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives."}
+              onClick={() => onTogglePending(s.id, !s.pending)}
+            >
+              ✓
+            </button>
+          )}
+        </div>
+      )}
+    </div>
     </SwipeRow>
   );
 
@@ -146,6 +196,14 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <div className="section-label">Open · {openEntries.length}</div>
         {openEntries.length === 0 && <div className="muted small pad">No open work streams. New ones appear here as Claude triages incoming messages.</div>}
         {openEntries.map(entry)}
+        {pendingEntries.length > 0 && (
+          <>
+            <button type="button" className="section-label section-toggle" aria-expanded={!pendingCollapsed} onClick={togglePendingSection}>
+              <span className="chev" aria-hidden>{pendingCollapsed ? '▸' : '▾'}</span> Pending · {pendingEntries.length}
+            </button>
+            {!pendingCollapsed && pendingEntries.map(entry)}
+          </>
+        )}
         {showClosed && closedEntries.length > 0 && <div className="section-label">Closed · {closedEntries.length}</div>}
         {showClosed && closedEntries.map(entry)}
         {showDismissed && <div className="section-label">Dismissed · {dismissedEntries.length}</div>}

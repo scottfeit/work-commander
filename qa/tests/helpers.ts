@@ -156,7 +156,7 @@ export function watchPage(page: Page, ignore: RegExp[] = []) {
   return problems;
 }
 
-export const stream = (page: Page, re: RegExp) => page.locator('button.stream', { hasText: re }).first();
+export const stream = (page: Page, re: RegExp) => page.locator('button.stream-open', { hasText: re }).first();
 export const draft = (page: Page, title: RegExp) => page.locator('.draft', { hasText: title }).first();
 
 export { expect, test };

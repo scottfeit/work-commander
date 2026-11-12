@@ -58,7 +58,7 @@ async function main() {
       app.repo,
       async (h, report) => {
         await app.repo.addChat({ streamId: h.streamId, role: 'system', content: `Claude Code finished: results from ${h.folder}/${RESULT_FILE}` });
-        await app.repo.updateStream(h.streamId, { unread: true, touch: true });
+        await app.repo.updateStream(h.streamId, { unread: true, touch: true, pending: false });
         bus.publish({ type: 'notify', streamId: h.streamId, title: 'Claude Code finished', body: 'Results are back in the work stream.' });
         // Google Docs/Sheets/Slides it reports having edited become work items in this stream (the same file may be in several streams).
         const docs = await app.hub.api('docs').catch(() => null);

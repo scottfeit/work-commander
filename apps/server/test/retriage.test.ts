@@ -299,3 +299,80 @@ describe('silenced work items', () => {
     expect((await repo.getItem(item.id))!.data.unread).toBeUndefined();
   });
 });
+
+describe('silenced items: skip polling and mention override', () => {
+  const PU = { name: 'Scott Feit', email: 'scott@bazaarvoice.com', aliases: ['sfeit'], slackUserId: 'UPU123' };
+  const setup = async (silencing: { skipPolling: boolean; mentionsOverride: boolean }) => {
+    const { bus } = await import('../src/core/bus.js');
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const streamId = (await repo.createStream({ title: 'Stream', summary: '' })).id;
+    const msg = (id: string, text: string) => ({ id, author: { name: 'B' }, text, at: `2026-11-11T00:00:${id.padStart(2, '0')}Z` });
+    const { item } = await repo.upsertItem({ source: 'slack', kind: 'slack_thread', externalId: 'C1:1.1', title: 'Thread', data: { messages: [msg('1', 'first')] }, streamId });
+    await repo.setItemMuted(item.id, true);
+    let calls = 0;
+    const decision = { relevant: true, reason: 'x', stream: { action: 'existing', streamId, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: { title: 'Heads up', body: 'b' }, next: { type: 'none', instruction: '', offerLabel: null } };
+    const t = new TriagePipeline(repo, { structured: async () => (calls++, decision) } as any, { run: async () => undefined } as any, async () => ({ ...defaultSettings(), pu: { ...defaultSettings().pu, ...PU }, silencing }));
+    const notes: any[] = [];
+    const off = bus.subscribe((e: any) => e.type === 'notify' && notes.push(e));
+    const arrive = (texts: string[], eventId: string) => t.handle({ source: 'slack', kind: 'slack_thread', externalId: 'C1:1.1', title: 'Thread', eventId, data: { messages: [msg('1', 'first'), ...texts.map((x, i) => msg(String(i + 2), x))] } });
+    const ids = async () => (await repo.findItem('slack', 'C1:1.1'))!.data.messages?.map((m) => m.id);
+    return { repo, streamId, arrive, notes, off, calls: () => calls, ids };
+  };
+
+  it('referencesPU: slack mention, full name, alias, email — not a first name', async () => {
+    const { referencesPU } = await import('../src/core/mentions.js');
+    const m = (text: string) => [{ id: '1', author: {}, text, at: '' }];
+    expect(referencesPU(m('hey <@UPU123> can you look'), PU)).toBe(true);
+    expect(referencesPU(m('CC: @Scott Feit'), PU)).toBe(true);
+    expect(referencesPU(m('thanks scott feit!'), PU)).toBe(true);
+    expect(referencesPU(m('ping sfeit please'), PU)).toBe(true);
+    expect(referencesPU(m('write to Scott@Bazaarvoice.com'), PU)).toBe(true);
+    expect(referencesPU(m('Scott mentioned it'), PU)).toBe(false);
+    expect(referencesPU(m('<@UOTHER> look'), PU)).toBe(false);
+    expect(referencesPU(m('Scottish things, sfeitzer'), PU)).toBe(false);
+  });
+  it("with 'don't poll silenced items', nothing is stored or judged until it is un-silenced", async () => {
+    const { repo, arrive, off, calls, ids } = await setup({ skipPolling: true, mentionsOverride: true });
+    await arrive(['new reply mentioning <@UPU123>'], 'e1');
+    off();
+    expect(await ids()).toEqual(['1']); // not even stored, and the override can't apply
+    expect(calls()).toBe(0);
+    expect(await repo.listUnprocessedInbound(0)).toEqual([]);
+    const it = (await repo.findItem('slack', 'C1:1.1'))!;
+    await repo.setItemMuted(it.id, false);
+    await arrive(['new reply mentioning <@UPU123>'], 'e2');
+    expect(await ids()).toEqual(['1', '2']); // catches up once un-silenced
+  });
+  it('with the override on, a message that refers to the PU breaks through; others stay silent', async () => {
+    const { repo, streamId, arrive, notes, off, calls, ids } = await setup({ skipPolling: false, mentionsOverride: true });
+    await repo.updateStream(streamId, { unread: false });
+    await arrive(['just chatter'], 'e1');
+    expect(await ids()).toEqual(['1', '2']); // still pulled in
+    expect(calls()).toBe(0);
+    expect(notes).toEqual([]);
+    expect((await repo.getStream(streamId))!.unread).toBe(false);
+    await arrive(['just chatter', 'hey <@UPU123> your call'], 'e2');
+    off();
+    expect(calls()).toBe(1);
+    expect(notes).toHaveLength(1);
+    expect((await repo.getStream(streamId))!.unread).toBe(true);
+    expect((await repo.findItem('slack', 'C1:1.1'))!.data.unread).toBe(true); // its tab gets a dot even though it is silenced
+    expect((await repo.findItem('slack', 'C1:1.1'))!.data.muted).toBe(true); // and it stays silenced
+  });
+  it('without the override, even a direct mention stays quiet', async () => {
+    const { arrive, notes, off, calls } = await setup({ skipPolling: false, mentionsOverride: false });
+    await arrive(['hey <@UPU123> your call'], 'e1');
+    off();
+    expect(calls()).toBe(0);
+    expect(notes).toEqual([]);
+  });
+  it('threads read by the poll skip silenced ones when asked', async () => {
+    const { planTrackedSlackReads } = await import('../src/agent/mcpIngest.js');
+    const mk = (externalId: string, muted: boolean): any => ({ id: externalId, streamId: 's', source: 'slack', kind: 'slack_thread', externalId, title: '', data: { messages: [], muted: muted || undefined }, updatedAt: '2026-11-12T00:00:00Z' });
+    const items = [mk('C1:1.1', true), mk('C1:2.2', false), mk('D9:3.3', true)];
+    expect(planTrackedSlackReads(items).threads.map((t) => t.ts).sort()).toEqual(['1.1', '2.2']);
+    const skip = planTrackedSlackReads(items, { skipMuted: true });
+    expect(skip.threads.map((t) => t.ts)).toEqual(['2.2']);
+    expect(skip.conversations).toEqual([]); // the silenced DM isn't read either
+  });
+});

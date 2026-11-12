@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { ConfirmButton } from './ConfirmButton';
+import { useEffect, useRef, useState } from 'react';
 import type { StreamItem, WorkStream } from '@wc/shared';
 export { orderTabs } from '@wc/shared';
 import { BRAND_PATHS } from './brandIcons';
@@ -76,7 +75,7 @@ export function TabBar({
   peek,
   onClosePeek,
   onReorder,
-  onClose,
+  onAddUrl,
 }: {
   stream: WorkStream | null;
   items: StreamItem[];
@@ -86,8 +85,8 @@ export function TabBar({
   onClosePeek?: () => void;
   /** Drop `id` before or after `targetId`. Overview never moves. */
   onReorder?: (id: string, targetId: string, after: boolean) => void;
-  /** Close the work stream (the icon left of Overview; it asks for a second click). */
-  onClose?: () => void;
+  /** Add a work item from a pasted link (the + at the right of the bar). Rejects with a message the popover shows. */
+  onAddUrl?: (url: string) => Promise<void>;
 }) {
   const [over, setOver] = useState<{ id: string; after: boolean } | null>(null);
   // A previewed item (e.g. a skipped message) gets a temporary tab that is not part of the stream and goes away when you navigate off it.
@@ -114,22 +113,6 @@ export function TabBar({
   const droppable = (id: string) => !!draggingItem && draggingItem !== id && items.some((i) => i.id === draggingItem);
   return (
     <div className="tabbar" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(null)}>
-      {onClose && stream.status === 'open' && (
-        <ConfirmButton
-          className="tab-close"
-          armedClassName="tab-close armed"
-          ariaLabel="Close work stream"
-          title="Close this work stream (asks you to click twice)"
-          armedTitle="Click again to close this work stream"
-          armedChildren={<span className="tab-close-text">Close?</span>}
-          onConfirm={onClose}
-        >
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
-            <path d="M5.4 5.4l5.2 5.2M10.6 5.4l-5.2 5.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </ConfirmButton>
-      )}
       <div className="tablist" role="tablist">
       <button
         role="tab"
@@ -185,6 +168,72 @@ export function TabBar({
       ))}
       {peekTab}
       </div>
+      {onAddUrl && <AddByUrl onAdd={onAddUrl} />}
     </div>
+  );
+}
+
+/** The "+" at the right of the tab bar: a small popover under it takes a pasted link to add as a work item. */
+function AddByUrl({ onAdd }: { onAdd: (url: string) => Promise<void> }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const toggle = () => {
+    const r = btn.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    setOpen((o) => !o);
+    setErr(null);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!(e.target as Element).closest?.('.add-url-pop, .add-url-btn')) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  const submit = async () => {
+    if (!url.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await onAdd(url.trim());
+      setUrl('');
+      setOpen(false);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button ref={btn} type="button" className="add-url-btn" aria-label="New work item from a link" aria-expanded={open} title="New work item from a link" onClick={toggle}>
+        +
+      </button>
+      {open && (
+        <div className="add-url-pop" role="dialog" aria-label="New work item from a link" style={{ top: pos.top, right: pos.right }}>
+          <label className="small" htmlFor="add-url-input">
+            Paste a link to a Slack message, Gmail message, Google Doc or Jira issue
+          </label>
+          <div className="row-form">
+            <input id="add-url-input" autoFocus value={url} placeholder="https://…" onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void submit()} />
+            <button type="button" className="btn small primary" disabled={busy || !url.trim()} onClick={() => void submit()}>
+              {busy ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+          {err && <div className="error small">{err}</div>}
+          <div className="muted small">Claude will review it and add anything relevant to the Overview. For a Slack message, related messages posted after it come in too.</div>
+        </div>
+      )}
+    </>
   );
 }

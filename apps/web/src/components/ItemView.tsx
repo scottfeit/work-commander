@@ -6,14 +6,24 @@ const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${time
 import { SourceBadge, dragItem } from './TabBar';
 import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
+import { EmailHtml } from './EmailHtml';
 
-function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
+function Message({ m, compact, html, defaultOriginal }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean }) {
+  const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
+  const original = choice ?? !!defaultOriginal;
   return (
     <article className={`msg ${m.isFromPU ? 'from-pu' : ''} ${compact ? 'compact' : ''}`}>
       <header>
         <strong>{m.author.name ?? m.author.email ?? m.author.slackUserId}</strong>
         {!compact && m.author.email && <span className="muted"> &lt;{m.author.email}&gt;</span>}
-        <span className="muted small right">{fmtTime(m.at)}</span>
+        <span className="muted small right">
+          {html && (
+            <button className="link" aria-pressed={original} title={original ? 'Show the plain-text copy' : 'Show the email as it was sent'} onClick={() => setOriginal(!original)}>
+              {original ? 'Text' : 'Original'}
+            </button>
+          )}{' '}
+          {fmtTime(m.at)}
+        </span>
       </header>
       {!compact && (m.to?.length || m.cc?.length) ? (
         <div className="muted small">
@@ -21,15 +31,40 @@ function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
           {m.cc?.length ? <> · Cc: {m.cc.join(', ')}</> : null}
         </div>
       ) : null}
-      <div className="body">
-        <Linkified text={m.text} />
-      </div>
+      {original && html ? (
+        <EmailHtml html={html} />
+      ) : (
+        <div className="body">
+          <Linkified text={m.text} />
+        </div>
+      )}
     </article>
   );
 }
 
-export function ItemView({ item, onRemoved, peek, onDismiss, onQuickReply }: { item: StreamItem; onRemoved?: () => void; peek?: boolean; onDismiss?: () => void; onQuickReply?: (item: StreamItem) => void }) {
+export function ItemView({
+  item,
+  onRemoved,
+  peek,
+  onDismiss,
+  onQuickReply,
+}: {
+  item: StreamItem;
+  onRemoved?: () => void;
+  peek?: boolean;
+  onDismiss?: () => void;
+  onQuickReply?: (item: StreamItem) => void;
+}) {
   const t = item.data.ticket;
+  const [emailOriginal, setEmailOriginal] = useState(false);
+  useEffect(() => {
+    get('/api/settings').then((s) => setEmailOriginal(s.ui?.emailView === 'original')).catch(() => undefined);
+  }, [item.id]);
+  const [htmls, setHtmls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setHtmls({});
+    if (item.source === 'gmail') get<Record<string, string>>(`/api/items/${item.id}/html`).then(setHtmls).catch(() => undefined);
+  }, [item.id, item.source, item.updatedAt]);
   return (
     <div className="item-view">
       <div className="item-head">
@@ -96,7 +131,7 @@ export function ItemView({ item, onRemoved, peek, onDismiss, onQuickReply }: { i
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
           {item.data.messages.map((m) => (
-            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} />
+            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} />
           ))}
         </div>
       ) : (
@@ -213,7 +248,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ stream, items, onOpen, onMarkUnread }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void }) {
+export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePending }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onTogglePending?: () => void }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -239,6 +274,18 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread }: { stream
     <div className="item-view overview">
       <div className="item-head">
         <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
+        {onTogglePending && stream.status === 'open' && (
+          <button
+            type="button"
+            className={`btn small pending-btn ${stream.pending ? 'on' : ''}`}
+            aria-label={stream.pending ? 'Pending: put back in Open' : 'Mark pending'}
+            aria-pressed={stream.pending}
+            title={stream.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending: I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives."}
+            onClick={onTogglePending}
+          >
+            ✓
+          </button>
+        )}
         {onMarkUnread && (
           <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
             Mark unread

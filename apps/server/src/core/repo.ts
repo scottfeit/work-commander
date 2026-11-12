@@ -75,6 +75,7 @@ export class Repo {
       lastActivityAt: r.last_activity_at,
       pendingProposals: pendingN,
       unread: !!r.unread,
+      pending: !!r.pending,
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
@@ -106,6 +107,7 @@ export class Repo {
       ticket_target: input.ticketTarget ? j(input.ticketTarget) : null,
       agent_session_id: null,
       unread: 1,
+      pending: 0,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -120,7 +122,7 @@ export class Repo {
 
   async updateStream(
     id: string,
-    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; agentSessionId: string | null; touch: boolean }>,
+    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; pending: boolean; agentSessionId: string | null; touch: boolean }>,
     by: SummaryAuthor = 'claude',
   ) {
     const t = now();
@@ -131,10 +133,12 @@ export class Repo {
     if (patch.status !== undefined) {
       set.status = patch.status;
       set.closed_at = patch.status === 'closed' ? t : null;
+      if (patch.status === 'closed') set.pending = 0; // a closed stream is done, not waiting
     }
     if (patch.labels !== undefined) set.labels = j(patch.labels);
     if (patch.ticketTarget !== undefined) set.ticket_target = patch.ticketTarget ? j(patch.ticketTarget) : null;
     if (patch.unread !== undefined) set.unread = patch.unread ? 1 : 0;
+    if (patch.pending !== undefined) set.pending = patch.pending ? 1 : 0;
     if (patch.agentSessionId !== undefined) set.agent_session_id = patch.agentSessionId;
     if (patch.touch) set.last_activity_at = t;
     await this.db.updateTable('streams').set(set).where('id', '=', id).execute();
@@ -220,9 +224,9 @@ export class Repo {
   }
 
   /** New activity on an item in a work stream: flag its tab until the PU opens it. */
-  async markItemUnread(itemId: string) {
+  async markItemUnread(itemId: string, force = false) {
     const it = await this.getItem(itemId);
-    if (!it?.streamId || it.data.unread || it.data.muted) return; // a silenced item never raises a dot
+    if (!it?.streamId || it.data.unread || (it.data.muted && !force)) return; // a silenced item raises a dot only when something breaks through
     const data: ItemData = { ...it.data, unread: true };
     await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
     bus.publish({ type: 'item.updated', item: { ...it, data } });
@@ -264,6 +268,13 @@ export class Repo {
     return r ? this.toItem(r) : null;
   }
 
+  /** The item an incoming (source, externalId) will land in, if there already is one (same lookup upsertItem does, without writing). */
+  async findExistingItem(source: string, externalId: string) {
+    const dm = await this.findSlackDmItem(source, externalId);
+    const id = dm ? dm.externalId : externalId;
+    return (await this.findItem(source, id)) ?? (source === 'slack' ? await this.findAliasItem(id) : null);
+  }
+
   async findAliasItem(externalId: string) {
     const rows = await this.db.selectFrom('items').selectAll().where('source', '=', 'slack').where('data', 'like', `%"${externalId}"%`).execute();
     const hit = rows.map((r) => this.toItem(r)).find((i) => i.data.mergedExternalIds?.includes(externalId));
@@ -301,6 +312,7 @@ export class Repo {
         for (const a of r.data.mergedExternalIds ?? []) aliases.add(a);
         unread = unread || !!r.data.unread;
         await this.db.updateTable('inbound_events').set({ item_id: keep.id }).where('item_id', '=', r.id).execute();
+        await this.db.deleteFrom('message_html').where('item_id', '=', r.id).execute();
         await this.db.deleteFrom('items').where('id', '=', r.id).execute();
         bus.publish({ type: 'item.updated', item: { ...r, streamId: null } }); // takes its tab away
         merged++;
@@ -367,6 +379,7 @@ export class Repo {
         if (r.id === keep.id) continue;
         for (const m of this.toItem(r).data.messages ?? []) messages.set(m.id, m);
         await this.db.updateTable('inbound_events').set({ item_id: keep.id }).where('item_id', '=', r.id).execute();
+        await this.db.deleteFrom('message_html').where('item_id', '=', r.id).execute();
         await this.db.deleteFrom('items').where('id', '=', r.id).execute();
         merged++;
       }
@@ -389,6 +402,29 @@ export class Repo {
    * ingestion is idempotent. Returns the item and the messages that were new.
    */
   async upsertItem(input: Omit<StreamItem, 'id' | 'updatedAt' | 'streamId'> & { streamId?: string | null }) {
+    // Email HTML is kept apart from the item (which Claude reads and the UI lists); only the text stays in item data.
+    const htmls = (input.data.messages ?? []).filter((m) => m.html).map((m) => ({ id: m.id, html: m.html! }));
+    if (htmls.length) input = { ...input, data: { ...input.data, messages: input.data.messages!.map(({ html: _h, ...m }) => m) } };
+    const res = await this.upsertItemInner(input);
+    for (const h of htmls) await this.saveMessageHtml(res.item.id, h.id, h.html);
+    return res;
+  }
+
+  async saveMessageHtml(itemId: string, messageId: string, html: string) {
+    await this.db
+      .insertInto('message_html')
+      .values({ item_id: itemId, message_id: messageId, html })
+      .onConflict((oc) => oc.columns(['item_id', 'message_id']).doUpdateSet({ html }))
+      .execute();
+  }
+
+  /** Original HTML by message id for an item's emails. */
+  async getMessageHtml(itemId: string): Promise<Record<string, string>> {
+    const rows = await this.db.selectFrom('message_html').select(['message_id', 'html']).where('item_id', '=', itemId).execute();
+    return Object.fromEntries(rows.map((r) => [r.message_id, r.html]));
+  }
+
+  private async upsertItemInner(input: Omit<StreamItem, 'id' | 'updatedAt' | 'streamId'> & { streamId?: string | null }) {
     // A Slack DM is one conversation: later messages go into its existing item instead of starting a new "thread" per message.
     const dm = await this.findSlackDmItem(input.source, input.externalId);
     if (dm) input = { ...input, externalId: dm.externalId, title: /^Slack (DM|message)\b/.test(dm.title) && input.title ? input.title : dm.title };
@@ -816,6 +852,59 @@ export class Repo {
   async noteWcTransition(itemId: string) {
     const it = await this.getItem(itemId);
     if (it) await this.db.updateTable('items').set({ data: j({ ...it.data, wcTransitionAt: now() }) }).where('id', '=', itemId).execute();
+  }
+
+  /**
+   * Find earlier work streams that look like a query (keywords against titles, summaries, item titles and what Claude said or did in
+   * their chat). Plain keyword scoring, so it is explainable; `matched` is how many distinct words hit.
+   */
+  async searchPastWork(query: string, opts: { excludeStreamId?: string | null; closedOnly?: boolean; limit?: number; minMatched?: number } = {}) {
+    const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'has', 'was', 'are', 'you', 'your', 'can', 'could', 'please', 'will', 'would', 'about', 'there', 'their', 'what', 'when', 'which', 'into', 'just', 'need', 'hello', 'thanks', 'thank', 'regards']);
+    const tokens = [...new Set(query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{2,}/g) ?? [])].filter((t) => !STOP.has(t)).slice(0, 14);
+    if (!tokens.length) return [];
+    let q = this.db.selectFrom('streams').selectAll().orderBy('last_activity_at', 'desc').limit(500);
+    if (opts.closedOnly) q = q.where('status', '=', 'closed');
+    const streams = (await q.execute()).filter((s) => s.id !== opts.excludeStreamId);
+    if (!streams.length) return [];
+    const hits = new Map<string, { score: number; matched: Set<string>; snippet?: string; best: number }>();
+    const hit = (id: string) => hits.get(id) ?? hits.set(id, { score: 0, matched: new Set(), best: 0 }).get(id)!;
+    for (const s of streams) {
+      const title = s.title.toLowerCase();
+      const summary = s.summary.toLowerCase();
+      for (const t of tokens) {
+        const w = (title.includes(t) ? 3 : 0) + (summary.includes(t) ? 2 : 0);
+        if (w) Object.assign(hit(s.id), { score: hit(s.id).score + w }), hit(s.id).matched.add(t);
+      }
+    }
+    const ids = new Set(streams.map((s) => s.id));
+    const like = (col: any) => (eb: any) => eb.or(tokens.map((t) => eb(col, 'like', `%${t}%`)));
+    const items = await this.db.selectFrom('items').select(['stream_id', 'title']).where('stream_id', 'is not', null).where(like('title')).limit(400).execute();
+    for (const it of items) {
+      if (!it.stream_id || !ids.has(it.stream_id)) continue;
+      const title = it.title.toLowerCase();
+      for (const t of tokens) if (title.includes(t)) Object.assign(hit(it.stream_id), { score: hit(it.stream_id).score + 2 }), hit(it.stream_id).matched.add(t);
+    }
+    const chat = await this.db.selectFrom('chat_messages').select(['stream_id', 'content', 'role']).where('role', 'in', ['assistant', 'system']).where(like('content')).orderBy('created_at', 'desc').limit(400).execute();
+    for (const m of chat) {
+      if (!m.stream_id || !ids.has(m.stream_id)) continue;
+      const text = m.content.toLowerCase();
+      const found = tokens.filter((t) => text.includes(t));
+      const h = hit(m.stream_id);
+      for (const t of found) {
+        if (!h.matched.has(t)) h.score += 1;
+        h.matched.add(t);
+      }
+      if (found.length > h.best) Object.assign(h, { best: found.length, snippet: m.content.replace(/\s+/g, ' ').slice(0, 260) });
+    }
+    const byId = new Map(streams.map((s) => [s.id, s]));
+    return [...hits]
+      .filter(([, h]) => h.matched.size >= (opts.minMatched ?? 1))
+      .sort((a, b) => b[1].matched.size - a[1].matched.size || b[1].score - a[1].score)
+      .slice(0, opts.limit ?? 5)
+      .map(([id, h]) => {
+        const s = byId.get(id)!;
+        return { id, title: s.title, status: s.status, closedAt: s.closed_at ?? undefined, summary: s.summary.slice(0, 400), snippet: h.snippet, matched: h.matched.size, score: h.score };
+      });
   }
 
   /** Hide a skipped item from the Skipped list until it has new activity. */

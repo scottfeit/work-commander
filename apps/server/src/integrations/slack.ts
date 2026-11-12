@@ -95,6 +95,19 @@ export class SlackWorkspace implements ChatApi {
     };
   }
 
+  /** Messages in a channel after `oldest` (oldest first), for following a conversation on from a link. */
+  async messagesAfter(channel: string, oldest: string, limit = 100): Promise<{ messages: ThreadMessage[]; channelLabel?: string }> {
+    const me = await this.selfUserId();
+    const h = await this.web.conversations.history({ channel, oldest, limit });
+    const msgs = ((h.messages ?? []) as any[]).filter((m) => Number(m.ts) > Number(oldest)).sort((a, b) => Number(a.ts) - Number(b.ts));
+    const messages: ThreadMessage[] = [];
+    for (const m of msgs) {
+      const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+    }
+    return { messages, channelLabel: await this.channelName(channel) };
+  }
+
   /** A whole DM conversation as one item: recent history including the PU's own messages. */
   async getDmConversation(channel: string, triggerTs?: string): Promise<InboundItem> {
     const me = await this.selfUserId();

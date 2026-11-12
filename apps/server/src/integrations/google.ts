@@ -35,21 +35,23 @@ function decode(data?: string | null) {
   return data ? Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8') : '';
 }
 
-function bodyOf(part?: gmail_v1.Schema$MessagePart): { text: string; html?: string } {
-  if (!part) return { text: '' };
-  if (part.mimeType === 'text/plain' && part.body?.data) return { text: decode(part.body.data) };
-  if (part.mimeType === 'text/html' && part.body?.data) {
-    const html = decode(part.body.data);
-    return { text: htmlToText(html), html };
-  }
-  let html: string | undefined;
+/** The first text/plain and text/html bodies found anywhere in a message (multipart/alternative has both). */
+function bodies(part?: gmail_v1.Schema$MessagePart): { plain?: string; html?: string } {
+  if (!part) return {};
+  if (part.mimeType === 'text/plain' && part.body?.data) return { plain: decode(part.body.data) };
+  if (part.mimeType === 'text/html' && part.body?.data) return { html: decode(part.body.data) };
+  const out: { plain?: string; html?: string } = {};
   for (const p of part.parts ?? []) {
-    const b = bodyOf(p);
-    if (p.mimeType === 'text/plain' && b.text) return b;
-    if (b.html) html = b.html;
-    if (b.text && !html) return b;
+    const b = bodies(p);
+    out.plain ??= b.plain;
+    out.html ??= b.html;
   }
-  return html ? { text: htmlToText(html), html } : { text: '' };
+  return out;
+}
+
+export function bodyOf(part?: gmail_v1.Schema$MessagePart): { text: string; html?: string } {
+  const { plain, html } = bodies(part);
+  return { text: plain || (html ? htmlToText(html) : ''), html };
 }
 
 /** "Name <a@b.c>, d@e.f" -> ["a@b.c","d@e.f"] */
@@ -131,6 +133,7 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
         cc: parseAddressList(header(m, 'Cc')),
         subject: header(m, 'Subject'),
         text: b.text || m.snippet || '',
+        html: b.html,
         at: new Date(Number(m.internalDate ?? Date.now())).toISOString(),
         isFromPU: from.email === puEmail.toLowerCase() || (m.labelIds ?? []).includes('SENT'),
       };
