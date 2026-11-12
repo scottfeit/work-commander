@@ -186,6 +186,9 @@ export class Executor {
 
   private async run(p: Proposal, x: Record<string, any>): Promise<Record<string, unknown>> {
     if (!this.attachments && Array.isArray(x.attachments) && x.attachments.length) throw new Error('Attachments are not available');
+    // A draft started with Quick Reply can still be blank: never send nothing.
+    const written = p.kind === 'email_reply' || p.kind === 'email_send' ? x.body : p.kind === 'slack_post' ? x.text : p.kind === 'ticket_comment' ? x.body : p.kind === 'mcp_tool_call' && x.args && x.quick ? x.args.message : 'ok';
+    if (typeof written === 'string' && !written.trim() && !(Array.isArray(x.attachments) && x.attachments.length)) throw new Error('Write a message first');
     const files = this.attachments ? await this.attachments.resolve(x.attachments, p.streamId) : [];
     const attached = files.length ? { attachments: files.map((f) => f.filename) } : {};
     switch (p.kind) {

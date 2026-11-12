@@ -12,6 +12,7 @@ import { listMemberChannels } from '../integrations/slackChannels.js';
 import { DEFAULT_MAPPINGS, fetchJiraAssets, fetchWorkdayRaas, fetchWorkdayRest, mapRecords, missingMappedFields, parseFile } from '../orgchart/import.js';
 import { getOrgChartSync, refreshOrgChart } from '../orgchart/refresh.js';
 import { getBackupStatus, runBackup } from '../core/backup.js';
+import { startQuickReply } from '../core/quickReply.js';
 import { notFound } from '../core/errors.js';
 import { CREDENTIAL_LABELS } from '../secrets/store.js';
 import { buildBrief, defaultHandoffFolder, handoffCommand, openInTerminal, resolveHandoffFolder, writeHandoff } from '../core/handoff.js';
@@ -164,15 +165,34 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (id !== null && !(await repo.getStream(id))) throw notFound('Work stream');
     return id;
   };
+  f.post('/api/items/:id/quick-reply', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item) throw new Error('Item not found');
+    return startQuickReply(repo, item, await settings.get());
+  });
+  f.post('/api/items/:id/read', async (req) => {
+    await repo.markItemRead((req.params as any).id);
+    return { ok: true };
+  });
+  f.post('/api/streams/:id/item-order', async (req) => {
+    const b = z.object({ ids: z.array(z.string()) }).parse(req.body);
+    await repo.setItemOrder((req.params as any).id, b.ids);
+    return { ok: true };
+  });
   f.get('/api/items/:id', async (req) => {
     const item = await repo.getItem((req.params as any).id);
     if (!item) throw new Error('Item not found');
     return item;
   });
-  f.get('/api/items/skipped', async () => repo.listSkipped(14));
+  f.get('/api/items/skipped', async (req) => repo.listSkipped(14, (req.query as any).dismissed === '1'));
   f.post('/api/items/:id/dismiss', async (req) => {
     await repo.dismissSkipped((req.params as any).id);
     return { ok: true };
+  });
+  // "Accept": make a skipped item a work stream (or file it into the existing stream it belongs to).
+  f.post('/api/items/:id/accept', async (req) => {
+    const r = await app.triage.retriage((req.params as any).id, true);
+    return { streamId: r.streamId };
   });
   f.post('/api/items/:id/retriage', async (req) => {
     const b = z.object({ force: z.boolean().default(false) }).parse(req.body ?? {});

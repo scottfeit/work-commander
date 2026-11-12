@@ -110,13 +110,13 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .toggle { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 12.5px; }
 
 .main { display: grid; min-height: 0; min-width: 0; }
-.tabbar { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); background: var(--panel-2); overflow-x: auto; }
+.tabbar { display: flex; gap: 2px; padding: 6px 10px 0; background: var(--panel-2); box-shadow: inset 0 -1px 0 var(--line); overflow-x: auto; overflow-y: hidden; align-items: flex-end; }
 .tab {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid transparent; border-bottom: 0;
   border-radius: 7px 7px 0 0; background: transparent; cursor: pointer; color: var(--muted); max-width: 260px; flex: none;
 }
 .tab:hover { color: var(--text); }
-.tab.active { background: var(--panel); border-color: var(--line); color: var(--text); margin-bottom: -1px; }
+.tab.active { background: var(--panel); border-color: var(--line); color: var(--text); }
 .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .src { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
 .src-gmail { color: #c5221f; } .src-slack { color: #7c3aed; } .src-jira, .src-jsm { color: #1d64d8; } .src-grant { color: var(--ok); }
@@ -127,8 +127,9 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .bottom.with-drafts { grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.1fr); }
 
 .empty-state { padding: 40px; max-width: 620px; }
-.item-view { padding: 16px 22px 30px; max-width: 980px; }
-.item-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.item-view { padding: 0 22px 30px; max-width: 980px; }
+/* The header (title and buttons) stays put while the content scrolls. */
+.item-head { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 16px 0 10px; box-shadow: 0 1px 0 var(--line); margin-bottom: 12px; }
 .item-head h2 { margin: 0; flex: 1; font-size: 17px; }
 .title-input { font-size: 17px; font-weight: 600; border-color: transparent; background: transparent; flex: 1; padding: 4px 6px; margin-left: -6px; }
 .title-input:hover { border-color: var(--line); }
@@ -298,3 +299,43 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .channel-row:first-child { border-top: 0; }
 .channel-row:hover { background: var(--accent-soft); }
 .channel-row input { width: auto; margin: 0; }
+
+/* swipe a work stream tile sideways to mark it unread */
+.stream-scroll { overscroll-behavior-x: contain; }
+.swipe { position: relative; overflow: hidden; border-radius: 8px; touch-action: pan-y; }
+.swipe-bg { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding-left: 14px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 12px; }
+.swipe-bg.armed { background: var(--accent); color: var(--accent-ink); }
+.swipe-bg.armed .dot { background: var(--accent-ink); }
+.swipe-inner { position: relative; background: var(--panel-2); border-radius: 8px; }
+
+/* items triage didn't think were work, listed among the work streams */
+.skipped-tile { border: 1px dashed var(--line-2); }
+.skipped-tile:focus-visible { outline: 2px solid var(--accent); }
+.q-icon { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+
+.foot-toggles { display: flex; flex-direction: column; gap: 4px; }
+
+/* work item tabs: new-activity dot and drag-to-rearrange indicator */
+.tab { position: relative; }
+.tab .dot { margin-right: 2px; }
+.tab.drop-before::before, .tab.drop-after::after { content: ''; position: absolute; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--accent); }
+.tab.drop-before::before { left: -2px; }
+.tab.drop-after::after { right: -2px; }
+
+/* tool icons on drafts; a draft that Quick Reply just opened */
+.draft-head .src-icon { flex: none; }
+.logo.small { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+.logo.small::after { inset: 4px 3px; border-width: 1.5px; }
+.draft.flash { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow .3s; }
+
+.skipped-open { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+.skipped-open:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; }
+
+/* close-the-work-stream icon left of Overview */
+.tab-close { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center; margin: 0 4px 5px 0; min-width: 22px; height: 22px; padding: 0 4px; border: 0; border-radius: 11px; background: none; color: var(--muted); cursor: pointer; }
+.tab-close:hover { color: var(--text); background: var(--panel); }
+.tab-close.armed { background: var(--danger, #b3261e); color: #fff; padding: 0 9px; font-size: 12px; font-weight: 600; }
+.tab-close .tab-close-text { white-space: nowrap; }
+.item-body a, .body a { color: var(--accent); text-decoration: underline; word-break: break-all; }
+
+.tablist { display: flex; gap: 2px; align-items: flex-end; }

@@ -93,12 +93,17 @@ export function rawRequest(opts: { method?: string; path: string; headers?: Reco
  * Boots a fresh, isolated demo instance for the spec file that calls this (own data dir, fixed QA ports)
  * and stops it afterwards. Call once at the top of a spec file.
  */
+let currentDir = '';
+/** The demo instance's data directory (the sqlite file lives inside it). */
+export const demoDataDir = () => path.join(currentDir, '.work-commander-demo');
+
 export function freshApp() {
   let child: ChildProcess | null = null;
   let dir = '';
   test.beforeAll(async () => {
     test.setTimeout(120_000);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-qa-'));
+    currentDir = dir;
     child = spawn('node', ['scripts/dev.mjs', '--no-watch'], {
       cwd: ROOT,
       detached: true,

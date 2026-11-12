@@ -10,6 +10,7 @@ const SECTIONS = [
   ['slack', 'Slack'],
   ['atlassian', 'Atlassian'],
   ['onepassword', '1Password'],
+  ['display', 'Display'],
   ['secrets', 'Secrets'],
   ['backup', 'Backup'],
   ['status', 'Status & audit'],
@@ -338,6 +339,31 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </section>
         )}
 
+        {section === 'display' && (
+          <section>
+            <h2>Display</h2>
+            <Row label="Opening a work stream" hint="Which tab you land on when you click a work stream">
+              <Select
+                value={s.ui.openTab ?? 'overview'}
+                onChange={(openTab) => up('ui', { openTab })}
+                options={[
+                  { value: 'overview', label: 'Overview' },
+                  { value: 'recent', label: 'Most recently updated work item tab' },
+                ]}
+              />
+            </Row>
+            <Row label="Work item tabs">
+              <Toggle
+                checked={!!s.ui.recentTabFirst}
+                onChange={(recentTabFirst) => up('ui', { recentTabFirst })}
+                label="Show the most recently active tab right after Overview"
+              />
+            </Row>
+            <p className="muted small">
+              You can also drag tabs into any order within a work stream; Overview always stays first. With this on, the tab with the newest activity jumps to the front of the others.
+            </p>
+          </section>
+        )}
         {section === 'backup' && <BackupSection s={s} up={up} env={env} />}
         {section === 'status' && <StatusSection />}
       </main>

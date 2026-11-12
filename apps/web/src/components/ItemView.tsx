@@ -4,6 +4,8 @@ import { fmtTime, get, patch, post, timeAgo } from '../api';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
 import { SourceBadge, dragItem } from './TabBar';
+import { Linkified } from './Linkified';
+import { ConfirmButton } from './ConfirmButton';
 
 function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
   return (
@@ -19,12 +21,14 @@ function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
           {m.cc?.length ? <> · Cc: {m.cc.join(', ')}</> : null}
         </div>
       ) : null}
-      <div className="body">{m.text}</div>
+      <div className="body">
+        <Linkified text={m.text} />
+      </div>
     </article>
   );
 }
 
-export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamItem; onRemoved?: () => void; peek?: boolean; onDismiss?: () => void }) {
+export function ItemView({ item, onRemoved, peek, onDismiss, onQuickReply }: { item: StreamItem; onRemoved?: () => void; peek?: boolean; onDismiss?: () => void; onQuickReply?: (item: StreamItem) => void }) {
   const t = item.data.ticket;
   return (
     <div className="item-view">
@@ -36,6 +40,15 @@ export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamIte
           <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
             Open ↗
           </a>
+        )}
+        {!peek && onQuickReply && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && (
+          <button
+            className="btn small primary"
+            title={item.source === 'gmail' ? 'Open a blank reply-all draft' : item.source === 'slack' ? 'Open a blank message to this conversation' : 'Open a blank public comment'}
+            onClick={() => onQuickReply(item)}
+          >
+            Quick reply
+          </button>
         )}
         {peek ? (
           <button className="btn ghost small" title="Hide this from the Skipped list until it has new activity" onClick={onDismiss}>
@@ -59,7 +72,11 @@ export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamIte
             <div><dt>Requester</dt><dd>{t.requester ?? t.reporter ?? '—'}</dd></div>
             <div><dt>Type</dt><dd>{t.flavor === 'jsm' ? 'Service request' : 'Jira issue'}</dd></div>
           </dl>
-          {t.description && <div className="body block">{t.description}</div>}
+          {t.description && (
+            <div className="body block">
+              <Linkified text={t.description} />
+            </div>
+          )}
           <h3>Comments · {t.comments.length}</h3>
           {t.comments.length === 0 && <p className="muted">No comments yet.</p>}
           {t.comments.map((c) => (
@@ -180,7 +197,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void }) {
+export function StreamOverview({ stream, items, onOpen, onMarkUnread }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -206,13 +223,24 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
     <div className="item-view overview">
       <div className="item-head">
         <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
-        <button className="btn small" onClick={() => save({ status: stream.status === 'open' ? 'closed' : 'open' })}>
-          {stream.status === 'open' ? 'Close stream' : 'Reopen'}
-        </button>
+        {onMarkUnread && (
+          <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
+            Mark unread
+          </button>
+        )}
+        {stream.status === 'open' ? (
+          <ConfirmButton onConfirm={() => save({ status: 'closed' })} armedChildren="Click again to close" title="Close this work stream (asks you to click twice)" armedTitle="Click again to close this work stream">
+            Close stream
+          </ConfirmButton>
+        ) : (
+          <button className="btn small" onClick={() => save({ status: 'open' })}>
+            Reopen
+          </button>
+        )}
       </div>
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="muted small">
-        Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)} · {stream.labels.join(', ') || 'no labels'}
+        Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)}
       </div>
 
       {history.length > 0 && (

@@ -47,6 +47,7 @@ async function main() {
     f.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') ? reply.code(404).send({ error: 'Not found' }) : reply.sendFile('index.html')));
   }
 
+  await app.repo.mergeAllChannelItems().then((n) => n && f.log.info(`folded ${n} Slack channel message item(s) into their discussions`)).catch((e) => f.log.warn(`channel merge: ${e.message}`));
   await app.repo.mergeSlackDmItems().then((n) => n && f.log.info(`merged ${n} duplicate Slack DM item(s)`)).catch((e) => f.log.warn(`DM merge: ${e.message}`));
   await app.hub.start(app.triage.sink);
 

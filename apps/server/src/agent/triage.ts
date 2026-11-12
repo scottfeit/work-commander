@@ -66,6 +66,12 @@ export class TriagePipeline {
     return next;
   };
 
+  /** After routing: if the item ended up in a work stream and others added something new, flag its tab. */
+  private async flagUnread(itemId: string, fresh: ThreadMessage[]) {
+    if (!fresh.some((m) => !m.isFromPU)) return;
+    await this.repo.markItemUnread(itemId);
+  }
+
   /**
    * Judge events that were recorded but never finished (the server stopped, or the computer slept, in the middle of triage).
    * Events are de-duplicated on arrival, so without this they would be skipped for good.
@@ -101,6 +107,7 @@ export class TriagePipeline {
     const decision = await this.decide(inbound, item.streamId, fresh.length ? fresh : all.slice(-1), s);
     await this.repo.markInbound(ev.source, ev.external_id, decision.relevant, { ...decision, recovered: true });
     await this.route(inbound, item, decision, s);
+    await this.flagUnread(item.id, fresh);
   }
 
   async handle(inbound: InboundItem) {
@@ -129,6 +136,7 @@ export class TriagePipeline {
     const decision = await this.decide(inbound, item.streamId, fresh, s);
     await this.repo.markInbound(inbound.source, inbound.eventId, decision.relevant, decision);
     await this.route(inbound, item, decision, s);
+    await this.flagUnread(item.id, fresh);
   }
 
   /**
@@ -189,7 +197,10 @@ export class TriagePipeline {
     const inbound: InboundItem = { source: item.source, kind: item.kind, externalId: item.externalId, title: item.title, url: item.url, data: item.data, eventId: `retriage-${Date.now()}` };
     const s = await this.settings();
     let decision = await this.decide(inbound, null, fresh.length ? fresh : all.slice(-1), s);
-    if (force && (!decision.relevant || decision.stream.action === 'none')) {
+    // Forcing: if triage names an open stream the item belongs to, file it there; only otherwise start a new stream.
+    const namedOpen = decision.stream.action === 'existing' && !!decision.stream.streamId && (await this.repo.listStreams(false)).some((o) => o.id === decision.stream.streamId);
+    if (force && namedOpen && !decision.relevant) decision = { ...decision, relevant: true, reason: `Accepted by the PU. Triage said: ${decision.reason}` };
+    else if (force && (!decision.relevant || decision.stream.action === 'none')) {
       decision = {
         ...decision,
         relevant: true,
@@ -199,6 +210,7 @@ export class TriagePipeline {
     }
     await this.repo.audit('pu', 'item.retriaged', { itemId, force, relevant: decision.relevant, reason: decision.reason });
     await this.route(inbound, item, decision, s); // even when nothing is needed: the model may still say which stream it belongs to
+    await this.flagUnread(itemId, fresh);
     if (!decision.relevant) return { decision, streamId: (await this.repo.getItem(itemId))?.streamId ?? null };
     return { decision, streamId: (await this.repo.getItem(itemId))?.streamId ?? null };
   }

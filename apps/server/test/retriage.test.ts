@@ -207,3 +207,39 @@ describe('recovering interrupted triage', () => {
     expect(await repo.listUnprocessedInbound(0)).toHaveLength(0);
   });
 });
+
+describe('Accept (forced triage)', () => {
+  it('files into the open stream triage names instead of starting a new one, even when it judged "not work"', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const stream = (await repo.createStream({ title: 'Outage', summary: '' })).id;
+    const { item } = await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g', title: 'More outage news', data: { messages: [{ id: '1', author: { name: 'ISP' }, text: 'restored', at: '2026-11-11T00:00:00Z' }] } });
+    const d = { relevant: false, reason: 'FYI', stream: { action: 'existing', streamId: stream, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+    const t = new TriagePipeline(repo, { structured: async () => d } as any, { run: async () => undefined } as any, async () => defaultSettings());
+    const r = await t.retriage(item.id, true);
+    expect(r.streamId).toBe(stream);
+    expect(await repo.listStreams(false)).toHaveLength(1);
+  });
+  it('lists dismissed items only on request', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const { item } = await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g', title: 'FYI', data: { messages: [{ id: '1', author: { name: 'A' }, text: 'x', at: '2026-11-11T00:00:00Z' }] } });
+    await repo.dismissSkipped(item.id);
+    expect(await repo.listSkipped(14)).toEqual([]);
+    expect((await repo.listSkipped(14, true)).map((x) => [x.id, x.dismissed])).toEqual([[item.id, true]]);
+  });
+});
+
+describe('item tab dot from triage', () => {
+  it('flags the tab when others add something to an item in a stream, not for the PU\'s own messages', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const streamId = (await repo.createStream({ title: 't', summary: '' })).id;
+    await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g', title: 'Thread', data: { messages: [{ id: '1', author: { name: 'A' }, text: 'first', at: '2026-11-11T00:00:00Z' }] }, streamId });
+    const d = { relevant: true, reason: 'follow-up', stream: { action: 'existing', streamId, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+    const t = new TriagePipeline(repo, { structured: async () => d } as any, { run: async () => undefined } as any, async () => defaultSettings());
+    const msg = (id: string, name: string, pu: boolean) => ({ id, author: { name }, text: id, at: `2026-11-11T00:00:${id.padStart(2, '0')}Z`, isFromPU: pu });
+    const inbound = (messages: any[], eventId: string) => ({ source: 'gmail' as const, kind: 'email_thread' as const, externalId: 'g', title: 'Thread', eventId, data: { messages } });
+    await t.handle(inbound([msg('1', 'A', false), msg('2', 'Me', true)], 'e1'));
+    expect((await repo.findItem('gmail', 'g'))!.data.unread).toBeUndefined();
+    await t.handle(inbound([msg('1', 'A', false), msg('2', 'Me', true), msg('3', 'B', false)], 'e2'));
+    expect((await repo.findItem('gmail', 'g'))!.data.unread).toBe(true);
+  });
+});

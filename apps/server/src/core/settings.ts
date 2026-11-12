@@ -55,7 +55,7 @@ export function defaultSettings(): Settings {
       policy: { read: 'approve', write: 'approve' },
     },
     orgChart: { type: 'none' },
-    ui: { showClosedByDefault: false },
+    ui: { showClosedByDefault: false, recentTabFirst: false, openTab: 'overview' },
     backup: { enabled: false, folder: '', everyHours: 24, keep: 14 },
     setupComplete: false,
   };

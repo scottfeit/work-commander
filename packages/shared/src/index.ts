@@ -54,6 +54,8 @@ export interface WorkStream {
   lastActivityAt: string;
   pendingProposals: number;
   unread: boolean;
+  /** The tool the most recently updated item came from (shown as an icon on the stream). */
+  lastSource?: ItemSource;
   runState: 'idle' | 'running' | 'waiting_approval';
 }
 
@@ -98,6 +100,14 @@ export interface ItemData {
   dismissedAt?: string;
   /** When Work Commander last changed this ticket's status itself (so the resulting state isn't mistaken for new activity). */
   wcTransitionAt?: string;
+  /** New activity arrived on this item that the PU hasn't opened yet (a dot on its tab). */
+  unread?: boolean;
+  /** Position of this item's tab within its work stream when the PU has rearranged them. */
+  tabOrder?: number;
+  /** When the PU last arranged this stream's tabs; the "most recent tab first" setting only applies to activity newer than this. */
+  tabOrderAt?: string;
+  /** External ids of items folded into this one (Slack messages from the same channel discussion), so re-ingesting them lands here. */
+  mergedExternalIds?: string[];
   /** Ticket-specific */
   ticket?: {
     key: string;
@@ -353,7 +363,10 @@ export interface Settings {
   atlassian: AtlassianSettings;
   onepassword: OnePasswordSettings;
   orgChart: OrgChartSourceSettings;
-  ui: { showClosedByDefault: boolean };
+  ui: { showClosedByDefault: boolean; /** Put the most recently active item tab right after Overview. */ recentTabFirst?: boolean;
+    /** What a work stream shows when you open it: its Overview, or its most recently updated item tab. */
+    openTab?: 'overview' | 'recent';
+  };
   backup: BackupSettings;
   setupComplete: boolean;
 }
@@ -391,3 +404,18 @@ export type ServerEvent =
   | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string };
 
 export const GENERAL_STREAM = '__general__';
+
+/** Tab order for a work stream: the PU's arrangement first, and optionally the most recently active tab hoisted next to Overview. */
+export function orderTabs(items: StreamItem[], recentFirst: boolean): StreamItem[] {
+  const arranged = items
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => (a.it.data.tabOrder ?? Infinity) - (b.it.data.tabOrder ?? Infinity) || a.i - b.i)
+    .map((x) => x.it);
+  if (!recentFirst || arranged.length < 2) return arranged;
+  const latest = arranged.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a));
+  // Rearranging the tabs yourself wins until something newer happens.
+  const arrangedAt = arranged.reduce((m, i) => (i.data.tabOrderAt && i.data.tabOrderAt > m ? i.data.tabOrderAt : m), '');
+  if (arrangedAt && latest.updatedAt <= arrangedAt) return arranged;
+  return [latest, ...arranged.filter((i) => i.id !== latest.id)];
+}
+
