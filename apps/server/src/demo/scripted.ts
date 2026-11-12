@@ -15,16 +15,18 @@ export class ScriptedBackend implements AgentBackend {
   }
 
   async structured<T>(i: { prompt: string; schema: z.ZodType<T> }): Promise<T> {
-    const p = i.prompt;
+    // Match on the incoming message only, not on the list of recently skipped items.
+    const p = i.prompt.replace(/Recently skipped messages[\s\S]*?\n\n/, '');
     const existing = p.match(/ALREADY attached to stream (\S+);/)?.[1] ?? null;
     let d: TriageDecision;
     if (/SaaS Weekly/.test(p)) {
-      d = { relevant: false, reason: 'Newsletter', stream: { action: 'none', streamId: null, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+      d = { relevant: false, reason: 'Newsletter', stream: { action: 'none', streamId: null, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
     } else if (/Contractor access/i.test(p) && !existing) {
       d = {
         relevant: true,
         reason: 'Lee (Security) asks Alex directly to confirm the access level and open a request.',
         stream: { action: 'new', streamId: null, title: 'Northwind contractor access to Acme console', summary: 'Priya asked for Northwind contractors to get Acme admin console access; Security (Lee) wants the access level confirmed and a request opened.', labels: ['access-request', 'acme'] },
+        relatedItemIds: null,
         updatedSummary: null,
         notify: { title: 'Needs you', body: 'Lee asked you to confirm access level and open a request for the Northwind contractors.' },
         next: { type: 'draft', instruction: 'Create an access-request ticket (requester Priya) and reply-all saying the ticket was created, with the ticket number.', offerLabel: null },
@@ -34,12 +36,13 @@ export class ScriptedBackend implements AgentBackend {
         relevant: true,
         reason: 'Marco answered the question needed for OPS ticket research.',
         stream: { action: 'existing', streamId: existing, title: null, summary: null, labels: null },
+        relatedItemIds: null,
         updatedSummary: null,
         notify: { title: 'Marco replied', body: 'Northwind QA group, 6 people, read-only.' },
         next: { type: 'draft', instruction: "Use Marco's answer to continue researching the ticket.", offerLabel: null },
       };
     } else {
-      d = { relevant: !!existing, reason: 'Follow-up activity', stream: { action: existing ? 'existing' : 'none', streamId: existing, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+      d = { relevant: !!existing, reason: 'Follow-up activity', stream: { action: existing ? 'existing' : 'none', streamId: existing, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
     }
     return i.schema.parse(d);
   }

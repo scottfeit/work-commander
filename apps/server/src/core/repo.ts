@@ -727,6 +727,13 @@ export class Repo {
       return false;
     }
   }
+  /** Events that were recorded but never judged (e.g. the server stopped mid-triage). Recent ones only. */
+  async listUnprocessedInbound(olderThanMs: number, limit = 10) {
+    const before = new Date(Date.now() - olderThanMs).toISOString();
+    const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    return this.db.selectFrom('inbound_events').select(['source', 'external_id', 'item_id']).where('processed_at', 'is', null).where('received_at', '<=', before).where('received_at', '>', since).orderBy('received_at', 'asc').limit(limit).execute();
+  }
+
   async markInbound(source: string, externalId: string, relevant: boolean, decision: unknown) {
     await this.db
       .updateTable('inbound_events')

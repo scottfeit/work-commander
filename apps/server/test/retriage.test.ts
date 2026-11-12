@@ -141,3 +141,69 @@ describe('the PU replies directly (outside WC)', () => {
     expect(it.data.messages?.some((m) => m.id.startsWith('sent-'))).toBe(false);
   });
 });
+
+describe('auto-linking by ticket key', () => {
+  let repo: Repo;
+  let calls = 0;
+  const triage = () => new TriagePipeline(repo, { structured: async () => (calls++, no) } as any, { run: async () => undefined } as any, async () => defaultSettings());
+  const slack = (text: string, id = 't1') => ({ source: 'slack' as const, kind: 'slack_thread' as const, externalId: `C1:${id}`, title: 'follow-up in #ops', eventId: `e-${id}`, data: { messages: [{ id: '9', author: { name: 'Scott' }, text, at: '2026-11-11T00:00:00Z', isFromPU: true }] } });
+  const stream = async (title: string) => (await repo.createStream({ title, summary: '' })).id;
+  beforeEach(async () => {
+    repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    calls = 0;
+  });
+
+  it("links the PU's own Slack message that names a tracked ticket to that stream, without a model call", async () => {
+    const id = await stream('IT-75435 Umbrella reinstall');
+    await triage().handle(slack('Update on IT-75435: waiting on Jamf'));
+    const it = (await repo.findItem('slack', 'C1:t1'))!;
+    expect(it.streamId).toBe(id);
+    expect(calls).toBe(0);
+  });
+  it('Triage again links it too, instead of creating a second stream', async () => {
+    const id = await stream('IT-75435 Umbrella reinstall');
+    const { item } = await repo.upsertItem(slack('Re IT-75435: more info', 't2'));
+    const r = await triage().retriage(item.id, true);
+    expect(r.streamId).toBe(id);
+    expect(await repo.listStreams(false)).toHaveLength(1);
+  });
+  it('does not guess when several open streams track the mentioned tickets', async () => {
+    await stream('IT-1 first');
+    await stream('IT-2 second');
+    await triage().handle(slack('Both IT-1 and IT-2 are related'));
+    expect((await repo.findItem('slack', 'C1:t1'))!.streamId).toBeNull();
+  });
+});
+
+describe('related skipped messages', () => {
+  it('shows recent skipped items to triage and files the related ones into the new stream', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const a = (await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'a', title: 'Pilot: Outage - 60 East 42nd', data: { messages: [{ id: '1', author: { name: 'Pilot' }, text: 'power outage', at: new Date().toISOString() }] } })).item;
+    const unrelated = (await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'u', title: 'Newsletter', data: { messages: [{ id: '2', author: { name: 'News' }, text: 'weekly', at: new Date().toISOString() }] } })).item;
+    let seen = '';
+    const decision = { relevant: true, reason: 'NYC office outage: several reports of one incident', stream: { action: 'new', streamId: null, title: 'NYC office outage', summary: 'Network down in NYC', labels: [] }, relatedItemIds: [a.id, 'nope'], updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+    const t = new TriagePipeline(repo, { structured: async (i: any) => ((seen = i.prompt), decision) } as any, { run: async () => undefined } as any, async () => defaultSettings());
+    await t.handle({ source: 'gmail', kind: 'email_thread', externalId: 'b', title: 'NYC internet down', eventId: 'e1', data: { messages: [{ id: '3', author: { name: 'Ben', email: 'ben@x.com' }, text: 'office is offline', at: new Date().toISOString() }] } });
+    expect(seen).toContain('Recently skipped messages');
+    expect(seen).toContain(`item ${a.id}`);
+    const streamId = (await repo.findItem('gmail', 'b'))!.streamId!;
+    expect((await repo.getItem(a.id))!.streamId).toBe(streamId);
+    expect((await repo.getItem(unrelated.id))!.streamId).toBeNull();
+  });
+});
+
+describe('recovering interrupted triage', () => {
+  it('judges an event that was recorded but never processed, and files it', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const stream = (await repo.createStream({ title: 'Ticket work', summary: '' })).id;
+    const { item } = await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g1', title: '[JIRA] X mentioned you on PD-1', data: { messages: [{ id: '1', author: { name: 'Jira' }, text: 'please check', at: '2026-11-11T00:00:00Z' }] } });
+    await repo.recordInbound('gmail', 'g1', item.id); // ...and then the process died
+    expect(await repo.listUnprocessedInbound(0)).toHaveLength(1);
+    expect(await repo.listUnprocessedInbound(60_000)).toHaveLength(0); // too recent to be sure it is stuck
+    const decision = { relevant: true, reason: 'Needs a look', stream: { action: 'existing', streamId: stream, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+    const t = new TriagePipeline(repo, { structured: async () => decision } as any, { run: async () => undefined } as any, async () => defaultSettings());
+    expect(await t.recoverUnprocessed(0)).toBe(1);
+    expect((await repo.getItem(item.id))!.streamId).toBe(stream);
+    expect(await repo.listUnprocessedInbound(0)).toHaveLength(0);
+  });
+});

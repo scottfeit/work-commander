@@ -290,3 +290,11 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .skipped-title.clickable { cursor: pointer; }
 .skipped-title.clickable:hover span:last-child { text-decoration: underline; }
 .skipped-row.open { background: var(--accent-soft); }
+
+/* Slack channel picker: about five rows, then scroll */
+.channel-picker { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.channel-list { max-height: 148px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.channel-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; height: 29px; box-sizing: border-box; cursor: pointer; border-top: 1px solid var(--line); }
+.channel-row:first-child { border-top: 0; }
+.channel-row:hover { background: var(--accent-soft); }
+.channel-row input { width: auto; margin: 0; }

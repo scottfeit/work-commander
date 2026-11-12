@@ -7,6 +7,7 @@ import { stripQuoted } from '../integrations/types.js';
 import type { AgentBackend } from './backend.js';
 import type { StreamAgentRunner } from './runner.js';
 import { TRIAGE_RULES, puBlock, streamsBlock } from './prompts.js';
+import { timeAgo } from '../core/time.js';
 
 export const TriageDecision = z.object({
   relevant: z.boolean(),
@@ -18,6 +19,8 @@ export const TriageDecision = z.object({
     summary: z.string().nullable(),
     labels: z.array(z.string()).nullable(),
   }),
+  /** Ids of recently skipped items that are about the same event/piece of work as this one; they join its stream. */
+  relatedItemIds: z.array(z.string()).nullable(),
   updatedSummary: z.string().nullable(),
   notify: z.object({ title: z.string(), body: z.string() }).nullable(),
   next: z.object({ type: z.enum(['none', 'draft', 'offer']), instruction: z.string(), offerLabel: z.string().nullable() }),
@@ -62,6 +65,43 @@ export class TriagePipeline {
     this.chain = next;
     return next;
   };
+
+  /**
+   * Judge events that were recorded but never finished (the server stopped, or the computer slept, in the middle of triage).
+   * Events are de-duplicated on arrival, so without this they would be skipped for good.
+   */
+  async recoverUnprocessed(olderThanMs = 3 * 60_000, limit = 10) {
+    let recovered = 0;
+    for (const ev of await this.repo.listUnprocessedInbound(olderThanMs, limit)) {
+      const next = this.chain.catch(() => undefined).then(() => this.recoverOne(ev));
+      this.chain = next;
+      try {
+        await next;
+        recovered++;
+      } catch (e: any) {
+        console.error('[triage recovery]', e.message); // stays unprocessed; retried on the next pass
+      }
+    }
+    return recovered;
+  }
+
+  private async recoverOne(ev: { source: string; external_id: string; item_id: string | null }) {
+    const item = ev.item_id ? await this.repo.getItem(ev.item_id) : null;
+    if (!item) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'item no longer exists' });
+    if (!item.streamId) {
+      const linked = await this.autoLink(item);
+      if (linked) return this.repo.markInbound(ev.source, ev.external_id, true, { recovered: true, linked: linked.streamId, reason: 'References a ticket an open work stream already tracks' });
+    }
+    const all = item.data.messages ?? item.data.ticket?.comments ?? [];
+    const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
+    const fresh = all.slice(lastPU + 1).filter((m) => !m.isFromPU);
+    if (!fresh.length && item.kind !== 'ticket') return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'nothing new from others' });
+    const inbound: InboundItem = { source: item.source, kind: item.kind, externalId: item.externalId, title: item.title, url: item.url, data: item.data, eventId: ev.external_id };
+    const s = await this.settings();
+    const decision = await this.decide(inbound, item.streamId, fresh.length ? fresh : all.slice(-1), s);
+    await this.repo.markInbound(ev.source, ev.external_id, decision.relevant, { ...decision, recovered: true });
+    await this.route(inbound, item, decision, s);
+  }
 
   async handle(inbound: InboundItem) {
     const up = await this.repo.upsertItem(inbound);
@@ -110,17 +150,24 @@ export class TriagePipeline {
   }
 
   /**
-   * A ticket that an open work stream already mentions (typically the email the stream started from) joins that stream,
-   * even when its only activity is the PU's own, which never reaches the model.
+   * An item that references a ticket key (it is the ticket, or an email/Slack message mentioning it) joins the one open work stream
+   * that already tracks that key, even when its only activity is the PU's own, which never reaches the model.
    */
   private async autoLink(item: StreamItem): Promise<StreamItem | null> {
-    const key = item.data.ticket?.key;
-    if (!key) return null;
-    const stream = await this.repo.findOpenStreamMentioning(key, item.data.notRelevantTo);
-    if (!stream) return null;
+    const keys = new Set<string>();
+    if (item.data.ticket?.key) keys.add(item.data.ticket.key);
+    const text = [item.title, ...(item.data.messages ?? []).map((m) => m.text)].join('\n');
+    for (const k of text.match(/\b[A-Z][A-Z0-9]{1,9}-\d+\b/g) ?? []) if (keys.size < 6) keys.add(k);
+    const found = new Map<string, { stream: { id: string }; key: string }>();
+    for (const key of keys) {
+      const stream = await this.repo.findOpenStreamMentioning(key, item.data.notRelevantTo);
+      if (stream) found.set(stream.id, { stream, key });
+    }
+    if (found.size !== 1) return null; // none, or several candidates: leave it to triage
+    const { stream, key } = [...found.values()][0];
     await this.repo.attachItem(item.id, stream.id);
     await this.repo.updateStream(stream.id, { touch: true });
-    await this.repo.addChat({ streamId: stream.id, role: 'system', content: `${key} added to this work stream: it is already referenced here.` });
+    await this.repo.addChat({ streamId: stream.id, role: 'system', content: `"${item.title}" added to this work stream: it references ${key}, which is already tracked here.` });
     return (await this.repo.getItem(item.id)) ?? null;
   }
 
@@ -132,9 +179,9 @@ export class TriagePipeline {
   async retriage(itemId: string, force = false): Promise<{ decision: TriageDecision; streamId: string | null }> {
     const item = await this.repo.getItem(itemId);
     if (!item) throw new Error('Item not found');
-    if (item.streamId) return { decision: { relevant: true, reason: 'Already in a work stream', stream: { action: 'existing', streamId: item.streamId, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: item.streamId };
+    if (item.streamId) return { decision: { relevant: true, reason: 'Already in a work stream', stream: { action: 'existing', streamId: item.streamId, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: item.streamId };
     const linked = await this.autoLink(item);
-    if (linked) return { decision: { relevant: true, reason: 'Already referenced by an open work stream', stream: { action: 'existing', streamId: linked.streamId, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: linked.streamId };
+    if (linked) return { decision: { relevant: true, reason: 'Already referenced by an open work stream', stream: { action: 'existing', streamId: linked.streamId, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } }, streamId: linked.streamId };
     const all = item.data.messages ?? item.data.ticket?.comments ?? [];
     // What needs a response: everything others sent since the PU last wrote (or the last message).
     const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
@@ -203,6 +250,13 @@ export class TriagePipeline {
     await this.repo.updateStream(streamId, { touch: true, unread: true, ...(decision.updatedSummary ? { summary: decision.updatedSummary } : {}) });
     await this.repo.withdrawStaleClose(streamId, `new activity arrived (${inbound.title.slice(0, 60)})`);
     if (!decision.relevant) return;
+    // Earlier skipped messages that turn out to be part of the same event join this stream.
+    for (const id of (decision.relatedItemIds ?? []).slice(0, 15)) {
+      const rel = id === item.id ? null : await this.repo.getItem(id);
+      if (!rel || rel.streamId || rel.data.notRelevantTo?.includes(streamId)) continue;
+      await this.repo.attachItem(rel.id, streamId);
+      await this.repo.addChat({ streamId, role: 'system', content: `"${rel.title}" added to this work stream: it is about the same event (earlier skipped).` });
+    }
 
     if (decision.notify) {
       bus.publish({ type: 'notify', streamId, title: decision.notify.title, body: decision.notify.body });
@@ -243,6 +297,13 @@ export class TriagePipeline {
       const rows = await this.repo.db.selectFrom('items').select(['stream_id', 'data']).where('source', '=', 'slack').where('stream_id', 'is not', null).execute();
       for (const r of rows) if (r.data.includes(`"channel":"${inbound.data.slack.channel}"`)) hints.push(`Stream ${r.stream_id} recently messaged in this same Slack conversation.`);
     }
+    // Messages triage skipped in the last day: related ones (several alerts about one outage, say) can add up to real work together.
+    const self_ = await this.repo.findItem(inbound.source, inbound.externalId);
+    const recentSkipped = (await this.repo.listSkipped(1)).filter((x) => x.id !== self_?.id).slice(0, 15);
+    const skippedBlock = recentSkipped.length
+      ? 'Recently skipped messages (last 24h, in no work stream). If this new message and any of them are about the same event or piece of work, list their ids in relatedItemIds:\n' +
+        recentSkipped.map((x) => `- item ${x.id} [${x.source}] "${x.title}"${x.from ? ` from ${x.from}` : ''} (${timeAgo(x.updatedAt)}); skipped because: ${x.reason.slice(0, 160)}`).join('\n')
+      : '';
     const t = inbound.data.ticket;
     const prompt = [
       puBlock(s.pu, { self, manager, reports }),
@@ -250,6 +311,7 @@ export class TriagePipeline {
       streamsBlock(open),
       existingStreamId ? `This item is ALREADY attached to stream ${existingStreamId}; use action "existing" with that id.` : '',
       hints.join('\n'),
+      skippedBlock,
       `Incoming ${inbound.source} ${inbound.kind}: "${inbound.title}" ${inbound.url ?? ''}`,
       t ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? 'unassigned'} requester=${t.requester ?? '?'}\n${(t.description ?? '').slice(0, 2000)}` : '',
       `Earlier context:\n${msgs.filter((m) => !fresh.includes(m)).slice(-4).map(fmt).join('\n\n') || '(none)'}`,

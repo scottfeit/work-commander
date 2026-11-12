@@ -8,8 +8,10 @@ import { GOOGLE_SCOPES, oauthClient } from '../integrations/google.js';
 import { McpConnection, isReadOnlyTool } from '../integrations/mcp.js';
 import { AtlassianCloud } from '../integrations/atlassian.js';
 import { SlackWorkspace } from '../integrations/slack.js';
+import { listMemberChannels } from '../integrations/slackChannels.js';
 import { DEFAULT_MAPPINGS, fetchJiraAssets, fetchWorkdayRaas, fetchWorkdayRest, mapRecords, missingMappedFields, parseFile } from '../orgchart/import.js';
 import { getOrgChartSync, refreshOrgChart } from '../orgchart/refresh.js';
+import { getBackupStatus, runBackup } from '../core/backup.js';
 import { notFound } from '../core/errors.js';
 import { CREDENTIAL_LABELS } from '../secrets/store.js';
 import { buildBrief, defaultHandoffFolder, handoffCommand, openInTerminal, resolveHandoffFolder, writeHandoff } from '../core/handoff.js';
@@ -65,6 +67,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     availableProviders: cfg.hosting === 'local' ? ['claude-code-login', 'vertex', 'api-key'] : ['vertex', 'api-key'],
     publicUrl: cfg.publicUrl,
     version: cfg.version,
+    backupAvailable: cfg.databaseUrl.startsWith('sqlite:'),
   }));
 
   // ---------- live events ----------
@@ -359,6 +362,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   });
 
   // ---------- integrations ----------
+  f.get('/api/slack/channels', async () => ({ channels: await listMemberChannels(await settings.get(), (id) => secrets.get(id)) }));
   f.get('/api/integrations/status', async () => hub.status);
   f.post('/api/integrations/sync', async () => {
     await hub.pollAll();
@@ -424,6 +428,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.replacePeople(source, people);
     return { imported: people.length, skipped: records.length - people.length };
   });
+  f.get('/api/backup/status', async () => getBackupStatus(repo));
+  f.post('/api/backup/run', async () => runBackup({ repo, settings: () => settings.get(), sqlite: cfg.databaseUrl.startsWith('sqlite:') }));
   f.get('/api/orgchart/sync', async () => getOrgChartSync(repo));
   f.post('/api/orgchart/refresh', async () => {
     const st = await refreshOrgChart({ repo, secrets, settings: () => settings.get() });

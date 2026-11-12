@@ -9,6 +9,7 @@ import { registerRoutes } from './api/routes.js';
 import { HandoffWatcher, RESULT_FILE } from './core/handoff.js';
 import { bus } from './core/bus.js';
 import { OrgChartRefresher } from './orgchart/refresh.js';
+import { BackupScheduler } from './core/backup.js';
 
 async function main() {
   const cfg = loadConfig();
@@ -70,6 +71,14 @@ async function main() {
 
   // Workday report as org chart source: re-pull it periodically (a failed pull leaves the org chart as it was).
   new OrgChartRefresher({ repo: app.repo, secrets: app.secrets, settings: () => app.settings.get() }, (m) => f.log.warn(m)).start();
+
+  // Messages whose triage was cut short (restart, sleep) are judged now and every few minutes after.
+  const recover = () => void app.triage.recoverUnprocessed().catch((e) => f.log.warn(`triage recovery: ${e.message}`));
+  recover();
+  setInterval(recover, 5 * 60_000).unref();
+
+  // Scheduled database backups (local SQLite only), configured under Settings > Backup.
+  new BackupScheduler({ repo: app.repo, settings: () => app.settings.get(), sqlite: cfg.databaseUrl.startsWith('sqlite:') }, (m) => f.log.warn(m)).start();
 
   // On GCP, Jira webhooks arrive through the IAP-free relay service via Pub/Sub.
   if (process.env.WC_JIRA_SUBSCRIPTION) {

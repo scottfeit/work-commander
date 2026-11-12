@@ -5,6 +5,7 @@ import type { SecretStore } from '../secrets/store.js';
 import type { InboundSink, Ingestor } from '../integrations/types.js';
 import { isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
 import type { AgentBackend } from './backend.js';
+import { parseWatchedChannels } from '../integrations/slack.js';
 
 const Polled = z.object({
   items: z.array(
@@ -91,6 +92,11 @@ export class McpPollIngestor implements Ingestor {
       const ext = [{ name: this.system, system: this.system, settings: m, config }];
       let instruction = (m.ingestionPrompt || DEFAULTS[this.system]).replaceAll('{since}', since);
       if (this.system === 'slack') {
+        const watched = parseWatchedChannels(s.slack.watchedChannels);
+        if (watched.length)
+          instruction +=
+            `\nAlso watch these Slack channels: ${watched.map((w) => (/^[CG][A-Z0-9]{6,}$/.test(w) ? w : `#${w}`)).join(', ')}. Find each one (the channel search tool resolves names), read its recent history with the channel-history read tool, ` +
+            `and return every top-level message and thread with activity after ${since}, even when it does not mention the PU. One item per thread: externalId "<channel id>:<thread_ts>".`;
         // Conversations already in open work streams are checked directly, not left to Slack search.
         const channels = await this.trackedSlackChannels();
         if (channels.length)

@@ -8,6 +8,11 @@ import type { OutFile } from '../core/attachments.js';
  * Slack via a *user* token (xoxp-) so approved messages post as the PU. Socket Mode (app-level
  * token, xapp-) delivers events subscribed "on behalf of users" for real-time ingestion.
  */
+/** "#sys-eng, #helpsec-ops\nC012345" -> ["sys-eng", "helpsec-ops", "C012345"] */
+export function parseWatchedChannels(s: string | undefined) {
+  return [...new Set((s ?? '').split(/[,\n;]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean))];
+}
+
 export class SlackWorkspace implements ChatApi {
   web: WebClient;
   private uid?: string;
@@ -248,6 +253,24 @@ export class SlackIngestor implements Ingestor {
             maxTs = Math.max(maxTs, Number(newest));
           }
         } else for (const m of msgs) if (m.user !== me) await emit(c.id!, m.thread_ts ?? m.ts, m.ts);
+      }
+      // Watched channels: new messages there, even when they don't mention the PU.
+      const watched = parseWatchedChannels(this.s.watchedChannels);
+      if (watched.length) {
+        const byName = new Map<string, string>();
+        let cursor: string | undefined;
+        for (let page = 0; page < 5; page++) {
+          const r = await this.slack.web.conversations.list({ types: 'public_channel,private_channel', exclude_archived: true, limit: 1000, cursor });
+          for (const c of r.channels ?? []) if (c.name && c.id) byName.set(c.name.toLowerCase(), c.id);
+          cursor = r.response_metadata?.next_cursor || undefined;
+          if (!cursor) break;
+        }
+        for (const w of watched) {
+          const id = /^[CG][A-Z0-9]{6,}$/.test(w) ? w : byName.get(w.toLowerCase());
+          if (!id) continue;
+          const h = await this.slack.web.conversations.history({ channel: id, oldest: String(since), limit: 30 });
+          for (const m of (h.messages ?? []) as any[]) if (m.user !== me) await emit(id, m.thread_ts ?? m.ts, m.ts);
+        }
       }
       for (const k of await this.trackedThreads()) {
         const [channel, threadTs] = k.split(':');

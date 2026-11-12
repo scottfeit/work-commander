@@ -247,6 +247,8 @@ export interface SlackSettings {
   mode: 'api' | 'mcp';
   api: { userTokenId?: string; appTokenId?: string; teamUrl?: string };
   mcp?: McpServerSettings;
+  /** Channels to watch for new messages even when they don't mention the PU: names (#sys-eng) or ids, separated by commas or new lines. */
+  watchedChannels: string;
   ingestion: IngestionMode;
   pollSeconds: number;
   policy: { read: PolicyMode; write: PolicyMode };
@@ -302,6 +304,22 @@ export interface OrgChartSyncStatus {
   lastCount?: number;
 }
 
+/** Scheduled copies of Work Commander's local database into a folder (e.g. a Google Drive folder). */
+export interface BackupSettings {
+  enabled: boolean;
+  folder: string;
+  everyHours: number;
+  /** How many backups to keep in the folder; older ones are deleted. */
+  keep: number;
+}
+
+export interface BackupStatus {
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  lastFile?: string;
+  lastError?: string;
+}
+
 export interface FieldMapping {
   name: string;
   email: string;
@@ -336,6 +354,7 @@ export interface Settings {
   onepassword: OnePasswordSettings;
   orgChart: OrgChartSourceSettings;
   ui: { showClosedByDefault: boolean };
+  backup: BackupSettings;
   setupComplete: boolean;
 }
 
@@ -355,6 +374,8 @@ export interface EnvironmentInfo {
   availableProviders: ClaudeProvider[];
   publicUrl: string;
   version: string;
+  /** Backups need the local SQLite database. */
+  backupAvailable: boolean;
 }
 
 // ---------- Server-sent events ----------

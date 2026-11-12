@@ -194,3 +194,22 @@ describe('conversation-level Slack ids', () => {
     expect(Repo.slackDmChannel('gmail', 'C02:dm')).toBeNull();
   });
 });
+
+describe('watched channels setting', () => {
+  it('parses names and ids from a free-form list', async () => {
+    const { parseWatchedChannels } = await import('../src/integrations/slack.js');
+    expect(parseWatchedChannels('#sys-eng, #helpsec-ops\nC0274PW81B6 ; sys-eng')).toEqual(['sys-eng', 'helpsec-ops', 'C0274PW81B6']);
+    expect(parseWatchedChannels('')).toEqual([]);
+  });
+});
+
+describe('Slack channel list parsing', () => {
+  it('parses the MCP markdown list, skipping archived channels', async () => {
+    const { parseChannelMarkdown } = await import('../src/integrations/slackChannels.js');
+    const md = '## My Channels (showing 3 of 3 total)\n\n### #announcements-global\n- **ID:** C024FDXFL\n- **Type:** Public Channel\n- **Archived:** No\n\n### #seus-tickets\n- **ID:** CFCKYQMKQ\n- **Type:** Private Channel\n- **Archived:** No\n\n### #old\n- **ID:** C0OLD\n- **Type:** Public Channel\n- **Archived:** Yes\n';
+    expect(parseChannelMarkdown(JSON.stringify({ result: md }))).toEqual([
+      { id: 'C024FDXFL', name: 'announcements-global', private: false },
+      { id: 'CFCKYQMKQ', name: 'seus-tickets', private: true },
+    ]);
+  });
+});
