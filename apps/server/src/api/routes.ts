@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { GENERAL_STREAM, type EnvironmentInfo, type SecretBackend, type Settings } from '@wc/shared';
 import type { App } from '../app.js';
 import { bus } from '../core/bus.js';
+import { surfaceDueReminders } from '../core/reminders.js';
 import { GOOGLE_SCOPES, oauthClient } from '../integrations/google.js';
 import { McpConnection, isReadOnlyTool } from '../integrations/mcp.js';
 import { AtlassianCloud } from '../integrations/atlassian.js';
@@ -109,6 +110,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.updateStream(id, b, 'you');
     return repo.getStream(id);
   });
+  // Run the pending-reminder check now (the scheduler also does this every few minutes).
+  f.post('/api/reminders/check', async () => ({ surfaced: await surfaceDueReminders({ repo, settings: () => settings.get(), run: (r) => runner.run(r) }) }));
   f.get('/api/streams/:id/summaries', async (req) => repo.listSummaries((req.params as any).id));
 
   // ---------- draft attachments ----------

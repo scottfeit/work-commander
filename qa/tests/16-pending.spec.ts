@@ -4,7 +4,7 @@ freshApp();
 
 const tile = (page: import('@playwright/test').Page, re: RegExp) => page.locator('.stream', { hasText: re });
 
-test('Pending: the green check on the selected tile and on the Overview, a collapsible Pending section, light-grey tiles, same ordering', async ({ page }) => {
+test('Pending: the alarm clock on the selected tile and on the Overview, a collapsible Pending section, light-grey tiles, same ordering', async ({ page }) => {
   await api.post('/api/streams', { title: 'Alpha pending test', summary: '' });
   await api.post('/api/streams', { title: 'Beta pending test', summary: '' });
   await page.goto(WEB);

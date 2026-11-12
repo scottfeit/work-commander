@@ -6,6 +6,7 @@ const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${time
 import { SourceBadge, dragItem } from './TabBar';
 import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
+import { AlarmIcon } from './AlarmIcon';
 import { EmailHtml } from './EmailHtml';
 
 function Message({ m, compact, html, defaultOriginal }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean }) {
@@ -280,10 +281,10 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
             className={`btn small pending-btn ${stream.pending ? 'on' : ''}`}
             aria-label={stream.pending ? 'Pending: put back in Open' : 'Mark pending'}
             aria-pressed={stream.pending}
-            title={stream.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending: I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives."}
+            title={stream.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending (snooze): I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives, or as a Reminder if nothing happens for a few days (Settings → Display)."}
             onClick={onTogglePending}
           >
-            ✓
+            <AlarmIcon />
           </button>
         )}
         {onMarkUnread && (

@@ -4,6 +4,7 @@ import { GENERAL_STREAM } from '@wc/shared';
 import { get, post, timeAgo } from '../api';
 import { ITEM_DRAG, SourceBadge, dragItem } from './TabBar';
 import { ConfirmButton } from './ConfirmButton';
+import { AlarmIcon } from './AlarmIcon';
 
 interface Props {
   streams: WorkStream[];
@@ -135,6 +136,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <div className="stream-meta">
           {s.runState === 'running' && <span className="chip running">working…</span>}
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
+          {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}
           {s.status === 'closed' && <span className="chip">closed</span>}
         </div>
       </button>
@@ -155,10 +157,10 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
               className={`btn small pending-btn ${s.pending ? 'on' : ''}`}
               aria-label={s.pending ? 'Pending: put back in Open' : 'Mark pending'}
               aria-pressed={s.pending}
-              title={s.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending: I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives."}
+              title={s.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending (snooze): I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives, or as a Reminder if nothing happens for a few days (Settings → Display)."}
               onClick={() => onTogglePending(s.id, !s.pending)}
             >
-              ✓
+              <AlarmIcon />
             </button>
           )}
         </div>

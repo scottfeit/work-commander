@@ -30,6 +30,10 @@ export interface DB {
     agent_session_id: string | null;
     unread: number;
     pending: number;
+    /** When the stream was last marked pending (the reminder clock starts there if later than its last activity). */
+    pending_at: string | null;
+    /** Set while the stream is surfaced as a reminder (it was pending too long). */
+    reminder_at: string | null;
     created_at: string;
     updated_at: string;
     closed_at: string | null;
@@ -309,9 +313,13 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
   // Columns added after the first release: older databases get them here (SQLite has no ADD COLUMN IF NOT EXISTS).
   if (dialect === 'postgres') {
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS pending integer NOT NULL DEFAULT 0`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS pending_at text`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS reminder_at text`.execute(db);
   } else {
     const cols = await sql<{ name: string }>`PRAGMA table_info(streams)`.execute(db);
     if (!cols.rows.some((c) => c.name === 'pending')) await sql`ALTER TABLE streams ADD COLUMN pending integer NOT NULL DEFAULT 0`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'pending_at')) await sql`ALTER TABLE streams ADD COLUMN pending_at text`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'reminder_at')) await sql`ALTER TABLE streams ADD COLUMN reminder_at text`.execute(db);
   }
 }
 

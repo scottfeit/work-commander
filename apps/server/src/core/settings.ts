@@ -58,6 +58,7 @@ export function defaultSettings(): Settings {
     ui: { showClosedByDefault: false, recentTabFirst: false, openTab: 'overview' },
     backup: { enabled: false, folder: '', everyHours: 24, keep: 14 },
     silencing: { skipPolling: false, mentionsOverride: false },
+    reminders: { pendingDays: 3 },
     playbooks: '',
     setupComplete: false,
   };

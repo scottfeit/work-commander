@@ -11,6 +11,7 @@ import { bus } from './core/bus.js';
 import { OrgChartRefresher } from './orgchart/refresh.js';
 import { attachDriveFile, googleFileLinks } from './core/docs.js';
 import { BackupScheduler } from './core/backup.js';
+import { ReminderScheduler } from './core/reminders.js';
 
 async function main() {
   const cfg = loadConfig();
@@ -84,6 +85,9 @@ async function main() {
 
   // Scheduled database backups (local SQLite only), configured under Settings > Backup.
   new BackupScheduler({ repo: app.repo, settings: () => app.settings.get(), sqlite: cfg.databaseUrl.startsWith('sqlite:') }, (m) => f.log.warn(m)).start();
+
+  // Pending streams untouched for the configured days come back to the top as a Reminder, with a nudge drafted by Claude.
+  new ReminderScheduler({ repo: app.repo, settings: () => app.settings.get(), run: (r) => app.runner.run(r) }, (m) => f.log.warn(m)).start();
 
   // On GCP, Jira webhooks arrive through the IAP-free relay service via Pub/Sub.
   if (process.env.WC_JIRA_SUBSCRIPTION) {

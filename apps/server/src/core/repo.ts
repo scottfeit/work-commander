@@ -76,6 +76,7 @@ export class Repo {
       pendingProposals: pendingN,
       unread: !!r.unread,
       pending: !!r.pending,
+      reminderAt: r.reminder_at,
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
@@ -108,6 +109,8 @@ export class Repo {
       agent_session_id: null,
       unread: 1,
       pending: 0,
+      pending_at: null,
+      reminder_at: null,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -133,16 +136,41 @@ export class Repo {
     if (patch.status !== undefined) {
       set.status = patch.status;
       set.closed_at = patch.status === 'closed' ? t : null;
-      if (patch.status === 'closed') set.pending = 0; // a closed stream is done, not waiting
+      if (patch.status === 'closed') {
+        set.pending = 0; // a closed stream is done, not waiting
+        set.reminder_at = null;
+      }
     }
     if (patch.labels !== undefined) set.labels = j(patch.labels);
     if (patch.ticketTarget !== undefined) set.ticket_target = patch.ticketTarget ? j(patch.ticketTarget) : null;
     if (patch.unread !== undefined) set.unread = patch.unread ? 1 : 0;
-    if (patch.pending !== undefined) set.pending = patch.pending ? 1 : 0;
+    if (patch.pending !== undefined) {
+      set.pending = patch.pending ? 1 : 0;
+      set.pending_at = patch.pending ? t : null;
+      set.reminder_at = null; // snoozed again, or new activity: the reminder is answered
+    }
     if (patch.agentSessionId !== undefined) set.agent_session_id = patch.agentSessionId;
     if (patch.touch) set.last_activity_at = t;
     await this.db.updateTable('streams').set(set).where('id', '=', id).execute();
     await this.emitStream(id);
+  }
+
+  /**
+   * A pending stream has sat untouched too long: bring it back to the top of Open as a Reminder and mark the stream (not its
+   * work items) unread.
+   */
+  async surfaceReminder(id: string) {
+    const t = now();
+    await this.db.updateTable('streams').set({ pending: 0, pending_at: null, reminder_at: t, unread: 1, last_activity_at: t, updated_at: t }).where('id', '=', id).execute();
+    await this.emitStream(id);
+  }
+
+  /** Open pending streams whose last activity (or the moment they were snoozed, if later) is at least `days` ago. */
+  async pendingStreamsDue(days: number, nowMs = Date.now()) {
+    if (!(days > 0)) return [];
+    const rows = await this.db.selectFrom('streams').selectAll().where('status', '=', 'open').where('pending', '=', 1).execute();
+    const cutoff = nowMs - days * 86_400_000;
+    return rows.filter((r) => Math.max(Date.parse(r.last_activity_at), r.pending_at ? Date.parse(r.pending_at) : 0) <= cutoff).map((r) => r.id);
   }
 
   /** Keep every version of the Overview. Streams created before history existed get their old summary saved undated first. */

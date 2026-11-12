@@ -56,6 +56,8 @@ export interface WorkStream {
   unread: boolean;
   /** The PU has done all they can for now and is waiting on others. Still open; listed under "Pending" until something new arrives. */
   pending: boolean;
+  /** Set while the stream is surfaced as a reminder: it sat in Pending untouched for the configured days. Cleared when it is snoozed again, closed, or others write. */
+  reminderAt?: string | null;
   /** The tool the most recently updated item came from (shown as an icon on the stream). */
   lastSource?: ItemSource;
   runState: 'idle' | 'running' | 'waiting_approval';
@@ -319,6 +321,11 @@ export interface OrgChartSyncStatus {
   lastCount?: number;
 }
 
+export interface ReminderSettings {
+  /** Pending work streams untouched this many days come back to the top as a Reminder. 0 = never. */
+  pendingDays: number;
+}
+
 export interface SilencingSettings {
   /** Don't check silenced items for updates at all (nothing about them is stored or re-read while they are silenced). */
   skipPolling: boolean;
@@ -384,6 +391,8 @@ export interface Settings {
   backup: BackupSettings;
   /** How silenced work items behave. */
   silencing: SilencingSettings;
+  /** When snoozed (Pending) work streams are surfaced again. */
+  reminders: ReminderSettings;
   /** The PU's standing instructions ("playbooks"): what to suggest when a kind of thing comes up. Given to triage and to Claude. */
   playbooks: string;
   setupComplete: boolean;

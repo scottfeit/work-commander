@@ -391,6 +391,10 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <p className="muted small">
               You can also drag tabs into any order within a work stream; Overview always stays first. With this on, the tab with the newest activity jumps to the front of the others.
             </p>
+            <h3>Pending reminders</h3>
+            <Row label="Remind me after" hint="A Pending work stream that nothing has touched for this long returns to the top of Open, marked Reminder and unread, with a follow-up drafted for whoever replied last. 0 = never.">
+              <input className="num" type="number" min={0} max={365} aria-label="Pending reminder days" value={s.reminders?.pendingDays ?? 3} onChange={(e) => up('reminders', { pendingDays: Math.max(0, Math.floor(Number(e.target.value)) || 0) })} /> <span className="small muted">days (0 = never remind)</span>
+            </Row>
             <h3>Silenced work items</h3>
             <p className="muted small">An item you silence (Ignore updates on its tab) normally keeps pulling in updates quietly. These options change that.</p>
             <Row label="Polling">

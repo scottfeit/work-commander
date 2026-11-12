@@ -354,10 +354,12 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .stream.pending .stream-title, .stream.pending .stream-summary, .stream.pending .stream-open { color: var(--muted); }
 .stream.pending .stream-open { opacity: .72; }
 .stream.pending.active .stream-open { opacity: 1; }
-.pending-btn { color: #2e7d32; border-color: #2e7d32; font-weight: 700; min-width: 30px; }
-.pending-btn:hover { background: #e7f4e8; }
-.pending-btn.on { background: #2e7d32; color: #fff; }
-@media (prefers-color-scheme: dark) { .pending-btn { color: #7bd88a; border-color: #4a9b58; } .pending-btn:hover { background: #1f3a24; } .pending-btn.on { background: #3b8f4a; color: #fff; } }
+.pending-btn { color: #e8710a; border-color: #e8710a; min-width: 30px; display: inline-flex; align-items: center; justify-content: center; }
+.pending-btn:hover { background: #fdeede; }
+.pending-btn.on { background: #e8710a; color: #fff; }
+@media (prefers-color-scheme: dark) { .pending-btn { color: #ffa24d; border-color: #c96a1a; } .pending-btn:hover { background: #3a2a18; } .pending-btn.on { background: #d9731a; color: #fff; } }
+.chip.reminder { background: #fdeede; border-color: transparent; color: #b4540a; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .chip.reminder { background: #3a2a18; color: #ffa24d; } }
 
 /* Email original (HTML) view */
 .email-html iframe { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; display: block; min-height: 80px; }
