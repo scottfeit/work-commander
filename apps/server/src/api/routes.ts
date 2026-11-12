@@ -150,12 +150,12 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.post('/api/streams/:id/handoff', async (req) => {
     const id = (req.params as any).id;
     const st = await handoffStream(id);
-    const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true) }).parse(req.body);
+    const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true), task: z.string().max(5000).optional() }).parse(req.body);
     const folder = resolveHandoffFolder(b.folder.trim());
-    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id)));
+    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id), b.task));
     await repo.createHandoff(id, folder);
     const opened = b.openTerminal ? await openInTerminal(folder) : false;
-    await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened });
+    await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened, task: !!b.task?.trim() });
     await repo.addChat({ streamId: id, role: 'system', content: `Handed off to Claude Code: ${folder}/BRIEF.md` });
     return { folder, command: handoffCommand(folder), opened };
   });
@@ -169,6 +169,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const item = await repo.getItem((req.params as any).id);
     if (!item) throw new Error('Item not found');
     return startQuickReply(repo, item, await settings.get());
+  });
+  f.post('/api/items/:id/mute', async (req) => {
+    const b = z.object({ muted: z.boolean() }).parse(req.body);
+    await repo.setItemMuted((req.params as any).id, b.muted);
+    return { ok: true };
   });
   f.post('/api/items/:id/read', async (req) => {
     await repo.markItemRead((req.params as any).id);

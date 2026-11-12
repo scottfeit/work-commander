@@ -94,6 +94,7 @@ export class TriagePipeline {
   private async recoverOne(ev: { source: string; external_id: string; item_id: string | null }) {
     const item = ev.item_id ? await this.repo.getItem(ev.item_id) : null;
     if (!item) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'item no longer exists' });
+    if (item.streamId && item.data.muted) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'item is silenced' });
     if (!item.streamId) {
       const linked = await this.autoLink(item);
       if (linked) return this.repo.markInbound(ev.source, ev.external_id, true, { recovered: true, linked: linked.streamId, reason: 'References a ticket an open work stream already tracks' });
@@ -116,6 +117,11 @@ export class TriagePipeline {
     const { newMessages, created, changed } = up;
     if (!changed) return;
     if (!(await this.repo.recordInbound(inbound.source, inbound.eventId, item.id))) return;
+    // A silenced item keeps receiving updates (already stored above) but makes no noise: no triage, notification, unread dot or reopening.
+    if (item.streamId && item.data.muted) {
+      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'item is silenced' });
+      return;
+    }
     if (!item.streamId) item = (await this.autoLink(item)) ?? item;
     // A ticket moved to Resolved/Closed as the result of work WC did, with nothing new said on it, is not new activity: it must not
     // trigger triage or withdraw a pending "close this stream" proposal. (An assignment to the PU, a reopen etc. still are.)

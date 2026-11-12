@@ -222,10 +222,21 @@ export class Repo {
   /** New activity on an item in a work stream: flag its tab until the PU opens it. */
   async markItemUnread(itemId: string) {
     const it = await this.getItem(itemId);
-    if (!it?.streamId || it.data.unread) return;
+    if (!it?.streamId || it.data.unread || it.data.muted) return; // a silenced item never raises a dot
     const data: ItemData = { ...it.data, unread: true };
     await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
     bus.publish({ type: 'item.updated', item: { ...it, data } });
+  }
+
+  /** Silence (or un-silence) an item's updates. Updates keep arriving; they just stop making noise. */
+  async setItemMuted(itemId: string, muted: boolean) {
+    const it = await this.getItem(itemId);
+    if (!it) throw new Error('Item not found');
+    const data: ItemData = { ...it.data, muted: muted || undefined, unread: muted ? undefined : it.data.unread };
+    await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
+    await this.audit('pu', muted ? 'item.silenced' : 'item.unsilenced', { itemId });
+    bus.publish({ type: 'item.updated', item: { ...it, data } });
+    if (it.streamId) await this.emitStream(it.streamId);
   }
 
   async markItemRead(itemId: string) {

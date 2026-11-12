@@ -1,3 +1,4 @@
+import { attachDriveFile } from '../core/docs.js';
 import { z } from 'zod';
 import type { EditableField, ProposalKind, Settings, SystemId } from '@wc/shared';
 import type { Repo } from '../core/repo.js';
@@ -271,12 +272,14 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     });
     add({
       name: 'drive_read',
-      description: 'Read a Google Drive file as text.',
-      shape: { file_id: z.string() },
+      description: 'Read a Google Drive file as text. Set attach=true to also add the file to this stream as a work item.',
+      shape: { file_id: z.string(), attach: z.boolean().optional() },
       access: 'read',
       system: 'google',
       handler: async (a) => {
-        const f = await (await d.hub.api('docs')).read(a.file_id);
+        const docs = await d.hub.api('docs');
+        const f = await docs.read(a.file_id);
+        if (a.attach && ctx.streamId) await attachDriveFile(d.repo, docs, ctx.streamId, { id: a.file_id, url: f.url });
         return trunc(`${f.title} ${f.url}\n${f.text}`);
       },
     });

@@ -108,6 +108,8 @@ export interface ItemData {
   tabOrderAt?: string;
   /** External ids of items folded into this one (Slack messages from the same channel discussion), so re-ingesting them lands here. */
   mergedExternalIds?: string[];
+  /** The PU silenced this item: updates are still pulled in, but they don't notify, mark the stream unread or reopen it. */
+  muted?: boolean;
   /** Ticket-specific */
   ticket?: {
     key: string;

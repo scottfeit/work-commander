@@ -339,3 +339,5 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .item-body a, .body a { color: var(--accent); text-decoration: underline; word-break: break-all; }
 
 .tablist { display: flex; gap: 2px; align-items: flex-end; }
+
+.silenced-icon { display: inline-flex; align-items: center; flex: none; color: var(--muted); }

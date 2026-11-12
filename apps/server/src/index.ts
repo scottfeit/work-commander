@@ -9,6 +9,7 @@ import { registerRoutes } from './api/routes.js';
 import { HandoffWatcher, RESULT_FILE } from './core/handoff.js';
 import { bus } from './core/bus.js';
 import { OrgChartRefresher } from './orgchart/refresh.js';
+import { attachDriveFile, googleFileLinks } from './core/docs.js';
 import { BackupScheduler } from './core/backup.js';
 
 async function main() {
@@ -59,6 +60,9 @@ async function main() {
         await app.repo.addChat({ streamId: h.streamId, role: 'system', content: `Claude Code finished: results from ${h.folder}/${RESULT_FILE}` });
         await app.repo.updateStream(h.streamId, { unread: true, touch: true });
         bus.publish({ type: 'notify', streamId: h.streamId, title: 'Claude Code finished', body: 'Results are back in the work stream.' });
+        // Google Docs/Sheets/Slides it reports having edited become work items in this stream (the same file may be in several streams).
+        const docs = await app.hub.api('docs').catch(() => null);
+        for (const link of googleFileLinks(report)) await attachDriveFile(app.repo, docs, h.streamId, link).catch((e) => f.log.warn(`attach ${link.id}: ${e.message}`));
         void app.runner.run({
           streamId: h.streamId,
           origin: 'system',

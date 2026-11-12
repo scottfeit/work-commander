@@ -50,6 +50,16 @@ export function ItemView({ item, onRemoved, peek, onDismiss, onQuickReply }: { i
             Quick reply
           </button>
         )}
+        {!peek && (
+          <button
+            className={`btn small ${item.data.muted ? '' : 'ghost'}`}
+            aria-pressed={!!item.data.muted}
+            title={item.data.muted ? 'Updates are silenced: still pulled in, but no notifications, unread marks or reopening. Click to unsilence.' : 'Keep pulling in updates but stop notifying, marking the stream unread or reopening it'}
+            onClick={() => void post(`/api/items/${item.id}/mute`, { muted: !item.data.muted })}
+          >
+            {item.data.muted ? 'Unsilence' : 'Ignore updates'}
+          </button>
+        )}
         {peek ? (
           <button className="btn ghost small" title="Hide this from the Skipped list until it has new activity" onClick={onDismiss}>
             Dismiss
@@ -104,6 +114,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
   const [open, setOpen] = useState(false);
   const [folder, setFolder] = useState('');
   const [openTerminal, setOpenTerminal] = useState(true);
+  const [task, setTask] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ folder: string; command: string; opened: boolean } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -112,6 +123,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
     setOpen(false);
     setDone(null);
     setErr(null);
+    setTask('');
   }, [streamId]);
   useEffect(() => {
     get<HandoffInfo>(`/api/streams/${streamId}/handoff`)
@@ -127,7 +139,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
     setBusy(true);
     setErr(null);
     try {
-      setDone(await post(`/api/streams/${streamId}/handoff`, { folder, openTerminal }));
+      setDone(await post(`/api/streams/${streamId}/handoff`, { folder, openTerminal, task: task.trim() || undefined }));
       setInfo(await get<HandoffInfo>(`/api/streams/${streamId}/handoff`));
     } catch (e: any) {
       setErr(e.message);
@@ -156,7 +168,11 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
         </button>
       ) : (
         <div className="handoff-form">
-          <p className="muted small">Writes everything this stream knows to BRIEF.md in the folder below{info.canOpenTerminal ? ', then opens Terminal with Claude Code running there' : ''}. Use it for coding work, which Work Commander's agent can't do.</p>
+          <p className="muted small">Writes everything this stream knows to BRIEF.md in the folder below{info.canOpenTerminal ? ', then opens Terminal with Claude Code running there' : ''}. Use it for work Work Commander's agent can't do itself: coding, or changing something it has no tool for, such as editing a Google Sheet or Doc.</p>
+          <label className="small">
+            What should Claude Code do?
+            <textarea aria-label="What should Claude Code do?" rows={4} value={task} placeholder="e.g. In the sheet linked in this stream, change the Gainsight column for row 12 to “Approved”. Don't touch other cells." onChange={(e) => setTask(e.target.value)} />
+          </label>
           <label className="small">
             Project folder
             <input aria-label="Project folder" value={folder} onChange={(e) => setFolder(e.target.value)} />

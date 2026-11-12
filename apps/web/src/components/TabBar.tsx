@@ -42,6 +42,19 @@ export const SOURCE_LABEL: Record<string, string> = {
 const SOURCE_ICON: Record<string, string> = { gmail: 'gmail', slack: 'slack', jira: 'jira', jsm: 'jira', confluence: 'confluence', drive: 'drive', calendar: 'calendar', grant: 'onepassword' };
 const SOURCE_NAME: Record<string, string> = { gmail: 'Gmail', jsm: 'Jira Service Management', grant: '1Password access' };
 
+/** A bell with a slash through it: this item's updates are silenced. */
+export function SilencedIcon() {
+  return (
+    <span className="silenced-icon" role="img" aria-label="Notifications silenced" title="Notifications silenced">
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <path d="M12 3a6 6 0 0 0-6 6v3.6L4.4 16A1 1 0 0 0 5.3 17.5h13.4a1 1 0 0 0 .9-1.5L18 12.6V9a6 6 0 0 0-6-6z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M3.5 3.5l17 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
 export function SourceBadge({ source }: { source: string }) {
   const icon = SOURCE_ICON[source];
   const name = SOURCE_NAME[source] ?? SOURCE_LABEL[source] ?? source;
@@ -165,6 +178,7 @@ export function TabBar({
           }}
         >
           {i.data.unread && tab !== i.id && <span className="dot" aria-label="new activity" />}
+          {i.data.muted && <SilencedIcon />}
           <SourceBadge source={i.source} />
           <span className="tab-title">{i.data.ticket?.key ?? i.title}</span>
         </button>

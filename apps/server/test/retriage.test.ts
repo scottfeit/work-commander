@@ -243,3 +243,59 @@ describe('item tab dot from triage', () => {
     expect((await repo.findItem('gmail', 'g'))!.data.unread).toBe(true);
   });
 });
+
+describe('silenced work items', () => {
+  const setup = async () => {
+    const { bus } = await import('../src/core/bus.js');
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const streamId = (await repo.createStream({ title: 'Stream', summary: '' })).id;
+    const first = { id: '1', author: { name: 'A' }, text: 'first', at: '2026-11-11T00:00:00Z' };
+    const second = { id: '2', author: { name: 'B' }, text: 'second', at: '2026-11-11T01:00:00Z' };
+    const { item } = await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g', title: 'Thread', data: { messages: [first] }, streamId });
+    let calls = 0;
+    const decision = { relevant: true, reason: 'worth a look', stream: { action: 'existing', streamId, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: 'New summary', notify: { title: 'Heads up', body: 'something happened' }, next: { type: 'none', instruction: '', offerLabel: null } };
+    const t = new TriagePipeline(repo, { structured: async () => (calls++, decision) } as any, { run: async () => undefined } as any, async () => defaultSettings());
+    const notes: any[] = [];
+    const off = bus.subscribe((e: any) => e.type === 'notify' && notes.push(e));
+    const arrive = (messages: any[], eventId: string) => t.handle({ source: 'gmail', kind: 'email_thread', externalId: 'g', title: 'Thread', eventId, data: { messages } });
+    return { repo, streamId, item, t, notes, off, arrive, first, second, calls: () => calls };
+  };
+
+  it('keeps pulling updates in, but makes no noise, leaves the stream read and closed', async () => {
+    const { repo, streamId, item, notes, off, arrive, first, second, calls } = await setup();
+    await repo.setItemMuted(item.id, true);
+    await repo.updateStream(streamId, { status: 'closed', unread: false });
+    await arrive([first, second], 'e1');
+    off();
+    expect((await repo.findItem('gmail', 'g'))!.data.messages?.map((m) => m.id)).toEqual(['1', '2']); // still pulled in
+    expect(notes).toEqual([]); // no notification
+    expect(calls()).toBe(0); // and the agent isn't spent on it
+    const stream = (await repo.getStream(streamId))!;
+    expect(stream.unread).toBe(false); // not marked unread
+    expect(stream.status).toBe('closed'); // not reopened
+    expect((await repo.findItem('gmail', 'g'))!.data.unread).toBeUndefined(); // no dot on its tab
+    expect((await repo.listChat(streamId)).filter((m) => /Heads up/.test(m.content))).toEqual([]);
+  });
+  it('un-silencing brings back normal handling', async () => {
+    const { repo, streamId, item, notes, off, arrive, first, second, calls } = await setup();
+    await repo.setItemMuted(item.id, true);
+    await repo.setItemMuted(item.id, false);
+    expect((await repo.findItem('gmail', 'g'))!.data.muted).toBeUndefined();
+    await arrive([first, second], 'e2');
+    off();
+    expect(calls()).toBe(1);
+    expect(notes).toHaveLength(1);
+    expect((await repo.getStream(streamId))!.unread).toBe(true);
+    expect((await repo.findItem('gmail', 'g'))!.data.unread).toBe(true);
+  });
+  it('silencing clears an existing dot and silenced items never raise one', async () => {
+    const { repo, item, off } = await setup();
+    off();
+    await repo.markItemUnread(item.id);
+    expect((await repo.getItem(item.id))!.data.unread).toBe(true);
+    await repo.setItemMuted(item.id, true);
+    expect((await repo.getItem(item.id))!.data.unread).toBeUndefined();
+    await repo.markItemUnread(item.id);
+    expect((await repo.getItem(item.id))!.data.unread).toBeUndefined();
+  });
+});
