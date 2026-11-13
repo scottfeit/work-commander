@@ -149,21 +149,23 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const last = await repo.latestHandoff(st.id);
     return {
       folder: last?.folder.replace(os.homedir(), '~') ?? defaultHandoffFolder(st),
-      canOpenTerminal: process.platform === 'darwin',
+      canOpenTerminal: process.platform === 'darwin' && !process.env.WC_NO_TERMINAL,
       last: last ? { folder: last.folder, createdAt: last.created_at, returnedAt: last.returned_at } : null,
     };
   });
-  f.post('/api/streams/:id/handoff', async (req) => {
-    const id = (req.params as any).id;
+  const startHandoff = async (id: string, input: { folder: string; openTerminal: boolean; task?: string }) => {
     const st = await handoffStream(id);
-    const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true), task: z.string().max(5000).optional() }).parse(req.body);
-    const folder = resolveHandoffFolder(b.folder.trim());
-    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id), b.task));
+    const folder = resolveHandoffFolder(input.folder.trim());
+    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id), input.task));
     await repo.createHandoff(id, folder);
-    const opened = b.openTerminal ? await openInTerminal(folder) : false;
-    await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened, task: !!b.task?.trim() });
+    const opened = input.openTerminal ? await openInTerminal(folder) : false;
+    await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened, task: !!input.task?.trim() });
     await repo.addChat({ streamId: id, role: 'system', content: `Handed off to Claude Code: ${folder}/BRIEF.md` });
     return { folder, command: handoffCommand(folder), opened };
+  };
+  f.post('/api/streams/:id/handoff', async (req) => {
+    const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true), task: z.string().max(5000).optional() }).parse(req.body);
+    return startHandoff((req.params as any).id, b);
   });
   // 404 for streams that do not exist (the general stream is virtual and always exists).
   const existing = async (raw: string) => {
@@ -297,6 +299,34 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.updateChatMeta(m.id, { ...m.meta, suggestion: { ...m.meta.suggestion, status: accept ? 'accepted' : 'dismissed' } });
     if (accept) void runner.run({ streamId: m.streamId, origin: 'user', prompt: `The PU accepted your offer: ${m.meta.suggestion.instruction}` });
     else await repo.offerCloseAfterDecline(m.streamId, m.id);
+    return { ok: true };
+  });
+
+  // Claude's "send an I'm-looking-into-it reply, or hand this to Claude Code?" question: one click either way.
+  f.post('/api/chat/:id/handoff-offer', async (req) => {
+    const m = await repo.getChat((req.params as any).id);
+    const offer = m?.meta.handoffOffer;
+    if (!m || !offer || !m.streamId) throw new Error('Not a hand-off offer');
+    const choice = z.object({ choice: z.enum(['reply', 'handoff', 'dismiss']) }).parse(req.body).choice;
+    const set = (patch: Partial<NonNullable<typeof offer>>) => repo.updateChatMeta(m.id, { ...m.meta, handoffOffer: { ...offer, ...patch }, suggestion: { instruction: offer.task, status: patch.dismissed ? 'dismissed' : 'accepted' } });
+    if (choice === 'dismiss') {
+      await set({ dismissed: true });
+      return { ok: true };
+    }
+    if (offer.done.includes(choice)) return { ok: true };
+    if (choice === 'handoff') {
+      const st = await handoffStream(m.streamId);
+      const last = await repo.latestHandoff(st.id);
+      const result = await startHandoff(st.id, { folder: last?.folder ?? defaultHandoffFolder(st), openTerminal: process.platform === 'darwin', task: offer.task });
+      await set({ done: [...offer.done, 'handoff'] });
+      return result;
+    }
+    await set({ done: [...offer.done, 'reply'] });
+    void runner.run({
+      streamId: m.streamId,
+      origin: 'user',
+      prompt: 'The PU chose to send a short acknowledgement first. Draft a brief, friendly "I\'m looking into it" reply to the person who asked (with the right propose_* tool, on the right item) and nothing more: do not do the work, do not offer a hand-off again, and do not repeat the question. Then tell the PU in one sentence what you drafted.',
+    });
     return { ok: true };
   });
 

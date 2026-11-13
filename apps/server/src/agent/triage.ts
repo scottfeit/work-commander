@@ -24,7 +24,7 @@ export const TriageDecision = z.object({
   relatedItemIds: z.array(z.string()).nullable(),
   updatedSummary: z.string().nullable(),
   notify: z.object({ title: z.string(), body: z.string() }).nullable(),
-  next: z.object({ type: z.enum(['none', 'draft', 'offer']), instruction: z.string(), offerLabel: z.string().nullable() }),
+  next: z.object({ type: z.enum(['none', 'draft', 'offer', 'handoff']), instruction: z.string(), offerLabel: z.string().nullable() }),
 });
 export type TriageDecision = z.infer<typeof TriageDecision>;
 
@@ -58,6 +58,8 @@ export class TriagePipeline {
     private backend: AgentBackend,
     private runner: StreamAgentRunner,
     private settings: () => Promise<Settings>,
+    /** Hand-off to Claude Code is available (local hosting): triage may offer it. */
+    private canHandoff = true,
   ) {}
 
   /** InboundSink. Serialized so two messages in the same thread can't create two streams. */
@@ -300,13 +302,23 @@ export class TriagePipeline {
       bus.publish({ type: 'notify', streamId, title: decision.notify.title, body: decision.notify.body });
       await this.repo.addChat({ streamId, role: 'system', content: `${decision.notify.title}: ${decision.notify.body}` });
     }
-    if (decision.next.type === 'draft' && s.claude.autoDraft) {
+    if (decision.next.type === 'handoff' && this.canHandoff) {
+      // Work for Claude Code: don't draft "I'm looking into it" automatically; ask, with one click for either.
+      const open = (await this.repo.listChat(streamId)).some((m) => m.meta.handoffOffer && !m.meta.handoffOffer.dismissed && m.meta.handoffOffer.done.length < 2);
+      if (!open)
+        await this.repo.addChat({
+          streamId,
+          role: 'suggestion',
+          content: decision.next.offerLabel || `${decision.reason} This looks like work for Claude Code.`,
+          meta: { suggestion: { instruction: decision.next.instruction, status: 'open' }, handoffOffer: { task: decision.next.instruction, done: [] } },
+        });
+    } else if (decision.next.type === 'draft' && s.claude.autoDraft) {
       void this.runner.run({
         streamId,
         origin: 'system',
         prompt: `[New activity on item ${item.id}: ${inbound.title}]\nTriage says: ${decision.reason}\nPrepare drafts for the PU to review: ${decision.next.instruction}\nThen tell the PU in one or two sentences what you prepared.`,
       });
-    } else if (decision.next.type === 'offer' || (decision.next.type === 'draft' && !s.claude.autoDraft)) {
+    } else if (decision.next.type === 'offer' || decision.next.type === 'handoff' || (decision.next.type === 'draft' && !s.claude.autoDraft)) {
       await this.repo.addChat({
         streamId,
         role: 'suggestion',
@@ -349,6 +361,13 @@ export class TriagePipeline {
       ? 'Similar past work (closed work streams; how it was handled before). Mention it in "next" only if it truly applies:\n' +
         past.map((x) => `- "${x.title}"${x.closedAt ? ` (closed ${x.closedAt.slice(0, 10)})` : ''}: ${x.summary.replace(/\s+/g, ' ').slice(0, 300)}${x.snippet ? ` | from its chat: ${x.snippet.slice(0, 200)}` : ''}`).join('\n')
       : '';
+    // The conversation belongs to a work stream the PU already closed: say so, with what it was about, so the model can tell a
+    // follow-up (relevant: it reopens, or starts a new stream if it closed long ago) from chatter that no longer needs the PU.
+    const home = existingStreamId ? await this.repo.getStream(existingStreamId) : null;
+    const closedBlock =
+      home?.status === 'closed'
+        ? `That stream is CLOSED${home.closedAt ? ` (closed ${home.closedAt.slice(0, 10)})` : ''}: "${home.title}". Its overview: ${home.summary.replace(/\s+/g, ' ').slice(0, 600)}\nThis conversation already belonged to that work. If the new activity continues, questions or depends on that work, or the PU may still owe something, mark it relevant (the stream is reopened). Mark it not relevant only if nothing here needs the PU.`
+        : '';
     const t = inbound.data.ticket;
     const prompt = [
       puBlock(s.pu, { self, manager, reports }),
@@ -356,6 +375,7 @@ export class TriagePipeline {
       known.length ? `People in this conversation (org chart):\n${known.join('\n')}` : '',
       streamsBlock(open),
       existingStreamId ? `This item is ALREADY attached to stream ${existingStreamId}; use action "existing" with that id.` : '',
+      closedBlock,
       hints.join('\n'),
       skippedBlock,
       pastBlock,

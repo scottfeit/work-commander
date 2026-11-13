@@ -116,6 +116,9 @@ export function freshApp() {
         // The server only wipes a data dir named like this, which keeps every run starting clean.
         WC_DATA_DIR: path.join(dir, '.work-commander-demo'),
         DEMO_SEED_DELAY_MS: '300',
+        // Hand-offs from tests never open a real Terminal or write into the real ~/WorkCommander.
+        WC_NO_TERMINAL: '1',
+        WC_HANDOFF_ROOT: path.join(os.homedir(), '.wc-qa-handoffs'),
         DEMO_REPLY_DELAY_MS: '800',
         LOG_LEVEL: 'error',
       },

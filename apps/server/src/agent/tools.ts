@@ -27,6 +27,8 @@ export interface ToolDeps {
   secret?: (id: string) => Promise<string>;
   /** One-shot structured model call (picks which later Slack messages are related when a Slack link is added). */
   structured?: (i: { systemPrompt: string; prompt: string; schema: z.ZodType<any> }) => Promise<any>;
+  /** Hand-off to Claude Code is available (Work Commander runs on the PU's own machine). */
+  canHandoff?: boolean;
 }
 
 type RawTool = ToolDef & { kind?: ProposalKind };
@@ -41,7 +43,21 @@ const after = z
   .optional()
   .describe('Proposal ids that must execute first. Text may then use {{ticket.key}} / {{ticket.url}} or {{<proposal_id>.key}} placeholders, filled in at execution.');
 
-const trunc = (s: string, n = 12_000) => (s.length > n ? `${s.slice(0, n)}\n…[truncated]` : s);
+const PAGE = 12_000;
+const offsetArg = z
+  .number()
+  .int()
+  .min(0)
+  .optional()
+  .describe(`Character offset to continue reading from. Results are paged at ${PAGE} characters; when one ends with "call again with offset=N", pass that N to read the next page.`);
+/** One page of a long text. Never silently drops content: a cut page says how to fetch the rest. */
+export const page = (s: string, offset = 0) => {
+  if (offset === 0 && s.length <= PAGE) return s;
+  if (offset >= s.length) return `[offset ${offset} is past the end; the text is ${s.length} characters]`;
+  const end = offset + PAGE;
+  const head = offset ? `[characters ${offset}-${Math.min(end, s.length)} of ${s.length}]\n` : '';
+  return end < s.length ? `${head}${s.slice(offset, end)}\n…[characters ${offset}-${end} of ${s.length}; call again with offset=${end} to read the rest]` : `${head}${s.slice(offset)}`;
+};
 const fmtThread = (msgs: { author: { name?: string; email?: string }; at: string; text: string; to?: string[]; cc?: string[] }[] = []) =>
   msgs
     .map((m) => `--- ${m.author.name ?? ''} <${m.author.email ?? ''}> at ${m.at}${m.to?.length ? `\nTo: ${m.to.join(', ')}` : ''}${m.cc?.length ? `\nCc: ${m.cc.join(', ')}` : ''}\n${m.text}`)
@@ -122,10 +138,10 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
   add({
     name: 'read_stream_item',
     description: 'Read the full content of an item (email thread, Slack thread, ticket, doc) attached to a stream, by item id.',
-    shape: { item_id: z.string() },
+    shape: { item_id: z.string(), offset: offsetArg },
     access: 'internal',
     system: 'internal',
-    handler: async ({ item_id }) => {
+    handler: async ({ item_id, offset }) => {
       const it = await d.repo.getItem(item_id);
       if (!it) return 'No such item';
       const t = it.data.ticket;
@@ -134,7 +150,7 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
         : it.data.messages
           ? fmtThread(it.data.messages)
           : (it.data.body ?? JSON.stringify(it.data));
-      return trunc(`${it.title} (${it.source}, ${it.url ?? 'no url'})\n${body}`);
+      return page(`${it.title} (${it.source}, ${it.url ?? 'no url'})\n${body}`, offset);
     },
   });
   if (ctx.streamId && d.attachments) {
@@ -287,6 +303,21 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     },
   });
   add({
+    name: 'offer_handoff',
+    description:
+      'Use INSTEAD of drafting an "I\'m looking into it" / "on it" acknowledgement when the work itself belongs with Claude Code (software, or a change you have no propose_* tool for, such as editing a Sheet or Doc or changing settings). Posts a question in the chat with one-click buttons: draft the acknowledgement, or hand the work to Claude Code. Then end your turn; do not draft the acknowledgement yourself.',
+    shape: { question: z.string().describe('One or two sentences for the PU: what was asked and why Claude Code suits it.'), task: z.string().describe('What Claude Code should do, written as a self-contained instruction (include links).') },
+    access: 'internal',
+    system: 'internal',
+    handler: async (a) => {
+      if (d.canHandoff === false) return 'Hand-off to Claude Code is not available here. Draft the reply as usual.';
+      const open = (await d.repo.listChat(ctx.streamId)).find((m) => m.meta.handoffOffer && !m.meta.handoffOffer.dismissed && m.meta.handoffOffer.done.length < 2);
+      if (open) return 'The PU was already offered this choice and has not answered. End your turn.';
+      await d.repo.addChat({ streamId: ctx.streamId, role: 'suggestion', content: a.question, meta: { suggestion: { instruction: a.task, status: 'open' }, handoffOffer: { task: a.task, done: [] }, runId: ctx.runId } });
+      return 'Offer posted with one-click buttons. End your turn now; do not draft the acknowledgement.';
+    },
+  });
+  add({
     name: 'propose_close_stream',
     description: 'Propose closing this work stream once all its work is done (tickets resolved, replies sent).',
     shape: { reason: z.string() },
@@ -328,13 +359,13 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     add({
       name: 'gmail_get_thread',
       description: 'Read a Gmail thread. Set attach=true to add it to this stream as a tab.',
-      shape: { thread_id: z.string(), attach: z.boolean().optional() },
+      shape: { thread_id: z.string(), attach: z.boolean().optional(), offset: offsetArg },
       access: 'read',
       system: 'google',
       handler: async (a) => {
         const t = await (await d.hub.api('email')).getThread(a.thread_id);
         const id = a.attach ? await attach(t) : null;
-        return trunc(`${t.title}${id ? ` (attached as item ${id})` : ''}\n${fmtThread(t.data.messages)}`);
+        return page(`${t.title}${id ? ` (attached as item ${id})` : ''}\n${fmtThread(t.data.messages)}`, a.offset);
       },
     });
     add({
@@ -348,14 +379,14 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     add({
       name: 'drive_read',
       description: 'Read a Google Drive file as text. Set attach=true to also add the file to this stream as a work item.',
-      shape: { file_id: z.string(), attach: z.boolean().optional() },
+      shape: { file_id: z.string(), attach: z.boolean().optional(), offset: offsetArg },
       access: 'read',
       system: 'google',
       handler: async (a) => {
         const docs = await d.hub.api('docs');
         const f = await docs.read(a.file_id);
         if (a.attach && ctx.streamId) await attachDriveFile(d.repo, docs, ctx.streamId, { id: a.file_id, url: f.url });
-        return trunc(`${f.title} ${f.url}\n${f.text}`);
+        return page(`${f.title} ${f.url}\n${f.text}`, a.offset);
       },
     });
     add({
@@ -419,13 +450,13 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     add({
       name: 'slack_get_thread',
       description: 'Read a Slack thread by channel id and thread ts. Set attach=true to add it to this stream.',
-      shape: { channel: z.string(), thread_ts: z.string(), attach: z.boolean().optional() },
+      shape: { channel: z.string(), thread_ts: z.string(), attach: z.boolean().optional(), offset: offsetArg },
       access: 'read',
       system: 'slack',
       handler: async (a) => {
         const t = await (await d.hub.api('chat')).getThread(a.channel, a.thread_ts);
         const id = a.attach ? await attach(t) : null;
-        return trunc(`${t.title}${id ? ` (attached as item ${id})` : ''}\n${fmtThread(t.data.messages)}`);
+        return page(`${t.title}${id ? ` (attached as item ${id})` : ''}\n${fmtThread(t.data.messages)}`, a.offset);
       },
     });
     add({
@@ -452,14 +483,14 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     add({
       name: 'jira_get_issue',
       description: 'Read a Jira/JSM issue with comments. Set attach=true to add it to this stream.',
-      shape: { key: z.string(), attach: z.boolean().optional() },
+      shape: { key: z.string(), attach: z.boolean().optional(), offset: offsetArg },
       access: 'read',
       system: 'atlassian',
       handler: async (a) => {
         const t = await (await d.hub.api('tickets')).getIssue(a.key);
         const id = a.attach ? await attach(t) : null;
         const tk = t.data.ticket!;
-        return trunc(`${t.title} [${tk.status}] ${t.url}${id ? ` (attached as item ${id})` : ''}\n${tk.description}\n\nComments:\n${fmtThread(tk.comments)}`);
+        return page(`${t.title} [${tk.status}] ${t.url}${id ? ` (attached as item ${id})` : ''}\n${tk.description}\n\nComments:\n${fmtThread(tk.comments)}`, a.offset);
       },
     });
     add({
@@ -481,12 +512,12 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     add({
       name: 'confluence_read',
       description: 'Read a Confluence page as text.',
-      shape: { page_id: z.string() },
+      shape: { page_id: z.string(), offset: offsetArg },
       access: 'read',
       system: 'atlassian',
       handler: async (a) => {
         const p = await (await d.hub.api('tickets')).confluenceRead(a.page_id);
-        return trunc(`${p.title} ${p.url}\n${p.text}`);
+        return page(`${p.title} ${p.url}\n${p.text}`, a.offset);
       },
     });
     add({

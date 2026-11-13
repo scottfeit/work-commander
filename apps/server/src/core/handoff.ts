@@ -23,7 +23,7 @@ export function defaultHandoffFolder(stream: WorkStream) {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 50) || stream.id;
-  return path.join('~', 'WorkCommander', slug);
+  return path.join(process.env.WC_HANDOFF_ROOT || path.join('~', 'WorkCommander'), slug); // WC_HANDOFF_ROOT: tests keep hand-offs out of the real folder
 }
 
 /** Resolve "~/x" and require the result to stay inside the user's home directory. */
@@ -115,7 +115,7 @@ export const handoffCommand = (folder: string) => `cd ${shQuote(folder)} && clau
 
 /** macOS only: open a Terminal window running Claude Code in the folder. Resolves false elsewhere or on failure. */
 export function openInTerminal(folder: string): Promise<boolean> {
-  if (process.platform !== 'darwin') return Promise.resolve(false);
+  if (process.platform !== 'darwin' || process.env.WC_NO_TERMINAL) return Promise.resolve(false);
   const cmd = handoffCommand(folder).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const script = `tell application "Terminal"\n  activate\n  do script "${cmd}"\nend tell`;
   return new Promise((resolve) => execFile('osascript', ['-e', script], (err) => resolve(!err)));

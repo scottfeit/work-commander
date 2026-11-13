@@ -207,6 +207,8 @@ export interface ChatMessage {
   meta: {
     suggestion?: { instruction: string; status: 'open' | 'accepted' | 'dismissed' };
     question?: { options?: string[]; answered?: boolean };
+    /** Claude asks whether to send an "I'm looking into it" reply or hand the work to Claude Code (one click each). */
+    handoffOffer?: { task: string; done: ('reply' | 'handoff')[]; dismissed?: boolean };
     selectedItemId?: string;
     toolCalls?: { name: string; input: unknown }[];
     runId?: string;

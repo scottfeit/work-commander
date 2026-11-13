@@ -377,7 +377,13 @@ export class Repo {
 
   /** The existing item for a Slack DM channel (the one already in a work stream first, else the oldest). */
   async findSlackDmItem(source: string, externalId: string) {
-    const channel = Repo.slackDmChannel(source, externalId);
+    let channel = Repo.slackDmChannel(source, externalId);
+    if (!channel && source === 'slack') {
+      // A group DM has a C… id, so a single message of it ("<channel>:<ts>") looks like a channel thread. If we already hold that
+      // conversation as "<channel>:dm" (in a work stream, open or closed), the message belongs there.
+      const ch = /^([A-Z][A-Z0-9]+):\d+\.\d+(?:@.*)?$/.exec(externalId)?.[1];
+      if (ch && (await this.db.selectFrom('items').select('id').where('source', '=', 'slack').where('external_id', '=', `${ch}:dm`).executeTakeFirst())) channel = ch;
+    }
     if (!channel) return null;
     const rows = await this.db.selectFrom('items').selectAll().where('source', '=', 'slack').where((eb) => eb.or([eb('external_id', '=', channel), eb('external_id', 'like', `${channel}:%`)])).orderBy('updated_at', 'asc').execute();
     const pick = rows.find((r) => r.stream_id) ?? rows[0];
