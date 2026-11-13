@@ -9,8 +9,66 @@ import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
 import { EmailHtml } from './EmailHtml';
 
-function Message({ m, compact, html, defaultOriginal }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean }) {
+/** Slack conversations are split by topic: send this message (or this and every later one) to another work stream. */
+function MoveMessages({ item, m, onDone }: { item: StreamItem; m: ThreadMessage; onDone: () => void }) {
+  const [streams, setStreams] = useState<WorkStream[]>([]);
+  const [scope, setScope] = useState<'one' | 'later'>('one');
+  const [dest, setDest] = useState('');
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    get<WorkStream[]>('/api/streams').then((x) => setStreams(x.filter((s) => s.status === 'open' && s.id !== item.streamId))).catch(() => undefined);
+  }, [item.streamId]);
+  const go = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await post(`/api/items/${item.id}/move-messages`, {
+        ...(scope === 'one' ? { messageIds: [m.id] } : { fromMessageId: m.id }),
+        ...(dest === '__new' ? { newStreamTitle: title.trim() } : { streamId: dest === '__none' ? null : dest }),
+      });
+      onDone();
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="move-messages" role="group" aria-label="Move message">
+      <label>
+        <input type="radio" name={`scope-${m.id}`} checked={scope === 'one'} onChange={() => setScope('one')} /> This message
+      </label>
+      <label>
+        <input type="radio" name={`scope-${m.id}`} checked={scope === 'later'} onChange={() => setScope('later')} /> This and every later message
+      </label>
+      <select aria-label="Move to" value={dest} onChange={(e) => setDest(e.target.value)}>
+        <option value="">Move to…</option>
+        {streams.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.title}
+          </option>
+        ))}
+        <option value="__new">A new work stream…</option>
+        {item.streamId && <option value="__none">No work stream (not relevant)</option>}
+      </select>
+      {dest === '__new' && <input aria-label="New work stream title" placeholder="Title of the new work stream" value={title} onChange={(e) => setTitle(e.target.value)} />}
+      {err && <div className="error small">{err}</div>}
+      <div className="row">
+        <button className="btn small primary" disabled={busy || !dest || (dest === '__new' && !title.trim())} onClick={() => void go()}>
+          Move
+        </button>
+        <button className="btn ghost small" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Message({ m, compact, html, defaultOriginal, item }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem }) {
   const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
+  const [moving, setMoving] = useState(false);
   const original = choice ?? !!defaultOriginal;
   return (
     <article className={`msg ${m.isFromPU ? 'from-pu' : ''} ${compact ? 'compact' : ''}`}>
@@ -23,9 +81,15 @@ function Message({ m, compact, html, defaultOriginal }: { m: ThreadMessage; comp
               {original ? 'Text' : 'Original'}
             </button>
           )}{' '}
+          {item && (
+            <button className="link" title="Move this message to another work stream" aria-expanded={moving} onClick={() => setMoving(!moving)}>
+              Move…
+            </button>
+          )}{' '}
           {fmtTime(m.at)}
         </span>
       </header>
+      {item && moving && <MoveMessages item={item} m={m} onDone={() => setMoving(false)} />}
       {!compact && (m.to?.length || m.cc?.length) ? (
         <div className="muted small">
           {m.to?.length ? <>To: {m.to.join(', ')}</> : null}
@@ -132,7 +196,7 @@ export function ItemView({
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
           {item.data.messages.map((m) => (
-            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} />
+            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
           ))}
         </div>
       ) : (

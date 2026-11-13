@@ -125,6 +125,9 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <Row label="Draft automatically" hint="When triage spots something that needs a reply or a ticket, Claude prepares drafts right away. Nothing is sent without your approval unless a system's write policy is automatic.">
               <Toggle checked={s.claude.autoDraft} onChange={(autoDraft) => up('claude', { autoDraft })} label="Prepare drafts without asking first" />
             </Row>
+            <Row label="Slack topics" hint="A DM or group DM can run several topics. New messages go to the work stream whose topic they continue, or are triaged as a new topic. You can always move a message yourself.">
+              <Toggle checked={s.claude.splitSlackByTopic !== false} onChange={(splitSlackByTopic) => up('claude', { splitSlackByTopic })} label="Sort Slack conversations into work streams by topic" />
+            </Row>
             <Row label="Reopen closed streams" hint="New activity on a stream closed within this many days reopens it. Older closed streams stay closed and the activity starts a new work stream.">
               <input className="num" type="number" min={0} max={365} aria-label="Reopen closed streams within days" value={s.claude.reopenClosedWithinDays} onChange={(e) => up('claude', { reopenClosedWithinDays: Math.max(0, Number(e.target.value)) })} /> <span className="small muted">days</span>
             </Row>

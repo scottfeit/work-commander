@@ -1,5 +1,5 @@
 import type { Settings, StreamItem, ThreadMessage } from '@wc/shared';
-import type { Repo } from './repo.js';
+import { Repo } from './repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
 import type { InboundItem } from '../integrations/types.js';
 import { McpConnection } from '../integrations/mcp.js';
@@ -142,6 +142,7 @@ export async function addWorkItemFromUrl(d: Deps, streamId: string, rawUrl: stri
   }
 
   const inbound = await fetchInbound(link, d);
+  if (link.kind === 'slack') return addSlackFromLink(d, streamId, link, inbound);
   const there = await d.repo.findItem(inbound.source, inbound.externalId);
   if (there?.streamId === streamId) return { item: there, created: false, link };
   if (there?.streamId) {
@@ -154,6 +155,42 @@ export async function addWorkItemFromUrl(d: Deps, streamId: string, rawUrl: stri
   if (item.source === 'slack') await d.repo.mergeSiblingChannelItems(streamId);
   const kept = (await d.repo.getItem(item.id)) ?? (await d.repo.findAliasItem(inbound.externalId)) ?? item;
   return { item: kept, created: true, link };
+}
+
+/**
+ * A Slack link is a point in a conversation: the work stream gets that message and what follows it, never what came before.
+ * The messages go into the stream's own item for the conversation. Other streams may hold the rest of the same conversation
+ * (it is split by topic), so a message the link names is moved here from wherever it was, together with the messages after it
+ * that sat in the same place. Messages other work streams hold are left with them.
+ */
+async function addSlackFromLink(d: Deps, streamId: string, link: Extract<ParsedLink, { kind: 'slack' }>, inbound: InboundItem) {
+  const channel = link.channel;
+  const family = await d.repo.slackFamily(channel);
+  const flat = channel.startsWith('D') || /^Group DM/i.test(inbound.data.slack?.channelName ?? '') || Repo.slackIsFlat(channel, family);
+  const onwards = (inbound.data.messages ?? []).filter((m) => Number(m.id) >= Number(link.ts));
+  if (!onwards.length) throw new Error("Couldn't read that Slack message (are you in that channel?)");
+  const holder = family.find((i) => i.data.messages?.some((m) => m.id === link.ts));
+  const alreadyHere = holder?.streamId === streamId && onwards.every((m) => holder.data.messages?.some((x) => x.id === m.id));
+  const known = new Map<string, ThreadMessage>();
+  for (const m of holder?.data.messages ?? []) if (Number(m.id) >= Number(link.ts)) known.set(m.id, m);
+  for (const m of onwards) known.set(m.id, m);
+  const res = await d.repo.placeSlackMessages({
+    channel,
+    toStreamId: streamId,
+    messages: [...known.values()],
+    title: holder?.title ?? inbound.title,
+    channelName: inbound.data.slack?.channelName,
+    flat,
+  });
+  const item = res.item!;
+  for (const m of res.moved) {
+    if (!m.streamId || m.streamId === streamId) continue;
+    const from = await d.repo.getStream(m.streamId);
+    const to = await d.repo.getStream(streamId);
+    await d.repo.addChat({ streamId: m.streamId, role: 'system', content: `${m.count} message${m.count === 1 ? '' : 's'} from "${m.title}" moved to "${to?.title ?? 'another work stream'}" because you added a link to them there.` });
+    await d.repo.addChat({ streamId, role: 'system', content: `${m.count} message${m.count === 1 ? '' : 's'} moved here from "${from?.title ?? 'another work stream'}".` });
+  }
+  return { item, created: !alreadyHere, link } as { item: StreamItem; created: boolean; link: ParsedLink };
 }
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"')\]]+/g;

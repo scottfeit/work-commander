@@ -365,3 +365,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .email-html iframe { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; display: block; min-height: 80px; }
 .email-html-bar { margin: 4px 0; }
 .link { background: none; border: 0; padding: 0; color: var(--accent, #2563eb); cursor: pointer; font: inherit; text-decoration: underline; }
+
+.move-messages { display: grid; gap: 6px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.move-messages label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.move-messages .row { display: flex; gap: 6px; }

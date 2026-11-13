@@ -80,16 +80,9 @@ export async function gatherSlackContext(d: ContextDeps, streamId: string, ancho
   let count = 0;
 
   if (flat) {
-    const { item } = await d.repo.upsertItem({
-      source: 'slack',
-      kind: 'slack_thread',
-      externalId: `${anchor.channel}:dm`,
-      title: anchorItem.title,
-      data: { messages: later, slack: { channel: anchor.channel, channelName: channelLabel, threadTs: anchor.ts } },
-      streamId,
-    });
-    if (item.streamId !== streamId && !item.streamId) await d.repo.attachItem(item.id, streamId);
-    return later.length;
+    // Later messages of a DM that no other work stream holds follow the link into this stream.
+    const res = await d.repo.placeSlackMessages({ channel: anchor.channel, toStreamId: streamId, messages: later, title: anchorItem.title, channelName: channelLabel, flat: true, keepOtherStreams: true });
+    return res.added;
   }
 
   for (const id of await pickRelated(d, stream, anchorItem, later)) {

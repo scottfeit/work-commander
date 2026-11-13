@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import type { StreamItem, Settings, ThreadMessage } from '@wc/shared';
-import type { Repo } from '../core/repo.js';
+import { Repo } from '../core/repo.js';
 import { bus } from '../core/bus.js';
 import type { InboundItem } from '../integrations/types.js';
 import { stripQuoted } from '../integrations/types.js';
 import type { AgentBackend } from './backend.js';
 import type { StreamAgentRunner } from './runner.js';
-import { TRIAGE_RULES, playbookBlock, puBlock, streamsBlock } from './prompts.js';
+import { TOPIC_SPLIT_RULES, TRIAGE_RULES, playbookBlock, puBlock, streamsBlock } from './prompts.js';
 import { referencesPU } from '../core/mentions.js';
 import { timeAgo } from '../core/time.js';
 
@@ -27,6 +27,12 @@ export const TriageDecision = z.object({
   next: z.object({ type: z.enum(['none', 'draft', 'offer', 'handoff']), instruction: z.string(), offerLabel: z.string().nullable() }),
 });
 export type TriageDecision = z.infer<typeof TriageDecision>;
+
+/** For each new message of a conversation: "stay" in the current work stream, a work stream id, or "other" (a new topic). */
+export const TopicAssignment = z.object({ assignments: z.array(z.object({ id: z.string(), where: z.string() })) });
+export type TopicAssignment = z.infer<typeof TopicAssignment>;
+
+type Upserted = { item: StreamItem; newMessages: ThreadMessage[]; created: boolean; changed: boolean; ticketMeta?: { status: [string, string]; assignee: [string | undefined, string | undefined] } };
 
 // Message bodies are wrapped as data: they are written to the PU by other people, never instructions or questions for the triage model.
 const fmt = (m: ThreadMessage) =>
@@ -127,6 +133,83 @@ export class TriagePipeline {
       if (there?.streamId && there.data.muted) return;
     }
     const up = await this.repo.upsertItem(inbound);
+    // A DM or group DM can run several topics; each goes to the work stream it belongs to and is judged there on its own.
+    const parts = await this.splitByTopic(inbound, up);
+    for (const [n, part] of parts.entries()) await this.processUpdate(n ? { ...inbound, eventId: `${inbound.eventId}#${n}` } : inbound, part, sil);
+  }
+
+  /**
+   * New messages in a flowing Slack conversation that is already in work streams: decide, message by message, which stream's topic
+   * each continues. What continues no listed topic goes to the conversation's "no stream" item, where ordinary triage decides
+   * between an existing stream, a new one or not relevant. Returns the groups that now need triage (the original update when nothing moved).
+   */
+  private async splitByTopic(inbound: InboundItem, up: Upserted): Promise<Upserted[]> {
+    const channel = inbound.data.slack?.channel;
+    if (!up.changed || inbound.source !== 'slack' || !channel || !up.newMessages.length) return [up];
+    const s = await this.settings();
+    if (s.claude.splitSlackByTopic === false) return [up];
+    const family = await this.repo.slackFamily(channel);
+    if (!Repo.slackIsFlat(channel, family)) return [up];
+    const streamIds = [...new Set(family.map((i) => i.streamId).filter((x): x is string => !!x))];
+    if (!streamIds.length) return [up]; // nothing to split from yet: triage files the whole conversation
+    const streams = new Map<string, NonNullable<Awaited<ReturnType<Repo['getStream']>>>>();
+    for (const id of streamIds) {
+      const st = await this.repo.getStream(id);
+      if (st) streams.set(id, st);
+    }
+    if (!streams.size) return [up];
+    const where = new Map<string, string>(); // message id -> stream title
+    const all: ThreadMessage[] = [];
+    for (const it of family) for (const m of it.data.messages ?? []) {
+      where.set(m.id, it.streamId ? streams.get(it.streamId)?.title ?? '?' : '(no work stream)');
+      all.push(m);
+    }
+    all.sort((a, b) => a.at.localeCompare(b.at));
+    const fresh = new Set(up.newMessages.map((m) => m.id));
+    const recent = all.filter((m) => !fresh.has(m.id)).slice(-12);
+    const current = up.item.streamId;
+    const label = (m: ThreadMessage) => fmt(m).replace('<message ', `<message id="${m.id}" stream="${where.get(m.id) ?? '?'}" `);
+    const prompt = [
+      `Work streams holding parts of this conversation ("${up.item.title}"):`,
+      ...[...streams.values()].map((st) => `- id ${st.id}${st.id === current ? ' (current: the new messages were filed here)' : ''}: "${st.title}"${st.status === 'closed' ? ' [closed]' : ''}. ${st.summary.replace(/\s+/g, ' ').slice(0, 400)}`),
+      current ? '' : 'The new messages were filed into the conversation\'s "no work stream" item (current).',
+      `Recent messages:\n${recent.map(label).join('\n\n') || '(none)'}`,
+      `NEW messages (say where each belongs):\n${up.newMessages.map(label).join('\n\n')}`,
+      'Answer with one assignment per NEW message id.',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    let res: TopicAssignment;
+    try {
+      res = await this.backend.structured({ systemPrompt: TOPIC_SPLIT_RULES, prompt, schema: TopicAssignment });
+    } catch (e: any) {
+      console.error('[topic split]', e.message); // keep the conversation together rather than lose messages
+      return [up];
+    }
+    const dest = new Map<string | null, ThreadMessage[]>(); // undefined -> stays
+    const pick = new Map((res?.assignments ?? []).map((a) => [a.id, a.where]));
+    for (const m of up.newMessages) {
+      const w = pick.get(m.id) ?? 'stay';
+      const to = w === 'other' ? null : streams.has(w) && w !== current ? w : current;
+      if (to === current) continue;
+      dest.set(to, [...(dest.get(to) ?? []), m]);
+    }
+    if (!dest.size) return [up];
+    const stayCount = up.newMessages.length - [...dest.values()].reduce((n, x) => n + x.length, 0);
+    const out: Upserted[] = [];
+    for (const [toStreamId, msgs] of dest) {
+      const r = await this.repo.placeSlackMessages({ channel, toStreamId, messages: msgs, title: up.item.title, channelName: up.item.data.slack?.channelName, flat: true });
+      if (!r.item) continue;
+      out.push({ item: r.item, newMessages: msgs, created: !!r.created, changed: true });
+    }
+    // what stayed (if anything) is judged where it is, first
+    const stay = stayCount ? await this.repo.getItem(up.item.id) : null;
+    const rest = stay ? [{ ...up, item: stay, newMessages: up.newMessages.filter((m) => !out.some((o) => o.newMessages.includes(m))) }] : [];
+    return [...rest, ...out];
+  }
+
+  /** The decisions after an item was stored: silencing, linking, triage, routing. */
+  private async processUpdate(inbound: InboundItem, up: Upserted, sil: Settings['silencing']) {
     let item = up.item;
     const { newMessages, created, changed } = up;
     if (!changed) return;

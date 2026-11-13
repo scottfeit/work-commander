@@ -13,6 +13,7 @@ export function defaultSettings(): Settings {
       vertex: { projectId: '', region: 'global' },
       allowWebResearch: false,
       autoDraft: true,
+      splitSlackByTopic: true,
       reopenClosedWithinDays: 14,
       maxTurns: 30,
     },

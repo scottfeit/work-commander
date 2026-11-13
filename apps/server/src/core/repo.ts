@@ -372,22 +372,150 @@ export class Repo {
   /** The channel id when `externalId` ("D…" or "D…:ts") is a Slack DM. */
   static slackDmChannel(source: string, externalId: string) {
     // D… is a DM; "<channel>:dm" is how the ingestor labels a whole conversation (including group DMs).
-    return source === 'slack' ? /^(D[A-Z0-9]+)(?::.*)?$/.exec(externalId)?.[1] ?? /^([A-Z][A-Z0-9]+):dm$/.exec(externalId)?.[1] ?? null : null;
+    return source === 'slack' ? /^(D[A-Z0-9]+)(?::.*)?$/.exec(externalId)?.[1] ?? /^([A-Z][A-Z0-9]+):dm(?:@.*)?$/.exec(externalId)?.[1] ?? null : null;
   }
 
-  /** The existing item for a Slack DM channel (the one already in a work stream first, else the oldest). */
+  /** Every Slack item of one channel or conversation. A conversation can be split across work streams, one item per stream. */
+  async slackFamily(channel: string): Promise<StreamItem[]> {
+    const rows = await this.db
+      .selectFrom('items')
+      .selectAll()
+      .where('source', '=', 'slack')
+      .where((eb) => eb.or([eb('external_id', '=', channel), eb('external_id', 'like', `${channel}:%`)]))
+      .orderBy('updated_at', 'asc')
+      .execute();
+    return rows.map((r) => this.toItem(r));
+  }
+
+  /** A DM or group DM is one flowing conversation (as opposed to a channel, whose threads are separate discussions). */
+  static slackIsFlat(channel: string, family: StreamItem[]) {
+    return channel.startsWith('D') || family.some((i) => /:dm(?:@.*)?$/.test(i.externalId));
+  }
+
+  /**
+   * The item new messages of a DM conversation go to by default: the one holding its latest message (so a conversation carries on
+   * in the work stream it is currently being discussed in). Which messages belong to which stream is otherwise the PU's call
+   * (moving them) or, later, triage's.
+   */
   async findSlackDmItem(source: string, externalId: string) {
     let channel = Repo.slackDmChannel(source, externalId);
     if (!channel && source === 'slack') {
       // A group DM has a C… id, so a single message of it ("<channel>:<ts>") looks like a channel thread. If we already hold that
       // conversation as "<channel>:dm" (in a work stream, open or closed), the message belongs there.
       const ch = /^([A-Z][A-Z0-9]+):\d+\.\d+(?:@.*)?$/.exec(externalId)?.[1];
-      if (ch && (await this.db.selectFrom('items').select('id').where('source', '=', 'slack').where('external_id', '=', `${ch}:dm`).executeTakeFirst())) channel = ch;
+      if (ch && (await this.db.selectFrom('items').select('id').where('source', '=', 'slack').where((eb) => eb.or([eb('external_id', '=', `${ch}:dm`), eb('external_id', 'like', `${ch}:dm@%`)])).executeTakeFirst())) channel = ch;
     }
     if (!channel) return null;
-    const rows = await this.db.selectFrom('items').selectAll().where('source', '=', 'slack').where((eb) => eb.or([eb('external_id', '=', channel), eb('external_id', 'like', `${channel}:%`)])).orderBy('updated_at', 'asc').execute();
-    const pick = rows.find((r) => r.stream_id) ?? rows[0];
-    return pick ? this.toItem(pick) : null;
+    const family = await this.slackFamily(channel);
+    if (!family.length) return null;
+    const latest = (i: StreamItem) => (i.data.messages ?? []).map((m) => m.at).sort().pop() ?? '';
+    return [...family].sort((a, b) => latest(b).localeCompare(latest(a)) || b.updatedAt.localeCompare(a.updatedAt))[0];
+  }
+
+  /**
+   * Put Slack messages into a work stream's item for their conversation (creating it), taking them out of whichever item held
+   * them before. This is how a conversation is split by topic: each work stream holds only the messages that belong to it.
+   * `toStreamId` null puts them in the conversation's "no stream" item (not relevant to any work stream).
+   */
+  async placeSlackMessages(input: {
+    channel: string;
+    toStreamId: string | null;
+    messages: ThreadMessage[];
+    title: string;
+    channelName?: string;
+    flat?: boolean;
+    /** Leave messages that another work stream holds where they are (a link's "later messages" must not pull in other topics). */
+    keepOtherStreams?: boolean;
+  }) {
+    const family = await this.slackFamily(input.channel);
+    const flat = input.flat ?? Repo.slackIsFlat(input.channel, family);
+    const holderOf = (id: string) => family.find((i) => i.data.messages?.some((m) => m.id === id));
+    const todo = input.messages.filter((m) => {
+      const h = holderOf(m.id);
+      return !(input.keepOtherStreams && h?.streamId && h.streamId !== input.toStreamId);
+    });
+    if (!todo.length) return { item: null as StreamItem | null, added: 0, moved: [] as { itemId: string; streamId: string | null; title: string; count: number }[] };
+    const first = [...todo].sort((a, b) => a.at.localeCompare(b.at))[0];
+    let target =
+      input.toStreamId !== null
+        ? family.find((i) => i.streamId === input.toStreamId)
+        : flat
+          ? family.find((i) => !i.streamId && Repo.slackChannelOf(i) === input.channel)
+          : holderOf(first.id)?.streamId === null
+            ? holderOf(first.id)
+            : undefined;
+    const t = now();
+    let created = false;
+    if (!target) {
+      const base = flat ? `${input.channel}:dm` : `${input.channel}:${first.id}`;
+      const taken = new Set(family.map((i) => i.externalId));
+      let externalId = !taken.has(base) ? base : `${base}@${input.toStreamId ?? '-'}`;
+      for (let n = 2; taken.has(externalId); n++) externalId = `${base}@${input.toStreamId ?? '-'}~${n}`;
+      const row: ItemRow = {
+        id: nanoid(12),
+        stream_id: input.toStreamId,
+        source: 'slack',
+        kind: 'slack_thread',
+        external_id: externalId,
+        title: input.title,
+        url: null,
+        data: j({ messages: [], slack: { channel: input.channel, channelName: input.channelName, threadTs: first.id } } as ItemData),
+        updated_at: t,
+      };
+      await this.db.insertInto('items').values(row).execute();
+      target = this.toItem(row);
+      created = true;
+    }
+    const aliases = new Set(target.data.mergedExternalIds ?? []);
+    const moved = new Map<string, { itemId: string; streamId: string | null; title: string; count: number }>();
+    const gone = new Map<string, Set<string>>();
+    for (const m of todo) {
+      const h = holderOf(m.id);
+      if (h && h.id !== target.id) {
+        gone.set(h.id, (gone.get(h.id) ?? new Set()).add(m.id));
+        const e = moved.get(h.id) ?? { itemId: h.id, streamId: h.streamId, title: h.title, count: 0 };
+        e.count++;
+        moved.set(h.id, e);
+        if (!flat) {
+          aliases.add(`${input.channel}:${m.id}`);
+          if (h.data.slack?.threadTs === m.id) for (const a of [h.externalId, ...(h.data.mergedExternalIds ?? [])]) aliases.add(a);
+        }
+      }
+    }
+    const have = new Map((target.data.messages ?? []).map((m) => [m.id, m]));
+    let added = 0;
+    for (const m of todo) {
+      if (!have.has(m.id)) added++;
+      have.set(m.id, m);
+    }
+    aliases.delete(target.externalId);
+    const data: ItemData = {
+      ...target.data,
+      messages: [...have.values()].sort((a, b) => a.at.localeCompare(b.at)),
+      mergedExternalIds: aliases.size ? [...aliases] : undefined,
+    };
+    await this.db.updateTable('items').set({ data: j(data), updated_at: t }).where('id', '=', target.id).execute();
+    const affected = new Set<string>();
+    if (input.toStreamId) affected.add(input.toStreamId);
+    for (const [holderId, ids] of gone) {
+      const h = family.find((i) => i.id === holderId)!;
+      const left = (h.data.messages ?? []).filter((m) => !ids.has(m.id));
+      if (h.streamId) affected.add(h.streamId);
+      if (left.length) {
+        const hd: ItemData = { ...h.data, messages: left };
+        await this.db.updateTable('items').set({ data: j(hd) }).where('id', '=', h.id).execute();
+        bus.publish({ type: 'item.updated', item: { ...h, data: hd } });
+      } else {
+        await this.db.updateTable('inbound_events').set({ item_id: target.id }).where('item_id', '=', h.id).execute();
+        await this.db.deleteFrom('message_html').where('item_id', '=', h.id).execute();
+        await this.db.deleteFrom('items').where('id', '=', h.id).execute();
+        bus.publish({ type: 'item.updated', item: { ...h, streamId: null } }); // takes its tab away
+      }
+    }
+    const item = (await this.getItem(target.id))!;
+    bus.publish({ type: 'item.updated', item });
+    for (const id of affected) await this.emitStream(id);
+    return { item, added, created, moved: [...moved.values()] };
   }
 
   /**
@@ -404,9 +532,10 @@ export class Repo {
     let merged = 0;
     for (const group of byChannel.values()) {
       if (group.length < 2) continue;
-      const streams = new Set(group.map((r) => r.stream_id).filter(Boolean));
-      if (streams.size > 1) continue;
-      const keep = group.find((r) => r.stream_id) ?? group[0];
+      // A conversation split across work streams has one item per stream on purpose; only duplicates inside one stream are folded.
+      const streams = new Set(group.map((r) => r.stream_id));
+      if (streams.size > 1 || !group[0].stream_id) continue;
+      const keep = group[0];
       const kept = this.toItem(keep);
       const messages = new Map((kept.data.messages ?? []).map((m) => [m.id, m]));
       for (const r of group) {
@@ -469,6 +598,21 @@ export class Repo {
       if (alias) {
         input = { ...input, externalId: alias.externalId, title: alias.title };
         existing = alias;
+      }
+    }
+    // A conversation can be split across work streams: a message another item of the same conversation already holds stays there.
+    let holder: StreamItem | undefined;
+    if (input.source === 'slack' && input.data.messages?.length) {
+      const channel = input.data.slack?.channel ?? /^([A-Z][A-Z0-9]{6,})(?::|$)/.exec(input.externalId)?.[1];
+      if (channel) {
+        const claimed = new Map<string, StreamItem>();
+        for (const it of await this.slackFamily(channel)) if (it.id !== existing?.id) for (const m of it.data.messages ?? []) claimed.set(m.id, it);
+        const mine = input.data.messages.filter((m) => !claimed.has(m.id));
+        if (mine.length !== input.data.messages.length) {
+          holder = claimed.get(input.data.messages.find((m) => claimed.has(m.id))!.id);
+          input = { ...input, data: { ...input.data, messages: mine } };
+          if (!mine.length && !existing) return { item: holder!, newMessages: [] as ThreadMessage[], created: false, changed: false, ticketMeta: undefined };
+        }
       }
     }
     const t = now();

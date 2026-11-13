@@ -374,6 +374,8 @@ export interface Settings {
     apiKeyId?: string;
     allowWebResearch: boolean;
     autoDraft: boolean;
+    /** Sort a Slack DM's new messages into the work stream each one belongs to (a conversation can run several topics). Default on. */
+    splitSlackByTopic?: boolean;
     /** New activity on a closed stream reopens it only if it closed within this many days; otherwise a new stream starts. */
     reopenClosedWithinDays: number;
     maxTurns: number;

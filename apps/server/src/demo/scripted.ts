@@ -16,6 +16,8 @@ export class ScriptedBackend implements AgentBackend {
 
   async structured<T>(i: { prompt: string; schema: z.ZodType<T> }): Promise<T> {
     // Match on the incoming message only, not on the list of recently skipped items.
+    // Splitting a conversation by topic: the demo keeps every message where it is.
+    if (/Answer with one assignment per NEW message id/.test(i.prompt)) return { assignments: [] } as T;
     const p = i.prompt.replace(/Recently skipped messages[\s\S]*?\n\n/, '');
     const existing = p.match(/ALREADY attached to stream (\S+);/)?.[1] ?? null;
     let d: TriageDecision;
