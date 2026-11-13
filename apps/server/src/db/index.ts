@@ -29,6 +29,11 @@ export interface DB {
     ticket_target: string | null;
     agent_session_id: string | null;
     unread: number;
+    pending: number;
+    /** When the stream was last marked pending (the reminder clock starts there if later than its last activity). */
+    pending_at: string | null;
+    /** Set while the stream is surfaced as a reminder (it was pending too long). */
+    reminder_at: string | null;
     created_at: string;
     updated_at: string;
     closed_at: string | null;
@@ -94,6 +99,8 @@ export interface DB {
     created_at: string;
   };
   sync_state: { key: string; value: string };
+  /** Original HTML of email messages (the item's data keeps only the text), so the rendered view survives deletion at the source. */
+  message_html: { item_id: string; message_id: string; html: string };
   /** Every version of a stream's summary (the Overview), oldest first. `at` = when it became current; null for a version written before history was kept. */
   stream_summaries: { id: Generated<number>; stream_id: string; summary: string; by: string; at: string | null };
   /** Work handed off to Claude Code; RESULT.md in `folder` is brought back automatically. */
@@ -283,6 +290,14 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('data', 'text', (c) => c.notNull())
     .addColumn('created_at', 'text', (c) => c.notNull())
     .execute();
+  await s
+    .createTable('message_html')
+    .ifNotExists()
+    .addColumn('item_id', 'text', (c) => c.notNull())
+    .addColumn('message_id', 'text', (c) => c.notNull())
+    .addColumn('html', 'text', (c) => c.notNull())
+    .addPrimaryKeyConstraint('message_html_pk', ['item_id', 'message_id'])
+    .execute();
   let audit = s.createTable('audit_log').ifNotExists();
   audit =
     dialect === 'postgres'
@@ -295,6 +310,17 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('detail', 'text', (c) => c.notNull())
     .execute();
   void sql;
+  // Columns added after the first release: older databases get them here (SQLite has no ADD COLUMN IF NOT EXISTS).
+  if (dialect === 'postgres') {
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS pending integer NOT NULL DEFAULT 0`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS pending_at text`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS reminder_at text`.execute(db);
+  } else {
+    const cols = await sql<{ name: string }>`PRAGMA table_info(streams)`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'pending')) await sql`ALTER TABLE streams ADD COLUMN pending integer NOT NULL DEFAULT 0`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'pending_at')) await sql`ALTER TABLE streams ADD COLUMN pending_at text`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'reminder_at')) await sql`ALTER TABLE streams ADD COLUMN reminder_at text`.execute(db);
+  }
 }
 
 export const now = () => new Date().toISOString();

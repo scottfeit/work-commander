@@ -56,12 +56,12 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   const hub = new IntegrationHub(cfg, settings, secrets, repo, o.world?.(repo));
   const grants = new GrantService(repo, secrets, get, o.onePassword, o.grantFetch);
   let toolDeps: ToolDeps;
-  const executor = new Executor(repo, hub, grants, get, secrets, () => (name, args, ctx) => runInternalTool(name, args, ctx, toolDeps), attachments);
-  toolDeps = { repo, hub, grants, executor, settings: get, attachments };
+  const executor = new Executor(repo, hub, grants, get, secrets, () => (name, args, ctx) => runInternalTool(name, args, ctx, toolDeps), attachments, (p) => settings.update(p));
+  toolDeps = { repo, hub, grants, executor, settings: get, attachments, secret: (id) => secrets.get(id), structured: (i) => backend.structured(i), canHandoff: cfg.hosting === 'local' };
   const partial = { cfg, db, settings, repo, secrets, hub, grants, executor, attachments, mcpOAuth };
   const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets);
   const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps);
-  const triage = new TriagePipeline(repo, backend, runner, get);
+  const triage = new TriagePipeline(repo, backend, runner, get, cfg.hosting === 'local');
   hub.mcpIngestorFactory = (system, sink, report) => new McpPollIngestor(system, backend, get, secrets, repo, sink, report);
   await executor.recoverInterrupted();
   return { ...partial, backend, runner, triage };

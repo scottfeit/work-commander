@@ -54,6 +54,12 @@ export interface WorkStream {
   lastActivityAt: string;
   pendingProposals: number;
   unread: boolean;
+  /** The PU has done all they can for now and is waiting on others. Still open; listed under "Pending" until something new arrives. */
+  pending: boolean;
+  /** Set while the stream is surfaced as a reminder: it sat in Pending untouched for the configured days. Cleared when it is snoozed again, closed, or others write. */
+  reminderAt?: string | null;
+  /** The tool the most recently updated item came from (shown as an icon on the stream). */
+  lastSource?: ItemSource;
   runState: 'idle' | 'running' | 'waiting_approval';
 }
 
@@ -98,6 +104,16 @@ export interface ItemData {
   dismissedAt?: string;
   /** When Work Commander last changed this ticket's status itself (so the resulting state isn't mistaken for new activity). */
   wcTransitionAt?: string;
+  /** New activity arrived on this item that the PU hasn't opened yet (a dot on its tab). */
+  unread?: boolean;
+  /** Position of this item's tab within its work stream when the PU has rearranged them. */
+  tabOrder?: number;
+  /** When the PU last arranged this stream's tabs; the "most recent tab first" setting only applies to activity newer than this. */
+  tabOrderAt?: string;
+  /** External ids of items folded into this one (Slack messages from the same channel discussion), so re-ingesting them lands here. */
+  mergedExternalIds?: string[];
+  /** The PU silenced this item: updates are still pulled in, but they don't notify, mark the stream unread or reopen it. */
+  muted?: boolean;
   /** Ticket-specific */
   ticket?: {
     key: string;
@@ -127,6 +143,7 @@ export type ProposalKind =
   | 'ticket_comment'
   | 'ticket_transition'
   | 'ticket_assign'
+  | 'playbook'
   | 'credential_request'
   | 'stream_close'
   | 'mcp_tool_call'
@@ -190,6 +207,8 @@ export interface ChatMessage {
   meta: {
     suggestion?: { instruction: string; status: 'open' | 'accepted' | 'dismissed' };
     question?: { options?: string[]; answered?: boolean };
+    /** Claude asks whether to send an "I'm looking into it" reply or hand the work to Claude Code (one click each). */
+    handoffOffer?: { task: string; done: ('reply' | 'handoff')[]; dismissed?: boolean };
     selectedItemId?: string;
     toolCalls?: { name: string; input: unknown }[];
     runId?: string;
@@ -247,6 +266,8 @@ export interface SlackSettings {
   mode: 'api' | 'mcp';
   api: { userTokenId?: string; appTokenId?: string; teamUrl?: string };
   mcp?: McpServerSettings;
+  /** Channels to watch for new messages even when they don't mention the PU: names (#sys-eng) or ids, separated by commas or new lines. */
+  watchedChannels: string;
   ingestion: IngestionMode;
   pollSeconds: number;
   policy: { read: PolicyMode; write: PolicyMode };
@@ -302,6 +323,34 @@ export interface OrgChartSyncStatus {
   lastCount?: number;
 }
 
+export interface ReminderSettings {
+  /** Pending work streams untouched this many days come back to the top as a Reminder. 0 = never. */
+  pendingDays: number;
+}
+
+export interface SilencingSettings {
+  /** Don't check silenced items for updates at all (nothing about them is stored or re-read while they are silenced). */
+  skipPolling: boolean;
+  /** An update that directly refers to the PU (a mention, their name or email) breaks through a silenced item. Ignored when skipPolling is on. */
+  mentionsOverride: boolean;
+}
+
+/** Scheduled copies of Work Commander's local database into a folder (e.g. a Google Drive folder). */
+export interface BackupSettings {
+  enabled: boolean;
+  folder: string;
+  everyHours: number;
+  /** How many backups to keep in the folder; older ones are deleted. */
+  keep: number;
+}
+
+export interface BackupStatus {
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  lastFile?: string;
+  lastError?: string;
+}
+
 export interface FieldMapping {
   name: string;
   email: string;
@@ -335,7 +384,19 @@ export interface Settings {
   atlassian: AtlassianSettings;
   onepassword: OnePasswordSettings;
   orgChart: OrgChartSourceSettings;
-  ui: { showClosedByDefault: boolean };
+  ui: { showClosedByDefault: boolean; /** Put the most recently active item tab right after Overview. */ recentTabFirst?: boolean;
+    /** What a work stream shows when you open it: its Overview, or its most recently updated item tab. */
+    openTab?: 'overview' | 'recent';
+    /** How emails show by default: the plain-text copy, or the original HTML. Each message can still be flipped. */
+    emailView?: 'text' | 'original';
+  };
+  backup: BackupSettings;
+  /** How silenced work items behave. */
+  silencing: SilencingSettings;
+  /** When snoozed (Pending) work streams are surfaced again. */
+  reminders: ReminderSettings;
+  /** The PU's standing instructions ("playbooks"): what to suggest when a kind of thing comes up. Given to triage and to Claude. */
+  playbooks: string;
   setupComplete: boolean;
 }
 
@@ -355,6 +416,8 @@ export interface EnvironmentInfo {
   availableProviders: ClaudeProvider[];
   publicUrl: string;
   version: string;
+  /** Backups need the local SQLite database. */
+  backupAvailable: boolean;
 }
 
 // ---------- Server-sent events ----------
@@ -370,3 +433,18 @@ export type ServerEvent =
   | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string };
 
 export const GENERAL_STREAM = '__general__';
+
+/** Tab order for a work stream: the PU's arrangement first, and optionally the most recently active tab hoisted next to Overview. */
+export function orderTabs(items: StreamItem[], recentFirst: boolean): StreamItem[] {
+  const arranged = items
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => (a.it.data.tabOrder ?? Infinity) - (b.it.data.tabOrder ?? Infinity) || a.i - b.i)
+    .map((x) => x.it);
+  if (!recentFirst || arranged.length < 2) return arranged;
+  const latest = arranged.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a));
+  // Rearranging the tabs yourself wins until something newer happens.
+  const arrangedAt = arranged.reduce((m, i) => (i.data.tabOrderAt && i.data.tabOrderAt > m ? i.data.tabOrderAt : m), '');
+  if (arrangedAt && latest.updatedAt <= arrangedAt) return arranged;
+  return [latest, ...arranged.filter((i) => i.id !== latest.id)];
+}
+

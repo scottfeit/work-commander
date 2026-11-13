@@ -3,7 +3,7 @@ import type { ChatMessage, EnvironmentInfo, Proposal, ServerEvent, StreamItem, W
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, patch, post, useServerEvents } from './api';
 import { StreamList } from './components/StreamList';
-import { TabBar, OVERVIEW_TAB } from './components/TabBar';
+import { TabBar, OVERVIEW_TAB, orderTabs } from './components/TabBar';
 import { ItemView, StreamOverview } from './components/ItemView';
 import { ChatPane } from './components/ChatPane';
 import { DraftPane } from './components/DraftPane';
@@ -35,6 +35,9 @@ export function App() {
   // A skipped item being looked at: shown as a temporary tab, gone as soon as you navigate away or dismiss it.
   const [peek, setPeek] = useState<StreamItem | null>(null);
   const [skippedVersion, setSkippedVersion] = useState(0);
+  const [recentTabFirst, setRecentTabFirst] = useState(false);
+  const [focusDraft, setFocusDraft] = useState<string | null>(null);
+  const openTabRef = useRef<'overview' | 'recent'>('overview');
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [drafts, setDrafts] = useState<Proposal[]>([]);
   const [live, setLive] = useState<{ runId: string; text: string } | null>(null);
@@ -55,6 +58,7 @@ export function App() {
     setItems(it);
     setChat(ch);
     setDrafts(pr);
+    return it;
   }, []);
 
   useEffect(() => {
@@ -65,6 +69,15 @@ export function App() {
     });
   }, [nav]);
   useEffect(() => void loadStreams(), [loadStreams]);
+  // The tab-order setting can change on the settings page, so re-read it whenever the page changes.
+  useEffect(() => {
+    get('/api/settings')
+      .then((s) => {
+        setRecentTabFirst(!!s.ui?.recentTabFirst);
+        openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
+      })
+      .catch(() => undefined);
+  }, [path]);
   useEffect(() => {
     if (peek && tab !== peek.id) setPeek(null);
   }, [tab, peek]);
@@ -76,6 +89,11 @@ export function App() {
     } catch {
       /* gone */
     }
+  }, []);
+  // Mark a work stream unread. If it is the one open, step back to the overview so its dot is visible.
+  const markUnread = useCallback(async (id: string) => {
+    await patch(`/api/streams/${id}`, { unread: true }).catch(() => undefined);
+    if (id === selRef.current) setSelected(GENERAL_STREAM);
   }, []);
   const closePeek = useCallback(() => {
     setPeek(null);
@@ -90,7 +108,11 @@ export function App() {
   useEffect(() => {
     setLive(null);
     setTab(OVERVIEW_TAB);
-    void loadSelected(selected);
+    void loadSelected(selected).then((it) => {
+      // Setting: open a work stream on its most recently updated item tab instead of the Overview.
+      if (!it?.length || selRef.current !== selected || selected === GENERAL_STREAM || openTabRef.current !== 'recent') return;
+      setTab(it.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).id);
+    });
     if (selected !== GENERAL_STREAM) void patch(`/api/streams/${selected}`, { unread: false }).catch(() => undefined);
   }, [selected, loadSelected]);
 
@@ -100,6 +122,29 @@ export function App() {
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), 7000);
     if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification(t.title, { body: t.body });
   }, []);
+
+  // The + on the tab bar: add a work item from a pasted link, show it, and Claude reviews it in the background.
+  const addByUrl = useCallback(async (url: string) => {
+    const id = selRef.current;
+    const r = await post<{ item: StreamItem }>(`/api/streams/${id}/items/from-url`, { url });
+    if (selRef.current !== id) return;
+    setItems((xs) => (xs.some((x) => x.id === r.item.id) ? xs.map((x) => (x.id === r.item.id ? r.item : x)) : [...xs, r.item]));
+    setTab(r.item.id);
+  }, []);
+
+  // Quick Reply: open (or jump to) a blank, pre-addressed draft for this item without asking Claude.
+  const quickReply = useCallback(
+    async (item: StreamItem) => {
+      try {
+        const r = await post<{ proposal: Proposal }>(`/api/items/${item.id}/quick-reply`);
+        setDrafts((xs) => (xs.some((x) => x.id === r.proposal.id) ? xs : [...xs, r.proposal].sort((a, b) => a.createdAt.localeCompare(b.createdAt))));
+        setFocusDraft(r.proposal.id);
+      } catch (e: any) {
+        toast({ title: 'Quick reply', body: e.message, tone: 'error' });
+      }
+    },
+    [toast],
+  );
 
   useServerEvents(
     (e: ServerEvent) => {
@@ -150,8 +195,28 @@ export function App() {
   );
 
   const stream = useMemo(() => streams.find((s) => s.id === selected) ?? null, [streams, selected]);
+  const tabItems = useMemo(() => orderTabs(items, recentTabFirst), [items, recentTabFirst]);
   const selectedItem = items.find((i) => i.id === tab) ?? (peek && tab === peek.id ? peek : null);
   const selectedIsPeek = !!selectedItem && !items.some((i) => i.id === selectedItem.id);
+  // Opening a tab (or new activity arriving on the open one) clears its dot.
+  const viewedUnread = !selectedIsPeek && selectedItem?.data.unread ? selectedItem.id : null;
+  useEffect(() => {
+    if (!viewedUnread) return;
+    setItems((xs) => xs.map((x) => (x.id === viewedUnread ? { ...x, data: { ...x.data, unread: undefined } } : x)));
+    void post(`/api/items/${viewedUnread}/read`).catch(() => undefined);
+  }, [viewedUnread]);
+  const reorderTabs = useCallback(
+    (id: string, targetId: string, after: boolean) => {
+      const ids = tabItems.map((i) => i.id).filter((x) => x !== id);
+      const at = ids.indexOf(targetId) + (after ? 1 : 0);
+      ids.splice(at, 0, id);
+      // Show it at once, then remember it.
+      const stamp = new Date().toISOString();
+      setItems((xs) => xs.map((x) => (ids.includes(x.id) ? { ...x, data: { ...x.data, tabOrder: ids.indexOf(x.id), tabOrderAt: stamp } } : x)));
+      void post(`/api/streams/${selRef.current}/item-order`, { ids }).catch(() => undefined);
+    },
+    [tabItems],
+  );
   const running = selected === GENERAL_STREAM ? !!live : stream?.runState === 'running' || !!live;
 
   // Drag the divider between the top pane and the bottom panes.
@@ -188,12 +253,15 @@ export function App() {
         onSkippedDismissed={(ids) => peek && ids.includes(peek.id) && closePeek()}
         skippedVersion={skippedVersion}
         peekId={peek?.id ?? null}
+        onMarkUnread={(id) => void markUnread(id)}
+        onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
+        onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
       />
       <main className="main" ref={mainRef} style={{ gridTemplateRows: `auto ${split}fr 6px ${1 - split}fr` }}>
-        <TabBar stream={stream} items={items} tab={tab} onTab={setTab} peek={peek} onClosePeek={closePeek} />
+        <TabBar stream={stream} items={tabItems} tab={tab} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
         <section className="top-pane">
           {selectedItem ? (
-            <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} />
+            <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} />
           ) : selected === GENERAL_STREAM ? (
             <div className="empty-state">
               <h2>All open work</h2>
@@ -203,7 +271,7 @@ export function App() {
               </p>
             </div>
           ) : stream ? (
-            <StreamOverview stream={stream} items={items} onOpen={setTab} />
+            <StreamOverview stream={stream} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream.id)} onTogglePending={() => void patch(`/api/streams/${stream.id}`, { pending: !stream.pending })} />
           ) : null}
         </section>
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />
@@ -219,6 +287,8 @@ export function App() {
           {drafts.length > 0 && (
             <DraftPane
               drafts={drafts}
+              focusId={focusDraft}
+              onFocused={() => setFocusDraft(null)}
               onDecided={(p) => {
                 setDrafts((xs) => (p.status === 'pending' ? xs.map((x) => (x.id === p.id ? p : x)) : xs.filter((x) => x.id !== p.id)));
                 // Once it has run, the server has re-fetched the thread/ticket: reload so the item tab shows what was sent.

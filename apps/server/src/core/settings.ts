@@ -31,6 +31,7 @@ export function defaultSettings(): Settings {
       mode: 'api',
       api: {},
       mcp: { transport: 'http', url: 'https://mcp.slack.com/mcp', readOnlyToolPatterns: DEFAULT_READ_ONLY },
+      watchedChannels: '',
       ingestion: 'realtime',
       pollSeconds: 60,
       policy: { read: 'auto', write: 'approve' },
@@ -54,7 +55,11 @@ export function defaultSettings(): Settings {
       policy: { read: 'approve', write: 'approve' },
     },
     orgChart: { type: 'none' },
-    ui: { showClosedByDefault: false },
+    ui: { showClosedByDefault: false, recentTabFirst: false, openTab: 'overview' },
+    backup: { enabled: false, folder: '', everyHours: 24, keep: 14 },
+    silencing: { skipPolling: false, mentionsOverride: false },
+    reminders: { pendingDays: 3 },
+    playbooks: '',
     setupComplete: false,
   };
 }

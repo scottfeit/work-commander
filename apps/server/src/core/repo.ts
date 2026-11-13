@@ -60,6 +60,7 @@ export class Repo {
       .where('status', '=', 'pending')
       .executeTakeFirst();
     const pendingN = Number(pending?.n ?? 0);
+    const latest = await this.db.selectFrom('items').select('source').where('stream_id', '=', r.id).orderBy('updated_at', 'desc').limit(1).executeTakeFirst();
     const rs = this.runStates.get(r.id) ?? 'idle';
     return {
       id: r.id,
@@ -74,6 +75,9 @@ export class Repo {
       lastActivityAt: r.last_activity_at,
       pendingProposals: pendingN,
       unread: !!r.unread,
+      pending: !!r.pending,
+      reminderAt: r.reminder_at,
+      lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
   }
@@ -104,6 +108,9 @@ export class Repo {
       ticket_target: input.ticketTarget ? j(input.ticketTarget) : null,
       agent_session_id: null,
       unread: 1,
+      pending: 0,
+      pending_at: null,
+      reminder_at: null,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -118,7 +125,7 @@ export class Repo {
 
   async updateStream(
     id: string,
-    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; agentSessionId: string | null; touch: boolean }>,
+    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; pending: boolean; agentSessionId: string | null; touch: boolean }>,
     by: SummaryAuthor = 'claude',
   ) {
     const t = now();
@@ -129,14 +136,41 @@ export class Repo {
     if (patch.status !== undefined) {
       set.status = patch.status;
       set.closed_at = patch.status === 'closed' ? t : null;
+      if (patch.status === 'closed') {
+        set.pending = 0; // a closed stream is done, not waiting
+        set.reminder_at = null;
+      }
     }
     if (patch.labels !== undefined) set.labels = j(patch.labels);
     if (patch.ticketTarget !== undefined) set.ticket_target = patch.ticketTarget ? j(patch.ticketTarget) : null;
     if (patch.unread !== undefined) set.unread = patch.unread ? 1 : 0;
+    if (patch.pending !== undefined) {
+      set.pending = patch.pending ? 1 : 0;
+      set.pending_at = patch.pending ? t : null;
+      set.reminder_at = null; // snoozed again, or new activity: the reminder is answered
+    }
     if (patch.agentSessionId !== undefined) set.agent_session_id = patch.agentSessionId;
     if (patch.touch) set.last_activity_at = t;
     await this.db.updateTable('streams').set(set).where('id', '=', id).execute();
     await this.emitStream(id);
+  }
+
+  /**
+   * A pending stream has sat untouched too long: bring it back to the top of Open as a Reminder and mark the stream (not its
+   * work items) unread.
+   */
+  async surfaceReminder(id: string) {
+    const t = now();
+    await this.db.updateTable('streams').set({ pending: 0, pending_at: null, reminder_at: t, unread: 1, last_activity_at: t, updated_at: t }).where('id', '=', id).execute();
+    await this.emitStream(id);
+  }
+
+  /** Open pending streams whose last activity (or the moment they were snoozed, if later) is at least `days` ago. */
+  async pendingStreamsDue(days: number, nowMs = Date.now()) {
+    if (!(days > 0)) return [];
+    const rows = await this.db.selectFrom('streams').selectAll().where('status', '=', 'open').where('pending', '=', 1).execute();
+    const cutoff = nowMs - days * 86_400_000;
+    return rows.filter((r) => Math.max(Date.parse(r.last_activity_at), r.pending_at ? Date.parse(r.pending_at) : 0) <= cutoff).map((r) => r.id);
   }
 
   /** Keep every version of the Overview. Streams created before history existed get their old summary saved undated first. */
@@ -210,12 +244,129 @@ export class Repo {
 
   async listItems(streamId: string) {
     const rows = await this.db.selectFrom('items').selectAll().where('stream_id', '=', streamId).orderBy('updated_at', 'asc').execute();
-    return rows.map((r) => this.toItem(r));
+    // Tabs the PU has arranged keep their order; the rest follow, oldest activity first.
+    return rows
+      .map((r, i) => ({ it: this.toItem(r), i }))
+      .sort((a, b) => (a.it.data.tabOrder ?? Infinity) - (b.it.data.tabOrder ?? Infinity) || a.i - b.i)
+      .map((x) => x.it);
+  }
+
+  /** New activity on an item in a work stream: flag its tab until the PU opens it. */
+  async markItemUnread(itemId: string, force = false) {
+    const it = await this.getItem(itemId);
+    if (!it?.streamId || it.data.unread || (it.data.muted && !force)) return; // a silenced item raises a dot only when something breaks through
+    const data: ItemData = { ...it.data, unread: true };
+    await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
+    bus.publish({ type: 'item.updated', item: { ...it, data } });
+  }
+
+  /** Silence (or un-silence) an item's updates. Updates keep arriving; they just stop making noise. */
+  async setItemMuted(itemId: string, muted: boolean) {
+    const it = await this.getItem(itemId);
+    if (!it) throw new Error('Item not found');
+    const data: ItemData = { ...it.data, muted: muted || undefined, unread: muted ? undefined : it.data.unread };
+    await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
+    await this.audit('pu', muted ? 'item.silenced' : 'item.unsilenced', { itemId });
+    bus.publish({ type: 'item.updated', item: { ...it, data } });
+    if (it.streamId) await this.emitStream(it.streamId);
+  }
+
+  async markItemRead(itemId: string) {
+    const it = await this.getItem(itemId);
+    if (!it?.data.unread) return;
+    const data: ItemData = { ...it.data, unread: undefined };
+    await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
+    bus.publish({ type: 'item.updated', item: { ...it, data } });
+  }
+
+  /** Remember the PU's tab order for a work stream (ids in display order). */
+  async setItemOrder(streamId: string, ids: string[]) {
+    const at = now();
+    for (const [i, id] of ids.entries()) {
+      const it = await this.getItem(id);
+      if (!it || it.streamId !== streamId) continue;
+      const data: ItemData = { ...it.data, tabOrder: i, tabOrderAt: at };
+      await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', id).execute();
+      bus.publish({ type: 'item.updated', item: { ...it, data } });
+    }
   }
 
   async getItem(id: string) {
     const r = await this.db.selectFrom('items').selectAll().where('id', '=', id).executeTakeFirst();
     return r ? this.toItem(r) : null;
+  }
+
+  /** The item an incoming (source, externalId) will land in, if there already is one (same lookup upsertItem does, without writing). */
+  async findExistingItem(source: string, externalId: string) {
+    const dm = await this.findSlackDmItem(source, externalId);
+    const id = dm ? dm.externalId : externalId;
+    return (await this.findItem(source, id)) ?? (source === 'slack' ? await this.findAliasItem(id) : null);
+  }
+
+  async findAliasItem(externalId: string) {
+    const rows = await this.db.selectFrom('items').selectAll().where('source', '=', 'slack').where('data', 'like', `%"${externalId}"%`).execute();
+    const hit = rows.map((r) => this.toItem(r)).find((i) => i.data.mergedExternalIds?.includes(externalId));
+    return hit ?? null;
+  }
+
+  /** The Slack channel an item belongs to (null if it isn't a Slack item). */
+  static slackChannelOf(it: { source: string; externalId: string; data: ItemData }) {
+    if (it.source !== 'slack') return null;
+    return it.data.slack?.channel ?? /^([A-Z][A-Z0-9]{6,})(?::|$)/.exec(it.externalId)?.[1] ?? null;
+  }
+
+  /**
+   * Slack messages from the same channel that ended up in one work stream are one discussion: fold them into a single item
+   * (the earliest), keeping every message and remembering the folded ids so re-ingesting them lands in the same item.
+   */
+  async mergeSiblingChannelItems(streamId: string) {
+    const groups = new Map<string, StreamItem[]>();
+    for (const it of await this.listItems(streamId)) {
+      const ch = Repo.slackChannelOf(it);
+      if (ch) groups.set(ch, [...(groups.get(ch) ?? []), it]);
+    }
+    let merged = 0;
+    for (const [channel, group] of groups) {
+      if (group.length < 2) continue;
+      const firstAt = (i: StreamItem) => (i.data.messages ?? []).map((m) => m.at).sort()[0] ?? i.updatedAt;
+      group.sort((a, b) => firstAt(a).localeCompare(firstAt(b)));
+      const [keep, ...rest] = group;
+      const messages = new Map((keep.data.messages ?? []).map((m) => [m.id, m]));
+      const aliases = new Set([...(keep.data.mergedExternalIds ?? [])]);
+      let unread = !!keep.data.unread;
+      for (const r of rest) {
+        for (const m of r.data.messages ?? []) messages.set(m.id, m);
+        aliases.add(r.externalId);
+        for (const a of r.data.mergedExternalIds ?? []) aliases.add(a);
+        unread = unread || !!r.data.unread;
+        await this.db.updateTable('inbound_events').set({ item_id: keep.id }).where('item_id', '=', r.id).execute();
+        await this.db.deleteFrom('message_html').where('item_id', '=', r.id).execute();
+        await this.db.deleteFrom('items').where('id', '=', r.id).execute();
+        bus.publish({ type: 'item.updated', item: { ...r, streamId: null } }); // takes its tab away
+        merged++;
+      }
+      aliases.delete(keep.externalId);
+      const label = [keep, ...rest].map((i) => /^(#[^\s:]+)/.exec(i.title)?.[1]).find(Boolean);
+      const data: ItemData = {
+        ...keep.data,
+        messages: [...messages.values()].sort((a, b) => a.at.localeCompare(b.at)),
+        mergedExternalIds: [...aliases],
+        slack: { channel, channelName: keep.data.slack?.channelName, threadTs: keep.data.slack?.threadTs ?? '' },
+        unread: unread || undefined,
+      };
+      await this.db.updateTable('items').set({ title: label ?? keep.title, data: j(data), updated_at: now() }).where('id', '=', keep.id).execute();
+      const item = await this.getItem(keep.id);
+      if (item) bus.publish({ type: 'item.updated', item });
+    }
+    if (merged) await this.emitStream(streamId);
+    return merged;
+  }
+
+  /** Cleanup pass over every stream (items that were filed before channel discussions were folded together). */
+  async mergeAllChannelItems() {
+    let n = 0;
+    for (const s of await this.listStreams(true)) n += await this.mergeSiblingChannelItems(s.id);
+    return n;
   }
 
   /** The channel id when `externalId` ("D…" or "D…:ts") is a Slack DM. */
@@ -226,7 +377,13 @@ export class Repo {
 
   /** The existing item for a Slack DM channel (the one already in a work stream first, else the oldest). */
   async findSlackDmItem(source: string, externalId: string) {
-    const channel = Repo.slackDmChannel(source, externalId);
+    let channel = Repo.slackDmChannel(source, externalId);
+    if (!channel && source === 'slack') {
+      // A group DM has a C… id, so a single message of it ("<channel>:<ts>") looks like a channel thread. If we already hold that
+      // conversation as "<channel>:dm" (in a work stream, open or closed), the message belongs there.
+      const ch = /^([A-Z][A-Z0-9]+):\d+\.\d+(?:@.*)?$/.exec(externalId)?.[1];
+      if (ch && (await this.db.selectFrom('items').select('id').where('source', '=', 'slack').where('external_id', '=', `${ch}:dm`).executeTakeFirst())) channel = ch;
+    }
     if (!channel) return null;
     const rows = await this.db.selectFrom('items').selectAll().where('source', '=', 'slack').where((eb) => eb.or([eb('external_id', '=', channel), eb('external_id', 'like', `${channel}:%`)])).orderBy('updated_at', 'asc').execute();
     const pick = rows.find((r) => r.stream_id) ?? rows[0];
@@ -256,6 +413,7 @@ export class Repo {
         if (r.id === keep.id) continue;
         for (const m of this.toItem(r).data.messages ?? []) messages.set(m.id, m);
         await this.db.updateTable('inbound_events').set({ item_id: keep.id }).where('item_id', '=', r.id).execute();
+        await this.db.deleteFrom('message_html').where('item_id', '=', r.id).execute();
         await this.db.deleteFrom('items').where('id', '=', r.id).execute();
         merged++;
       }
@@ -278,10 +436,41 @@ export class Repo {
    * ingestion is idempotent. Returns the item and the messages that were new.
    */
   async upsertItem(input: Omit<StreamItem, 'id' | 'updatedAt' | 'streamId'> & { streamId?: string | null }) {
+    // Email HTML is kept apart from the item (which Claude reads and the UI lists); only the text stays in item data.
+    const htmls = (input.data.messages ?? []).filter((m) => m.html).map((m) => ({ id: m.id, html: m.html! }));
+    if (htmls.length) input = { ...input, data: { ...input.data, messages: input.data.messages!.map(({ html: _h, ...m }) => m) } };
+    const res = await this.upsertItemInner(input);
+    for (const h of htmls) await this.saveMessageHtml(res.item.id, h.id, h.html);
+    return res;
+  }
+
+  async saveMessageHtml(itemId: string, messageId: string, html: string) {
+    await this.db
+      .insertInto('message_html')
+      .values({ item_id: itemId, message_id: messageId, html })
+      .onConflict((oc) => oc.columns(['item_id', 'message_id']).doUpdateSet({ html }))
+      .execute();
+  }
+
+  /** Original HTML by message id for an item's emails. */
+  async getMessageHtml(itemId: string): Promise<Record<string, string>> {
+    const rows = await this.db.selectFrom('message_html').select(['message_id', 'html']).where('item_id', '=', itemId).execute();
+    return Object.fromEntries(rows.map((r) => [r.message_id, r.html]));
+  }
+
+  private async upsertItemInner(input: Omit<StreamItem, 'id' | 'updatedAt' | 'streamId'> & { streamId?: string | null }) {
     // A Slack DM is one conversation: later messages go into its existing item instead of starting a new "thread" per message.
     const dm = await this.findSlackDmItem(input.source, input.externalId);
     if (dm) input = { ...input, externalId: dm.externalId, title: /^Slack (DM|message)\b/.test(dm.title) && input.title ? input.title : dm.title };
-    const existing = await this.findItem(input.source, input.externalId);
+    let existing = await this.findItem(input.source, input.externalId);
+    if (!existing && input.source === 'slack') {
+      // A message that was folded into another item arrives again: it belongs to that item.
+      const alias = await this.findAliasItem(input.externalId);
+      if (alias) {
+        input = { ...input, externalId: alias.externalId, title: alias.title };
+        existing = alias;
+      }
+    }
     const t = now();
     if (!existing) {
       const row: ItemRow = {
@@ -399,6 +588,7 @@ export class Repo {
     await this.db.updateTable('items').set(set).where('id', '=', itemId).execute();
     const item = await this.getItem(itemId);
     if (item) bus.publish({ type: 'item.updated', item });
+    if (item?.source === 'slack') await this.mergeSiblingChannelItems(streamId);
   }
 
   /** The single open work stream that already mentions `needle` (a ticket key) in its title, summary or items; null if none or several. */
@@ -502,6 +692,8 @@ export class Repo {
     payload: Record<string, unknown>;
     editable: EditableField[];
     dependsOn?: string[];
+    /** A draft the PU started themselves: it doesn't count as Claude starting more work (so it leaves a pending close suggestion alone). */
+    quick?: boolean;
   }) {
     const row: ProposalRow = {
       id: `p_${nanoid(8)}`,
@@ -527,11 +719,12 @@ export class Repo {
     bus.publish({ type: 'proposal.updated', proposal: p });
     await this.emitStream(input.streamId);
     // New work on a stream means it isn't finished: drop a close suggestion from an earlier turn.
-    if (p.streamId && p.kind !== 'stream_close') await this.withdrawStaleClose(p.streamId, 'Claude started more work on this stream', p.runId);
+    if (p.streamId && p.kind !== 'stream_close' && !input.quick) await this.withdrawStaleClose(p.streamId, 'Claude started more work on this stream', p.runId);
     // A new draft to the same place from a later turn replaces the older unsent one (e.g. "change that reply").
     const target = draftTarget(p);
-    if (target) {
-      const older = (await this.listProposals({ streamId: p.streamId, status: ['pending'] })).filter((x) => x.id !== p.id && x.runId !== p.runId && draftTarget(x) === target);
+    // Drafts the PU started themselves (Quick Reply) never replace Claude's, and Claude's never replace theirs.
+    if (target && !input.quick) {
+      const older = (await this.listProposals({ streamId: p.streamId, status: ['pending'] })).filter((x) => x.id !== p.id && x.runId !== p.runId && draftTarget(x) === target && !(x.payload as any).quick);
       await this.withdrawProposals(older.map((x) => x.id), `replaced by the new draft "${p.title}"`);
     }
     return p;
@@ -695,6 +888,59 @@ export class Repo {
     if (it) await this.db.updateTable('items').set({ data: j({ ...it.data, wcTransitionAt: now() }) }).where('id', '=', itemId).execute();
   }
 
+  /**
+   * Find earlier work streams that look like a query (keywords against titles, summaries, item titles and what Claude said or did in
+   * their chat). Plain keyword scoring, so it is explainable; `matched` is how many distinct words hit.
+   */
+  async searchPastWork(query: string, opts: { excludeStreamId?: string | null; closedOnly?: boolean; limit?: number; minMatched?: number } = {}) {
+    const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'has', 'was', 'are', 'you', 'your', 'can', 'could', 'please', 'will', 'would', 'about', 'there', 'their', 'what', 'when', 'which', 'into', 'just', 'need', 'hello', 'thanks', 'thank', 'regards']);
+    const tokens = [...new Set(query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{2,}/g) ?? [])].filter((t) => !STOP.has(t)).slice(0, 14);
+    if (!tokens.length) return [];
+    let q = this.db.selectFrom('streams').selectAll().orderBy('last_activity_at', 'desc').limit(500);
+    if (opts.closedOnly) q = q.where('status', '=', 'closed');
+    const streams = (await q.execute()).filter((s) => s.id !== opts.excludeStreamId);
+    if (!streams.length) return [];
+    const hits = new Map<string, { score: number; matched: Set<string>; snippet?: string; best: number }>();
+    const hit = (id: string) => hits.get(id) ?? hits.set(id, { score: 0, matched: new Set(), best: 0 }).get(id)!;
+    for (const s of streams) {
+      const title = s.title.toLowerCase();
+      const summary = s.summary.toLowerCase();
+      for (const t of tokens) {
+        const w = (title.includes(t) ? 3 : 0) + (summary.includes(t) ? 2 : 0);
+        if (w) Object.assign(hit(s.id), { score: hit(s.id).score + w }), hit(s.id).matched.add(t);
+      }
+    }
+    const ids = new Set(streams.map((s) => s.id));
+    const like = (col: any) => (eb: any) => eb.or(tokens.map((t) => eb(col, 'like', `%${t}%`)));
+    const items = await this.db.selectFrom('items').select(['stream_id', 'title']).where('stream_id', 'is not', null).where(like('title')).limit(400).execute();
+    for (const it of items) {
+      if (!it.stream_id || !ids.has(it.stream_id)) continue;
+      const title = it.title.toLowerCase();
+      for (const t of tokens) if (title.includes(t)) Object.assign(hit(it.stream_id), { score: hit(it.stream_id).score + 2 }), hit(it.stream_id).matched.add(t);
+    }
+    const chat = await this.db.selectFrom('chat_messages').select(['stream_id', 'content', 'role']).where('role', 'in', ['assistant', 'system']).where(like('content')).orderBy('created_at', 'desc').limit(400).execute();
+    for (const m of chat) {
+      if (!m.stream_id || !ids.has(m.stream_id)) continue;
+      const text = m.content.toLowerCase();
+      const found = tokens.filter((t) => text.includes(t));
+      const h = hit(m.stream_id);
+      for (const t of found) {
+        if (!h.matched.has(t)) h.score += 1;
+        h.matched.add(t);
+      }
+      if (found.length > h.best) Object.assign(h, { best: found.length, snippet: m.content.replace(/\s+/g, ' ').slice(0, 260) });
+    }
+    const byId = new Map(streams.map((s) => [s.id, s]));
+    return [...hits]
+      .filter(([, h]) => h.matched.size >= (opts.minMatched ?? 1))
+      .sort((a, b) => b[1].matched.size - a[1].matched.size || b[1].score - a[1].score)
+      .slice(0, opts.limit ?? 5)
+      .map(([id, h]) => {
+        const s = byId.get(id)!;
+        return { id, title: s.title, status: s.status, closedAt: s.closed_at ?? undefined, summary: s.summary.slice(0, 400), snippet: h.snippet, matched: h.matched.size, score: h.score };
+      });
+  }
+
   /** Hide a skipped item from the Skipped list until it has new activity. */
   async dismissSkipped(itemId: string) {
     const it = await this.getItem(itemId);
@@ -704,7 +950,7 @@ export class Repo {
   }
 
   /** Recent items triage passed over (in no stream), with the reason from their latest triage decision. */
-  async listSkipped(days = 14) {
+  async listSkipped(days = 14, includeDismissed = false) {
     const since = new Date(Date.now() - days * 86_400_000).toISOString();
     const rows = await this.db.selectFrom('items').selectAll().where('stream_id', 'is', null).where('updated_at', '>=', since).orderBy('updated_at', 'desc').limit(50).execute();
     const out = [];
@@ -712,9 +958,10 @@ export class Repo {
       const ev = await this.db.selectFrom('inbound_events').select(['decision', 'processed_at']).where('item_id', '=', r.id).where('processed_at', 'is not', null).orderBy('processed_at', 'desc').limit(1).executeTakeFirst();
       const d = pj<{ reason?: string; skipped?: string }>(ev?.decision, {});
       const it = this.toItem(r);
-      if (it.data.dismissedAt && it.updatedAt <= it.data.dismissedAt) continue;
+      const dismissed = !!it.data.dismissedAt && it.updatedAt <= it.data.dismissedAt;
+      if (dismissed && !includeDismissed) continue;
       const last = (it.data.messages ?? it.data.ticket?.comments ?? []).slice(-1)[0];
-      out.push({ id: it.id, source: it.source, title: it.title, updatedAt: it.updatedAt, from: last?.author.name ?? last?.author.email ?? '', reason: it.data.notRelevantTo?.length ? 'You marked it not relevant to a work stream' : (d.reason ?? d.skipped ?? '') });
+      out.push({ id: it.id, source: it.source, title: it.title, updatedAt: it.updatedAt, from: last?.author.name ?? last?.author.email ?? '', reason: it.data.notRelevantTo?.length ? 'You marked it not relevant to a work stream' : (d.reason ?? d.skipped ?? ''), dismissed });
     }
     return out;
   }
@@ -727,6 +974,13 @@ export class Repo {
       return false;
     }
   }
+  /** Events that were recorded but never judged (e.g. the server stopped mid-triage). Recent ones only. */
+  async listUnprocessedInbound(olderThanMs: number, limit = 10) {
+    const before = new Date(Date.now() - olderThanMs).toISOString();
+    const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    return this.db.selectFrom('inbound_events').select(['source', 'external_id', 'item_id']).where('processed_at', 'is', null).where('received_at', '<=', before).where('received_at', '>', since).orderBy('received_at', 'asc').limit(limit).execute();
+  }
+
   async markInbound(source: string, externalId: string, relevant: boolean, decision: unknown) {
     await this.db
       .updateTable('inbound_events')

@@ -93,12 +93,17 @@ export function rawRequest(opts: { method?: string; path: string; headers?: Reco
  * Boots a fresh, isolated demo instance for the spec file that calls this (own data dir, fixed QA ports)
  * and stops it afterwards. Call once at the top of a spec file.
  */
+let currentDir = '';
+/** The demo instance's data directory (the sqlite file lives inside it). */
+export const demoDataDir = () => path.join(currentDir, '.work-commander-demo');
+
 export function freshApp() {
   let child: ChildProcess | null = null;
   let dir = '';
   test.beforeAll(async () => {
     test.setTimeout(120_000);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-qa-'));
+    currentDir = dir;
     child = spawn('node', ['scripts/dev.mjs', '--no-watch'], {
       cwd: ROOT,
       detached: true,
@@ -111,6 +116,9 @@ export function freshApp() {
         // The server only wipes a data dir named like this, which keeps every run starting clean.
         WC_DATA_DIR: path.join(dir, '.work-commander-demo'),
         DEMO_SEED_DELAY_MS: '300',
+        // Hand-offs from tests never open a real Terminal or write into the real ~/WorkCommander.
+        WC_NO_TERMINAL: '1',
+        WC_HANDOFF_ROOT: path.join(os.homedir(), '.wc-qa-handoffs'),
         DEMO_REPLY_DELAY_MS: '800',
         LOG_LEVEL: 'error',
       },
@@ -151,7 +159,7 @@ export function watchPage(page: Page, ignore: RegExp[] = []) {
   return problems;
 }
 
-export const stream = (page: Page, re: RegExp) => page.locator('button.stream', { hasText: re }).first();
+export const stream = (page: Page, re: RegExp) => page.locator('button.stream-open', { hasText: re }).first();
 export const draft = (page: Page, title: RegExp) => page.locator('.draft', { hasText: title }).first();
 
 export { expect, test };

@@ -9,6 +9,9 @@ import { registerRoutes } from './api/routes.js';
 import { HandoffWatcher, RESULT_FILE } from './core/handoff.js';
 import { bus } from './core/bus.js';
 import { OrgChartRefresher } from './orgchart/refresh.js';
+import { attachDriveFile, googleFileLinks } from './core/docs.js';
+import { BackupScheduler } from './core/backup.js';
+import { ReminderScheduler } from './core/reminders.js';
 
 async function main() {
   const cfg = loadConfig();
@@ -46,6 +49,7 @@ async function main() {
     f.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') ? reply.code(404).send({ error: 'Not found' }) : reply.sendFile('index.html')));
   }
 
+  await app.repo.mergeAllChannelItems().then((n) => n && f.log.info(`folded ${n} Slack channel message item(s) into their discussions`)).catch((e) => f.log.warn(`channel merge: ${e.message}`));
   await app.repo.mergeSlackDmItems().then((n) => n && f.log.info(`merged ${n} duplicate Slack DM item(s)`)).catch((e) => f.log.warn(`DM merge: ${e.message}`));
   await app.hub.start(app.triage.sink);
 
@@ -55,8 +59,11 @@ async function main() {
       app.repo,
       async (h, report) => {
         await app.repo.addChat({ streamId: h.streamId, role: 'system', content: `Claude Code finished: results from ${h.folder}/${RESULT_FILE}` });
-        await app.repo.updateStream(h.streamId, { unread: true, touch: true });
+        await app.repo.updateStream(h.streamId, { unread: true, touch: true, pending: false });
         bus.publish({ type: 'notify', streamId: h.streamId, title: 'Claude Code finished', body: 'Results are back in the work stream.' });
+        // Google Docs/Sheets/Slides it reports having edited become work items in this stream (the same file may be in several streams).
+        const docs = await app.hub.api('docs').catch(() => null);
+        for (const link of googleFileLinks(report)) await attachDriveFile(app.repo, docs, h.streamId, link).catch((e) => f.log.warn(`attach ${link.id}: ${e.message}`));
         void app.runner.run({
           streamId: h.streamId,
           origin: 'system',
@@ -70,6 +77,17 @@ async function main() {
 
   // Workday report as org chart source: re-pull it periodically (a failed pull leaves the org chart as it was).
   new OrgChartRefresher({ repo: app.repo, secrets: app.secrets, settings: () => app.settings.get() }, (m) => f.log.warn(m)).start();
+
+  // Messages whose triage was cut short (restart, sleep) are judged now and every few minutes after.
+  const recover = () => void app.triage.recoverUnprocessed().catch((e) => f.log.warn(`triage recovery: ${e.message}`));
+  recover();
+  setInterval(recover, 5 * 60_000).unref();
+
+  // Scheduled database backups (local SQLite only), configured under Settings > Backup.
+  new BackupScheduler({ repo: app.repo, settings: () => app.settings.get(), sqlite: cfg.databaseUrl.startsWith('sqlite:') }, (m) => f.log.warn(m)).start();
+
+  // Pending streams untouched for the configured days come back to the top as a Reminder, with a nudge drafted by Claude.
+  new ReminderScheduler({ repo: app.repo, settings: () => app.settings.get(), run: (r) => app.runner.run(r) }, (m) => f.log.warn(m)).start();
 
   // On GCP, Jira webhooks arrive through the IAP-free relay service via Pub/Sub.
   if (process.env.WC_JIRA_SUBSCRIPTION) {

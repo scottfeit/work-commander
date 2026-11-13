@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CredentialInfo, EnvironmentInfo, FieldMapping, OrgChartSourceSettings, OrgChartSyncStatus, Person, Settings } from '@wc/shared';
+import type { BackupStatus, CredentialInfo, EnvironmentInfo, FieldMapping, OrgChartSourceSettings, OrgChartSyncStatus, Person, Settings } from '@wc/shared';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
 
@@ -10,7 +10,10 @@ const SECTIONS = [
   ['slack', 'Slack'],
   ['atlassian', 'Atlassian'],
   ['onepassword', '1Password'],
+  ['playbooks', 'Playbooks'],
+  ['display', 'Display'],
   ['secrets', 'Secrets'],
+  ['backup', 'Backup'],
   ['status', 'Status & audit'],
 ] as const;
 type Section = (typeof SECTIONS)[number][0];
@@ -225,6 +228,9 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             ) : (
               <McpEditor value={s.slack.mcp!} onChange={(mcp) => up('slack', { mcp })} creds={creds} system="slack" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
             )}
+            <Row label="Watched channels" hint="Also look at new messages in the channels you tick, not only DMs, mentions and threads you're in">
+              <ChannelPicker value={s.slack.watchedChannels} onChange={(watchedChannels) => up('slack', { watchedChannels })} canLoad={!dirty} />
+            </Row>
             <IngestionEditor
               mode={s.slack.ingestion}
               seconds={s.slack.pollSeconds}
@@ -334,6 +340,86 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </section>
         )}
 
+        {section === 'playbooks' && (
+          <section>
+            <h2>Playbooks</h2>
+            <p className="muted small">
+              Standing instructions in your own words: what to suggest when a kind of thing comes up. Triage and Claude both read them. When one applies, you get a one-click suggestion that does what it says, and anything it
+              would send or change still waits for your approval. Claude can also suggest new ones when you ask for the same thing again (they appear as drafts to edit and approve).
+            </p>
+            <textarea
+              aria-label="Playbooks"
+              className="summary-input"
+              rows={14}
+              value={s.playbooks}
+              placeholder={'- When a Gainsight sync failure arrives, offer to add it to the tracking sheet <link> (columns: date, ticket, cause).\n- Okta lockout reports from the helpdesk: offer to look up the user in Okta and reply with the unlock steps.'}
+              onChange={(e) => setS({ ...s, playbooks: e.target.value })}
+            />
+            <p className="muted small">One instruction per line works best. Include links and what to put where. Press Save changes to apply.</p>
+          </section>
+        )}
+        {section === 'display' && (
+          <section>
+            <h2>Display</h2>
+            <Row label="Opening a work stream" hint="Which tab you land on when you click a work stream">
+              <Select
+                value={s.ui.openTab ?? 'overview'}
+                onChange={(openTab) => up('ui', { openTab })}
+                options={[
+                  { value: 'overview', label: 'Overview' },
+                  { value: 'recent', label: 'Most recently updated work item tab' },
+                ]}
+              />
+            </Row>
+            <Row label="Emails" hint="How an email shows when you open it; each message has an Original / Text link to flip it">
+              <Select
+                value={s.ui.emailView ?? 'text'}
+                onChange={(emailView) => up('ui', { emailView })}
+                options={[
+                  { value: 'text', label: 'Plain text' },
+                  { value: 'original', label: 'Original (HTML, as sent)' },
+                ]}
+              />
+            </Row>
+            <Row label="Work item tabs">
+              <Toggle
+                checked={!!s.ui.recentTabFirst}
+                onChange={(recentTabFirst) => up('ui', { recentTabFirst })}
+                label="Show the most recently active tab right after Overview"
+              />
+            </Row>
+            <p className="muted small">
+              You can also drag tabs into any order within a work stream; Overview always stays first. With this on, the tab with the newest activity jumps to the front of the others.
+            </p>
+            <h3>Pending reminders</h3>
+            <Row label="Remind me after" hint="A Pending work stream that nothing has touched for this long returns to the top of Open, marked Reminder and unread, with a follow-up drafted for whoever replied last. 0 = never.">
+              <input className="num" type="number" min={0} max={365} aria-label="Pending reminder days" value={s.reminders?.pendingDays ?? 3} onChange={(e) => up('reminders', { pendingDays: Math.max(0, Math.floor(Number(e.target.value)) || 0) })} /> <span className="small muted">days (0 = never remind)</span>
+            </Row>
+            <h3>Silenced work items</h3>
+            <p className="muted small">An item you silence (Ignore updates on its tab) normally keeps pulling in updates quietly. These options change that.</p>
+            <Row label="Polling">
+              <Toggle
+                checked={!!s.silencing.skipPolling}
+                onChange={(skipPolling) => up('silencing', { skipPolling })}
+                label="Don't poll silenced items at all"
+              />
+            </Row>
+            <p className="muted small">While an item is silenced, nothing about it is checked or stored. When you unsilence it, it catches up from where it left off.</p>
+            <Row label="Mentions">
+              <Toggle
+                checked={!!s.silencing.mentionsOverride && !s.silencing.skipPolling}
+                disabled={!!s.silencing.skipPolling}
+                onChange={(mentionsOverride) => up('silencing', { mentionsOverride })}
+                label="Let direct references to me override silencing"
+              />
+            </Row>
+            <p className="muted small">
+              An update that mentions you (a Slack mention, your name or email) is handled as normal even on a silenced item: it notifies, marks the stream unread and can reopen it.
+              {s.silencing.skipPolling ? ' This can\'t work while silenced items are not polled, since those updates are never seen.' : ''}
+            </p>
+          </section>
+        )}
+        {section === 'backup' && <BackupSection s={s} up={up} env={env} />}
         {section === 'status' && <StatusSection />}
       </main>
     </div>
@@ -732,6 +818,121 @@ function AtlassianSection({ s, up, credProps, creds, env, dirty }: { s: Settings
       <h3>Approvals</h3>
       <PolicyEditor value={a.policy} onChange={(policy) => up('atlassian', { policy })} />
       <TestButton label="Test" run={() => post('/api/integrations/atlassian/test').then(fmtTest)} note={dirty ? 'Save first' : undefined} />
+    </section>
+  );
+}
+
+type SlackChannel = { id: string; name: string; private: boolean };
+
+/** Tick the Slack channels to watch. Lists the channels you're in (needs the connection saved), 5 rows at a time. */
+function ChannelPicker({ value, onChange, canLoad }: { value: string; onChange: (v: string) => void; canLoad: boolean }) {
+  const [channels, setChannels] = useState<SlackChannel[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState('');
+  const picked = value.split(/[,\n;]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean);
+  const isPicked = (c: { id: string; name: string }) => picked.some((p) => p.toLowerCase() === c.name.toLowerCase() || p === c.id);
+  const load = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setChannels((await get<{ channels: SlackChannel[] }>('/api/slack/channels')).channels);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggle = (name: string, on: boolean) => {
+    const rest = picked.filter((p) => p.toLowerCase() !== name.toLowerCase());
+    onChange((on ? [...rest, name] : rest).map((n) => (/^[CG][A-Z0-9]{6,}$/.test(n) ? n : `#${n}`)).join(', '));
+  };
+  // Entries typed earlier that aren't in your channel list stay visible so they aren't silently dropped.
+  const extra = channels ? picked.filter((p) => !channels.some((c) => c.name.toLowerCase() === p.toLowerCase() || c.id === p)) : [];
+  const rows: { key: string; name: string; label: string; priv?: boolean }[] = [
+    ...extra.map((p) => ({ key: `x-${p}`, name: p, label: `${p} (not in your channel list)` })),
+    ...(channels ?? []).map((c) => ({ key: c.id, name: c.name, label: c.name, priv: c.private })),
+  ].filter((r) => !q || r.label.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="channel-picker">
+      <div className="inline">
+        <button className="btn small" disabled={busy || !canLoad} onClick={() => void load()}>
+          {busy ? 'Loading…' : channels ? 'Reload channels' : 'Load my channels'}
+        </button>
+        <span className="small muted">{canLoad ? `${picked.length} selected` : 'Save the Slack connection first'}</span>
+        {channels && <input className="search" placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />}
+      </div>
+      {err && <div className="small error">{err}</div>}
+      {!channels && picked.length > 0 && <div className="small muted">Watching: {picked.map((p) => `#${p}`).join(', ')}</div>}
+      {channels && (
+        <div className="channel-list" role="group" aria-label="Slack channels">
+          {rows.length === 0 && <div className="small muted pad">No matching channels.</div>}
+          {rows.map((r) => (
+            <label key={r.key} className="channel-row">
+              <input type="checkbox" checked={isPicked({ id: r.key, name: r.name })} onChange={(e) => toggle(r.name, e.target.checked)} />
+              <span>
+                {r.priv ? '🔒 ' : '# '}
+                {r.label}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BackupSection({ s, up, env }: { s: Settings; up: <K extends keyof Settings>(k: K, v: Partial<Settings[K]>) => void; env: EnvironmentInfo }) {
+  const b = s.backup;
+  const [st, setSt] = useState<BackupStatus>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => void get<BackupStatus>('/api/backup/status').then(setSt).catch(() => undefined), []);
+  if (!env.backupAvailable)
+    return (
+      <section>
+        <h2>Backup</h2>
+        <p className="muted">Scheduled backups copy the local SQLite database, so they aren't available with the hosted (Postgres) setup. Use your database's own backups there.</p>
+      </section>
+    );
+  const now = async () => {
+    setBusy(true);
+    try {
+      setSt(await post<BackupStatus>('/api/backup/run'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section>
+      <h2>Backup</h2>
+      <p className="muted small">
+        Saves a consistent copy of Work Commander's database (work streams, messages, drafts, settings) to a folder on a schedule. It runs while Work Commander is running, and
+        right at startup if one is overdue. Credentials are in your OS keychain and are not part of the backup.
+      </p>
+      <Row label="Schedule">
+        <Toggle checked={b.enabled} onChange={(enabled) => up('backup', { enabled })} label="Back up automatically" />
+      </Row>
+      <Row label="Folder" hint="e.g. a Google Drive folder. ~ is your home folder. The folder is created if needed">
+        <Text value={b.folder} onChange={(folder) => up('backup', { folder })} placeholder="~/Google Drive/My Drive/WC backups" />
+      </Row>
+      <Row label="Back up every" hint="hours">
+        <input type="number" min={1} step={1} value={b.everyHours} onChange={(e) => up('backup', { everyHours: Math.max(1, Math.floor(Number(e.target.value)) || 1) })} />
+      </Row>
+      <Row label="Keep" hint="most recent backups; older ones are deleted">
+        <input type="number" min={1} step={1} value={b.keep} onChange={(e) => up('backup', { keep: Math.max(1, Math.floor(Number(e.target.value)) || 1) })} />
+      </Row>
+      <div className="inline">
+        <button className="btn small" disabled={busy} onClick={() => void now()}>
+          {busy ? 'Backing up…' : 'Back up now'}
+        </button>
+        <span className="small muted">Uses the saved settings.</span>
+      </div>
+      {st.lastSuccessAt && (
+        <div className="small muted">
+          Last backup {new Date(st.lastSuccessAt).toLocaleString()} · <code>{st.lastFile}</code>
+        </div>
+      )}
+      {st.lastError && <div className="small error">Last attempt failed{st.lastAttemptAt ? ` (${new Date(st.lastAttemptAt).toLocaleString()})` : ''}: {st.lastError}</div>}
     </section>
   );
 }

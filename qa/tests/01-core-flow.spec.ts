@@ -23,7 +23,7 @@ test('dashboard layout has every pane from the brief', async ({ page }) => {
 test('incoming email becomes an AI-labelled work stream; the newsletter does not', async ({ page }) => {
   await page.goto(WEB);
   await expect(stream(page, /contractor access/i)).toBeVisible({ timeout: 30_000 });
-  const titles = await page.locator('button.stream .stream-title').allInnerTexts();
+  const titles = await page.locator('button.stream-open .stream-title').allInnerTexts();
   expect(titles.join('|')).not.toMatch(/SaaS|newsletter|10 tools/i);
   // AI-generated label chips on the stream row
   await expect(stream(page, /contractor access/i).locator('.chip').first()).toBeVisible();
@@ -114,7 +114,10 @@ test('Claude proposes closing the stream; approving hides it until "closed" is s
   await stream(page, /contractor access/i).click();
   const close = kind(page, 'stream_close');
   await expect(close).toBeVisible({ timeout: 30_000 });
+  // Closing a work stream takes two clicks: the first arms the button, the second does it.
   await close.getByRole('button', { name: /close stream/i }).click();
+  await expect(close.getByRole('button', { name: /click again/i })).toBeVisible();
+  await close.getByRole('button', { name: /click again/i }).click();
   await expect(stream(page, /contractor access/i)).toHaveCount(0, { timeout: 15_000 });
   // Closed streams are hidden by default but reachable.
   await page.getByText(/show closed|closed/i).first().click();

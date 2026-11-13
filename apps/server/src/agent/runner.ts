@@ -1,3 +1,4 @@
+import { isQuickRun } from '../core/quickReply.js';
 import { nanoid } from 'nanoid';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { Proposal, Settings } from '@wc/shared';
@@ -9,7 +10,7 @@ import { bus } from '../core/bus.js';
 import { isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
 import type { AgentBackend, ExternalMcp } from './backend.js';
 import { buildTools, type ToolDeps } from './tools.js';
-import { STREAM_AGENT_RULES, itemsBlock, puBlock, streamsBlock } from './prompts.js';
+import { STREAM_AGENT_RULES, itemsBlock, playbookBlock, puBlock, streamsBlock } from './prompts.js';
 
 export interface TurnRequest {
   streamId: string | null;
@@ -120,7 +121,7 @@ export class StreamAgentRunner {
     const manager = self?.managerEmail ? people.find((p) => p.email === self.managerEmail) : null;
     const reports = self ? people.filter((p) => p.managerEmail === self.email) : [];
     const open = await this.repo.listStreams(false);
-    const parts = [STREAM_AGENT_RULES, puBlock(s.pu, { self, manager, reports }), streamsBlock(open), `Current time: ${new Date().toISOString()}`];
+    const parts = [STREAM_AGENT_RULES, puBlock(s.pu, { self, manager, reports }), playbookBlock(s.playbooks), streamsBlock(open), `Current time: ${new Date().toISOString()}`];
     if (streamId) {
       const st = await this.repo.getStream(streamId);
       const items = await this.repo.listItems(streamId);
@@ -205,7 +206,7 @@ export class StreamAgentRunner {
   private reported = new Set<string>();
 
   private async onRunSettled(runId: string, streamId: string | null, proposals: Proposal[]) {
-    if (this.activeRuns.has(runId) || this.reported.has(runId)) return;
+    if (isQuickRun(runId) || this.activeRuns.has(runId) || this.reported.has(runId)) return;
     // Drafts executed automatically by policy were already reported to the agent as tool results.
     if (proposals.every((p) => this.executor.autoApproved.has(p.id))) return;
     this.reported.add(runId);

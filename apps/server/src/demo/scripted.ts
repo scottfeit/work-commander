@@ -15,16 +15,18 @@ export class ScriptedBackend implements AgentBackend {
   }
 
   async structured<T>(i: { prompt: string; schema: z.ZodType<T> }): Promise<T> {
-    const p = i.prompt;
+    // Match on the incoming message only, not on the list of recently skipped items.
+    const p = i.prompt.replace(/Recently skipped messages[\s\S]*?\n\n/, '');
     const existing = p.match(/ALREADY attached to stream (\S+);/)?.[1] ?? null;
     let d: TriageDecision;
     if (/SaaS Weekly/.test(p)) {
-      d = { relevant: false, reason: 'Newsletter', stream: { action: 'none', streamId: null, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+      d = { relevant: false, reason: 'Newsletter', stream: { action: 'none', streamId: null, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
     } else if (/Contractor access/i.test(p) && !existing) {
       d = {
         relevant: true,
         reason: 'Lee (Security) asks Alex directly to confirm the access level and open a request.',
         stream: { action: 'new', streamId: null, title: 'Northwind contractor access to Acme console', summary: 'Priya asked for Northwind contractors to get Acme admin console access; Security (Lee) wants the access level confirmed and a request opened.', labels: ['access-request', 'acme'] },
+        relatedItemIds: null,
         updatedSummary: null,
         notify: { title: 'Needs you', body: 'Lee asked you to confirm access level and open a request for the Northwind contractors.' },
         next: { type: 'draft', instruction: 'Create an access-request ticket (requester Priya) and reply-all saying the ticket was created, with the ticket number.', offerLabel: null },
@@ -34,12 +36,13 @@ export class ScriptedBackend implements AgentBackend {
         relevant: true,
         reason: 'Marco answered the question needed for OPS ticket research.',
         stream: { action: 'existing', streamId: existing, title: null, summary: null, labels: null },
+        relatedItemIds: null,
         updatedSummary: null,
         notify: { title: 'Marco replied', body: 'Northwind QA group, 6 people, read-only.' },
         next: { type: 'draft', instruction: "Use Marco's answer to continue researching the ticket.", offerLabel: null },
       };
     } else {
-      d = { relevant: !!existing, reason: 'Follow-up activity', stream: { action: existing ? 'existing' : 'none', streamId: existing, title: null, summary: null, labels: null }, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
+      d = { relevant: !!existing, reason: 'Follow-up activity', stream: { action: existing ? 'existing' : 'none', streamId: existing, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
     }
     return i.schema.parse(d);
   }
@@ -69,7 +72,19 @@ export class ScriptedBackend implements AgentBackend {
     const key = ticket?.data.ticket?.key;
     let text: string;
 
-    if (p.includes('Prepare drafts') && /Marco's answer/.test(p) && key) {
+    if (p.includes('HANDOFF-OFFER-TEST')) {
+      await call('offer_handoff', { question: 'Priya wants this changed in a Google Sheet, which is work for Claude Code. Send an "I\'m looking into it" reply, or hand it off?', task: 'Set row 12 to Approved in the linked sheet. Touch nothing else.' });
+      text = await say('I asked how you want to handle it.');
+    } else if (p.includes('chose to send a short acknowledgement') && email) {
+      await call('propose_email_reply', {
+        thread_id: email.data.gmail!.threadId,
+        to: ['priya.shah@example.com'],
+        subject: 'Contractor access to the Acme admin console',
+        body: "Hi Priya,\n\nI'm looking into it and will follow up shortly.\n\nThanks,\nAlex",
+        rationale: 'Acknowledge the request.',
+      });
+      text = await say('Drafted a short "I\'m looking into it" reply.');
+    } else if (p.includes('Prepare drafts') && /Marco's answer/.test(p) && key) {
       await call('request_credential_access', { item: 'Acme Admin Console API', reason: `Check the Northwind QA group and available roles in the Acme admin console for ${key}.`, auth_scheme: 'bearer' });
       text = await say(`Marco confirmed: Northwind QA, 6 people, read-only. To check the group in the Acme console I need access, so I've requested the "Acme Admin Console API" item from 1Password.`);
     } else if (p.includes('Prepare drafts') && email) {

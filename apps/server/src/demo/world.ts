@@ -180,7 +180,15 @@ export class DemoWorld {
       kind: 'email_thread',
       externalId: 't2',
       title: 'This week in SaaS: 10 tools you need',
-      data: { gmail: { threadId: 't2' }, messages: [msg('n1', { name: 'SaaS Weekly', email: 'news@saasweekly.example' }, 'Our top picks this week…', iso(120_000), [PU.email])] },
+      data: {
+        gmail: { threadId: 't2' },
+        messages: [
+          {
+            ...msg('n1', { name: 'SaaS Weekly', email: 'news@saasweekly.example' }, 'Our top picks this week…', iso(120_000), [PU.email]),
+            html: '<html><body><h1 style="color:#c00">Our top picks this week</h1><p>Read <a href="https://example.com/picks">the full list</a>.</p><img alt="pixel" src="https://tracker.example/p.gif"><script>document.title="pwned"</script></body></html>',
+          },
+        ],
+      },
       eventId: 'n1',
     });
     this.later(Number(process.env.DEMO_SEED_DELAY_MS ?? 1500), async () => {

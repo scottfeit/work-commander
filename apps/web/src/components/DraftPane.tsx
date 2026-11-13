@@ -1,8 +1,18 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ATTACHABLE_KINDS, type AttachmentRef, type EditableField, type Proposal } from '@wc/shared';
 import { api, patch, post } from '../api';
+import { SourceBadge } from './TabBar';
+import { ConfirmButton } from './ConfirmButton';
 
-const SYSTEM_LABEL: Record<string, string> = { google: 'Gmail', slack: 'Slack', atlassian: 'Atlassian', onepassword: '1Password', internal: 'Work Commander' };
+/** The tool a draft goes to, as its icon (the same icons as work item tabs). */
+const SYSTEM_SOURCE: Record<string, string> = { google: 'gmail', slack: 'slack', atlassian: 'jira', onepassword: 'grant' };
+function SystemIcon({ system }: { system: string }) {
+  const source = SYSTEM_SOURCE[system];
+  return source ? <SourceBadge source={source} /> : <span className="logo small" role="img" aria-label="Work Commander" title="Work Commander" />;
+}
+
+/** The text a Quick Reply draft is waiting for (a blank one can't be sent). */
+const mainText = (p: Proposal, payload: Record<string, any>) => (p.kind === 'mcp_tool_call' ? payload.args?.message : p.kind === 'slack_post' ? payload.text : payload.body);
 
 const getPath = (o: any, path: string) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 function setPath(o: any, path: string, v: unknown) {
@@ -19,7 +29,7 @@ function setPath(o: any, path: string, v: unknown) {
  * `onDecided` reports the server's answer to an approve/reject so the pane updates at once, without waiting for
  * the live event stream (which may have dropped). `onStale` reloads the list when a draft was already handled.
  */
-export function DraftPane({ drafts, onDecided, onStale }: { drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void }) {
+export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused }: { drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void; focusId?: string | null; onFocused?: () => void }) {
   // Unsaved PU edits, keyed by proposal id. Kept here so "Approve all" sends the edited text.
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
   const titles = new Map(drafts.map((d) => [d.id, d.title]));
@@ -28,6 +38,9 @@ export function DraftPane({ drafts, onDecided, onStale }: { drafts: Proposal[]; 
     setAllErr('');
     // Approve in creation order so dependencies are already approved when their dependents are.
     for (const d of drafts) {
+      const payload = (edits[d.id] ?? d.payload) as Record<string, any>;
+      if (d.kind === 'stream_close') continue; // closing a work stream always takes its own two clicks
+      if (payload.quick && !String(mainText(d, payload) ?? '').trim() && !payload.attachments?.length) continue; // a blank Quick Reply isn't sent
       try {
         onDecided(await post<Proposal>(`/api/proposals/${d.id}/approve`, { payload: edits[d.id] ?? d.payload }));
       } catch (e: any) {
@@ -52,7 +65,7 @@ export function DraftPane({ drafts, onDecided, onStale }: { drafts: Proposal[]; 
       <div className="pane-head">
         Drafts to review <span className="chip attention">{drafts.length}</span>
         {drafts.length > 1 && (
-          <button className="btn small primary right" onClick={approveAll}>
+          <button className="btn small primary right" title="Sends every draft except blank Quick Reply drafts and close-stream proposals" onClick={approveAll}>
             Approve all
           </button>
         )}
@@ -60,7 +73,7 @@ export function DraftPane({ drafts, onDecided, onStale }: { drafts: Proposal[]; 
       {allErr && <div className="error small" style={{ padding: '6px 12px' }}>{allErr}</div>}
       <div className="drafts-scroll">
         {drafts.map((d) => (
-          <DraftCard key={d.id} p={d} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
+          <DraftCard key={d.id} p={d} focus={focusId === d.id} onFocused={onFocused} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
         ))}
       </div>
     </div>
@@ -69,6 +82,8 @@ export function DraftPane({ drafts, onDecided, onStale }: { drafts: Proposal[]; 
 
 function DraftCard({
   p,
+  focus,
+  onFocused,
   dependsOn,
   edited,
   onEdit,
@@ -76,6 +91,8 @@ function DraftCard({
   onStale,
 }: {
   p: Proposal;
+  focus?: boolean;
+  onFocused?: () => void;
   dependsOn: string[];
   edited: Record<string, unknown> | null;
   onEdit: (v: Record<string, unknown> | null) => void;
@@ -103,13 +120,34 @@ function DraftCard({
     }
   };
   const hasPlaceholder = JSON.stringify(payload).includes('{{');
+  const quick = !!(p.payload as any).quick;
+  const blank = quick && !String(mainText(p, payload) ?? '').trim() && !((payload.attachments as unknown[] | undefined)?.length);
+  const card = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    // Quick Reply just opened (or re-opened) this draft: bring it into view with the cursor in the message.
+    if (!focus) return;
+    card.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    card.current?.querySelector('textarea')?.focus({ preventScroll: true });
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 1600);
+    onFocused?.();
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
+  useEffect(() => {
+    // A Quick Reply draft is yours: keep what you type so it survives switching tabs or streams and reloads.
+    if (!quick || edited === null) return;
+    const t = setTimeout(() => void patch(`/api/proposals/${p.id}`, { payload: edited }).catch(() => undefined), 700);
+    return () => clearTimeout(t);
+  }, [quick, edited, p.id]);
 
   return (
-    <div className={`draft kind-${p.kind}`}>
+    <div ref={card} className={`draft kind-${p.kind} ${flash ? 'flash' : ''}`}>
       <div className="draft-head">
-        <span className={`sys sys-${p.system}`}>{SYSTEM_LABEL[p.system] ?? p.system}</span>
+        <SystemIcon system={p.system} />
         <strong>{p.title}</strong>
-        {(dirty || JSON.stringify(p.payload) !== JSON.stringify(p.originalPayload)) && <span className="chip subtle">edited</span>}
+        {!quick && (dirty || JSON.stringify(p.payload) !== JSON.stringify(p.originalPayload)) && <span className="chip subtle">edited</span>}
       </div>
       {p.rationale && <div className="muted small">{p.rationale}</div>}
       {dependsOn.length > 0 && <div className="small dep">Runs after: {dependsOn.join(', ')}</div>}
@@ -136,29 +174,46 @@ function DraftCard({
       )}
       {hasPlaceholder && <div className="small muted">Text in {'{{ }}'} is filled in automatically when the step it depends on runs.</div>}
       {err && <div className="error small">{err}</div>}
-      {rejecting ? (
-        <div className="row-form">
-          <input autoFocus placeholder="Why? (optional, Claude sees this)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button className="btn small danger" disabled={busy} onClick={() => act(async () => (await post(`/api/proposals/${p.id}/reject`, { reason }), onDecided({ ...p, status: 'rejected' })))}>
-            Reject
-          </button>
-          <button className="btn small ghost" onClick={() => setRejecting(false)}>
-            Cancel
-          </button>
-        </div>
-      ) : (
         <div className="actions">
-          <button className="btn small primary" disabled={busy} onClick={() => act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}>
-            {p.kind === 'credential_request' ? 'Grant access' : p.kind === 'read_approval' ? 'Allow' : p.kind === 'stream_close' ? 'Close stream' : 'Approve & send'}
+          {p.kind === 'stream_close' ? (
+            <ConfirmButton
+              className="btn small primary"
+              armedClassName="btn small danger"
+              disabled={busy}
+              title="Close this work stream (asks you to click twice)"
+              armedTitle="Click again to close this work stream"
+              armedChildren="Click again to close"
+              onConfirm={() => void act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}
+            >
+              Close stream
+            </ConfirmButton>
+          ) : (
+          <button className="btn small primary" disabled={busy || blank} title={blank ? 'Write a message first' : undefined} onClick={() => act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}>
+            {p.kind === 'credential_request' ? 'Grant access' : p.kind === 'read_approval' ? 'Allow' : p.kind === 'playbook' ? 'Save playbook' : 'Approve & send'}
           </button>
+          )}
           {dirty && (
             <button className="btn small" disabled={busy} onClick={() => act(() => patch(`/api/proposals/${p.id}`, { payload }).then(() => onEdit(null)))}>
               Save edits
             </button>
           )}
-          <button className="btn small ghost" disabled={busy} onClick={() => setRejecting(true)}>
+          {/* One Reject button: the first click opens the "why?" box below; the second sends the rejection. */}
+          <button
+            className={`btn small ${rejecting ? 'danger' : 'ghost'}`}
+            disabled={busy}
+            onClick={() => (rejecting ? act(async () => (await post(`/api/proposals/${p.id}/reject`, { reason }), onDecided({ ...p, status: 'rejected' }))) : setRejecting(true))}
+          >
             Reject
           </button>
+          {rejecting && (
+            <button className="btn small ghost" onClick={() => setRejecting(false)}>
+              Cancel
+            </button>
+          )}
+        </div>
+      {rejecting && (
+        <div className="row-form">
+          <input autoFocus aria-label="Why reject this draft?" placeholder="Why? (optional, Claude sees this)" value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       )}
     </div>

@@ -10,6 +10,22 @@ test('rejecting the ticket makes the dependent email fail with a clear reason, a
 
   const t = page.locator('.draft.kind-ticket_create');
   await t.getByRole('button', { name: /^reject/i }).click();
+  // Approve, Reject and Cancel stay in one row; only the "why?" box opens on a new line below them.
+  const approve = t.getByRole('button', { name: /approve/i });
+  const rejectBtn = t.getByRole('button', { name: /^reject$/i });
+  const cancel = t.getByRole('button', { name: /^cancel$/i });
+  const why = t.getByPlaceholder(/why/i);
+  await expect(approve).toBeVisible();
+  await expect(why).toBeVisible();
+  await expect(cancel).toBeVisible();
+  const [a, r, c, w] = await Promise.all([approve.boundingBox(), rejectBtn.boundingBox(), cancel.boundingBox(), why.boundingBox()]);
+  expect(Math.abs(r!.y - a!.y)).toBeLessThan(4); // Reject on Approve's line
+  expect(Math.abs(c!.y - a!.y)).toBeLessThan(4); // so is Cancel
+  expect(c!.x).toBeGreaterThan(r!.x); // Cancel right after Reject
+  expect(w!.y).toBeGreaterThan(a!.y + a!.height - 1); // the text box is below the buttons
+  await cancel.click(); // Cancel closes the box and Reject goes back to opening it
+  await expect(why).toHaveCount(0);
+  await t.getByRole('button', { name: /^reject/i }).click();
   await t.getByPlaceholder(/why/i).fill('QA: not needed');
   await t.getByRole('button', { name: /^reject$/i }).click();
   await expect(t).toHaveCount(0);

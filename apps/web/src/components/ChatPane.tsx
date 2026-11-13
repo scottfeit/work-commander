@@ -90,6 +90,7 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
 }
 
 function ChatBubble({ m, onAnswer }: { m: ChatMessage; onAnswer: (a: string) => void }) {
+  if (m.role === 'suggestion' && m.meta.handoffOffer) return <HandoffOfferBubble m={m} />;
   if (m.role === 'suggestion') {
     const st = m.meta.suggestion?.status ?? 'open';
     return (
@@ -148,6 +149,60 @@ function ChatBubble({ m, onAnswer }: { m: ChatMessage; onAnswer: (a: string) => 
           </details>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** Claude asks: send an "I'm looking into it" reply, or hand the work to Claude Code? One click for either. */
+function HandoffOfferBubble({ m }: { m: ChatMessage }) {
+  const offer = m.meta.handoffOffer!;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const choose = async (choice: 'reply' | 'handoff' | 'dismiss') => {
+    setBusy(choice);
+    setErr(null);
+    try {
+      await post(`/api/chat/${m.id}/handoff-offer`, { choice });
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const left = (['reply', 'handoff'] as const).filter((c) => !offer.done.includes(c));
+  return (
+    <div className={`bubble suggestion handoff-offer ${offer.dismissed ? 'dismissed' : ''}`}>
+      <div className="small muted">Claude asks</div>
+      <div className="body">{m.content}</div>
+      <details className="small">
+        <summary>Task for Claude Code</summary>
+        <div className="body">{offer.task}</div>
+      </details>
+      {!offer.dismissed && left.length > 0 && (
+        <div className="actions">
+          {left.includes('reply') && (
+            <button className="btn small" disabled={!!busy} onClick={() => choose('reply')}>
+              Draft “I’m looking into it”
+            </button>
+          )}
+          {left.includes('handoff') && (
+            <button className="btn small primary" disabled={!!busy} onClick={() => choose('handoff')}>
+              Hand off to Claude Code
+            </button>
+          )}
+          <button className="btn small ghost" disabled={!!busy} onClick={() => choose('dismiss')}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {(offer.done.length > 0 || offer.dismissed) && (
+        <div className="small muted">
+          {offer.dismissed ? 'Dismissed' : ''}
+          {offer.done.includes('reply') ? 'Drafting “I’m looking into it”. ' : ''}
+          {offer.done.includes('handoff') ? 'Handed off to Claude Code. ' : ''}
+        </div>
+      )}
+      {err && <div className="error small">{err}</div>}
     </div>
   );
 }

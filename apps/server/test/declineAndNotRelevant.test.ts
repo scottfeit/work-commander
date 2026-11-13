@@ -194,3 +194,125 @@ describe('conversation-level Slack ids', () => {
     expect(Repo.slackDmChannel('gmail', 'C02:dm')).toBeNull();
   });
 });
+
+describe('watched channels setting', () => {
+  it('parses names and ids from a free-form list', async () => {
+    const { parseWatchedChannels } = await import('../src/integrations/slack.js');
+    expect(parseWatchedChannels('#sys-eng, #helpsec-ops\nC0274PW81B6 ; sys-eng')).toEqual(['sys-eng', 'helpsec-ops', 'C0274PW81B6']);
+    expect(parseWatchedChannels('')).toEqual([]);
+  });
+});
+
+describe('Slack channel list parsing', () => {
+  it('parses the MCP markdown list, skipping archived channels', async () => {
+    const { parseChannelMarkdown } = await import('../src/integrations/slackChannels.js');
+    const md = '## My Channels (showing 3 of 3 total)\n\n### #announcements-global\n- **ID:** C024FDXFL\n- **Type:** Public Channel\n- **Archived:** No\n\n### #seus-tickets\n- **ID:** CFCKYQMKQ\n- **Type:** Private Channel\n- **Archived:** No\n\n### #old\n- **ID:** C0OLD\n- **Type:** Public Channel\n- **Archived:** Yes\n';
+    expect(parseChannelMarkdown(JSON.stringify({ result: md }))).toEqual([
+      { id: 'C024FDXFL', name: 'announcements-global', private: false },
+      { id: 'CFCKYQMKQ', name: 'seus-tickets', private: true },
+    ]);
+  });
+});
+
+describe('item tab unread dot and ordering', () => {
+  const mk = (n: string) => repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: n, title: n, data: { messages: [] }, streamId });
+  it('flags an item unread until read, only inside a stream', async () => {
+    const a = (await mk('a')).item;
+    await repo.markItemUnread(a.id);
+    expect((await repo.getItem(a.id))!.data.unread).toBe(true);
+    await repo.markItemRead(a.id);
+    expect((await repo.getItem(a.id))!.data.unread).toBeUndefined();
+    const loose = (await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'z', title: 'z', data: { messages: [] } })).item;
+    await repo.markItemUnread(loose.id);
+    expect((await repo.getItem(loose.id))!.data.unread).toBeUndefined();
+  });
+  it('keeps an arranged tab order, and new activity does not undo it', async () => {
+    const [a, b, c] = [(await mk('a')).item, (await mk('b')).item, (await mk('c')).item];
+    await repo.setItemOrder(streamId, [c.id, a.id, b.id]);
+    expect((await repo.listItems(streamId)).map((i) => i.title)).toEqual(['c', 'a', 'b']);
+    await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'c', title: 'c', data: { messages: [{ id: 'm', author: { name: 'x' }, text: 'hi', at: new Date().toISOString() }] } });
+    expect((await repo.listItems(streamId)).map((i) => i.title)).toEqual(['c', 'a', 'b']);
+    const d = (await mk('d')).item; // a new tab joins after the arranged ones
+    expect((await repo.listItems(streamId)).map((i) => i.id).at(-1)).toBe(d.id);
+  });
+});
+
+describe('tab order (orderTabs)', () => {
+  it('hoists the newest tab only for activity newer than your last arrangement', async () => {
+    const { orderTabs } = await import('@wc/shared');
+    const it = (id: string, updatedAt: string, data: object = {}) => ({ id, streamId: 's', source: 'gmail', kind: 'email_thread', externalId: id, title: id, data, updatedAt }) as any;
+    const items = [it('a', '2026-01-01T00:00:00Z'), it('b', '2026-01-02T00:00:00Z'), it('c', '2026-01-03T00:00:00Z')];
+    expect(orderTabs(items, false).map((i) => i.id)).toEqual(['a', 'b', 'c']);
+    expect(orderTabs(items, true).map((i) => i.id)).toEqual(['c', 'a', 'b']);
+    // the PU moves b to the front after c's activity: that wins
+    const arranged = [it('a', '2026-01-01T00:00:00Z', { tabOrder: 1, tabOrderAt: '2026-01-04T00:00:00Z' }), it('b', '2026-01-02T00:00:00Z', { tabOrder: 0, tabOrderAt: '2026-01-04T00:00:00Z' }), it('c', '2026-01-03T00:00:00Z', { tabOrder: 2, tabOrderAt: '2026-01-04T00:00:00Z' })];
+    expect(orderTabs(arranged, true).map((i) => i.id)).toEqual(['b', 'a', 'c']);
+    // ...until something newer happens
+    arranged[2].updatedAt = '2026-01-05T00:00:00Z';
+    expect(orderTabs(arranged, true).map((i) => i.id)).toEqual(['c', 'b', 'a']);
+  });
+});
+
+describe('one Slack channel discussion is one item per work stream', () => {
+  const msg = (id: string, text: string) => ({ id, author: { name: 'A' }, text, at: new Date(Number(id) * 1000).toISOString() });
+  const post = (ts: string, title: string, sid?: string) => repo.upsertItem({ source: 'slack', kind: 'slack_thread', externalId: `C0SYSENG:${ts}`, title, data: { messages: [msg(ts, `m${ts}`)] }, streamId: sid ?? null });
+
+  it('folds channel messages that join a stream into the earliest item, keeping every message', async () => {
+    const a = (await post('100', '#sys-eng: first', streamId)).item;
+    const b = (await post('200', '#sys-eng: second')).item;
+    await repo.attachItem(b.id, streamId);
+    const items = await repo.listItems(streamId);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe(a.id);
+    expect(items[0].title).toBe('#sys-eng');
+    expect(items[0].data.messages?.map((m) => m.id)).toEqual(['100', '200']);
+  });
+  it('re-ingesting a folded message lands in the merged item instead of creating a stray one', async () => {
+    await post('100', '#sys-eng: first', streamId);
+    const b = (await post('200', '#sys-eng: second')).item;
+    await repo.attachItem(b.id, streamId);
+    const again = await post('200', '#sys-eng: second');
+    expect(again.created).toBe(false);
+    expect(again.item.streamId).toBe(streamId);
+    expect(await repo.listSkipped(14, true)).toEqual([]);
+  });
+  it('does not merge across work streams, or different channels', async () => {
+    const other = (await repo.createStream({ title: 'o', summary: '' })).id;
+    await post('100', '#sys-eng: first', streamId);
+    const b = (await post('200', '#sys-eng: second')).item;
+    await repo.attachItem(b.id, other);
+    expect(await repo.listItems(streamId)).toHaveLength(1);
+    expect(await repo.listItems(other)).toHaveLength(1);
+    await repo.upsertItem({ source: 'slack', kind: 'slack_thread', externalId: 'C0OTHER:300', title: '#other: x', data: { messages: [msg('300', 'x')] }, streamId });
+    expect(await repo.listItems(streamId)).toHaveLength(2);
+  });
+  it('the startup pass folds items that were filed separately before', async () => {
+    for (const ts of ['100', '200', '300']) {
+      await repo.db.insertInto('items').values({ id: `i${ts}`, stream_id: streamId, source: 'slack', kind: 'slack_thread', external_id: `C0SYSENG:${ts}`, title: `#sys-eng: ${ts}`, url: null, data: JSON.stringify({ messages: [msg(ts, `m${ts}`)] }), updated_at: new Date().toISOString() }).execute();
+    }
+    expect(await repo.mergeAllChannelItems()).toBe(2);
+    expect(await repo.listItems(streamId)).toHaveLength(1);
+  });
+});
+
+describe('which Slack items get re-read each poll', () => {
+  it('reads DMs and group DMs by history, and channel threads by their parent message', async () => {
+    const { planTrackedSlackReads } = await import('../src/agent/mcpIngest.js');
+    const it = (externalId: string, over: any = {}): any => ({ id: externalId, streamId: 's', source: 'slack', kind: 'slack_thread', externalId, title: externalId, data: { messages: [{ id: '1', at: '2026-11-12T10:00:00Z', author: {}, text: 'x' }] }, updatedAt: '2026-11-12T11:00:00Z', ...over });
+    const plan = planTrackedSlackReads([
+      it('D02KE1LG799:1794429387.123779'), // DM
+      it('C02CNSBK0H1:dm'), // group DM
+      it('C0CFGV9BFT3:1794505189.732339'), // a thread in a channel
+      it('C0274PW81B6:1794494949.377959', { data: { messages: [], mergedExternalIds: ['C0274PW81B6:1794494964.474369', 'C0274PW81B6:1794495491.652019'] } }), // a "#channel" item folded from several messages
+      { ...it('x'), source: 'gmail' },
+    ]);
+    expect(plan.conversations.map((c) => c.channel).sort()).toEqual(['C02CNSBK0H1', 'D02KE1LG799']);
+    expect(plan.conversations[0].after).toBe('2026-11-12T10:00:00Z');
+    expect(plan.threads.map((t) => `${t.channel}:${t.ts}`).sort()).toEqual([
+      'C0274PW81B6:1794494949.377959',
+      'C0274PW81B6:1794494964.474369',
+      'C0274PW81B6:1794495491.652019',
+      'C0CFGV9BFT3:1794505189.732339',
+    ]);
+  });
+});

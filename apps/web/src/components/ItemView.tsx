@@ -4,14 +4,27 @@ import { fmtTime, get, patch, post, timeAgo } from '../api';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
 import { SourceBadge, dragItem } from './TabBar';
+import { Linkified } from './Linkified';
+import { ConfirmButton } from './ConfirmButton';
+import { AlarmIcon } from './AlarmIcon';
+import { EmailHtml } from './EmailHtml';
 
-function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
+function Message({ m, compact, html, defaultOriginal }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean }) {
+  const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
+  const original = choice ?? !!defaultOriginal;
   return (
     <article className={`msg ${m.isFromPU ? 'from-pu' : ''} ${compact ? 'compact' : ''}`}>
       <header>
         <strong>{m.author.name ?? m.author.email ?? m.author.slackUserId}</strong>
         {!compact && m.author.email && <span className="muted"> &lt;{m.author.email}&gt;</span>}
-        <span className="muted small right">{fmtTime(m.at)}</span>
+        <span className="muted small right">
+          {html && (
+            <button className="link" aria-pressed={original} title={original ? 'Show the plain-text copy' : 'Show the email as it was sent'} onClick={() => setOriginal(!original)}>
+              {original ? 'Text' : 'Original'}
+            </button>
+          )}{' '}
+          {fmtTime(m.at)}
+        </span>
       </header>
       {!compact && (m.to?.length || m.cc?.length) ? (
         <div className="muted small">
@@ -19,13 +32,40 @@ function Message({ m, compact }: { m: ThreadMessage; compact?: boolean }) {
           {m.cc?.length ? <> · Cc: {m.cc.join(', ')}</> : null}
         </div>
       ) : null}
-      <div className="body">{m.text}</div>
+      {original && html ? (
+        <EmailHtml html={html} />
+      ) : (
+        <div className="body">
+          <Linkified text={m.text} />
+        </div>
+      )}
     </article>
   );
 }
 
-export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamItem; onRemoved?: () => void; peek?: boolean; onDismiss?: () => void }) {
+export function ItemView({
+  item,
+  onRemoved,
+  peek,
+  onDismiss,
+  onQuickReply,
+}: {
+  item: StreamItem;
+  onRemoved?: () => void;
+  peek?: boolean;
+  onDismiss?: () => void;
+  onQuickReply?: (item: StreamItem) => void;
+}) {
   const t = item.data.ticket;
+  const [emailOriginal, setEmailOriginal] = useState(false);
+  useEffect(() => {
+    get('/api/settings').then((s) => setEmailOriginal(s.ui?.emailView === 'original')).catch(() => undefined);
+  }, [item.id]);
+  const [htmls, setHtmls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setHtmls({});
+    if (item.source === 'gmail') get<Record<string, string>>(`/api/items/${item.id}/html`).then(setHtmls).catch(() => undefined);
+  }, [item.id, item.source, item.updatedAt]);
   return (
     <div className="item-view">
       <div className="item-head">
@@ -36,6 +76,25 @@ export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamIte
           <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
             Open ↗
           </a>
+        )}
+        {!peek && onQuickReply && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && (
+          <button
+            className="btn small primary"
+            title={item.source === 'gmail' ? 'Open a blank reply-all draft' : item.source === 'slack' ? 'Open a blank message to this conversation' : 'Open a blank public comment'}
+            onClick={() => onQuickReply(item)}
+          >
+            Quick reply
+          </button>
+        )}
+        {!peek && (
+          <button
+            className={`btn small ${item.data.muted ? '' : 'ghost'}`}
+            aria-pressed={!!item.data.muted}
+            title={item.data.muted ? 'Updates are silenced: still pulled in, but no notifications, unread marks or reopening. Click to unsilence.' : 'Keep pulling in updates but stop notifying, marking the stream unread or reopening it'}
+            onClick={() => void post(`/api/items/${item.id}/mute`, { muted: !item.data.muted })}
+          >
+            {item.data.muted ? 'Unsilence' : 'Ignore updates'}
+          </button>
         )}
         {peek ? (
           <button className="btn ghost small" title="Hide this from the Skipped list until it has new activity" onClick={onDismiss}>
@@ -59,7 +118,11 @@ export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamIte
             <div><dt>Requester</dt><dd>{t.requester ?? t.reporter ?? '—'}</dd></div>
             <div><dt>Type</dt><dd>{t.flavor === 'jsm' ? 'Service request' : 'Jira issue'}</dd></div>
           </dl>
-          {t.description && <div className="body block">{t.description}</div>}
+          {t.description && (
+            <div className="body block">
+              <Linkified text={t.description} />
+            </div>
+          )}
           <h3>Comments · {t.comments.length}</h3>
           {t.comments.length === 0 && <p className="muted">No comments yet.</p>}
           {t.comments.map((c) => (
@@ -69,7 +132,7 @@ export function ItemView({ item, onRemoved, peek, onDismiss }: { item: StreamIte
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
           {item.data.messages.map((m) => (
-            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} />
+            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} />
           ))}
         </div>
       ) : (
@@ -87,6 +150,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
   const [open, setOpen] = useState(false);
   const [folder, setFolder] = useState('');
   const [openTerminal, setOpenTerminal] = useState(true);
+  const [task, setTask] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ folder: string; command: string; opened: boolean } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -95,6 +159,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
     setOpen(false);
     setDone(null);
     setErr(null);
+    setTask('');
   }, [streamId]);
   useEffect(() => {
     get<HandoffInfo>(`/api/streams/${streamId}/handoff`)
@@ -110,7 +175,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
     setBusy(true);
     setErr(null);
     try {
-      setDone(await post(`/api/streams/${streamId}/handoff`, { folder, openTerminal }));
+      setDone(await post(`/api/streams/${streamId}/handoff`, { folder, openTerminal, task: task.trim() || undefined }));
       setInfo(await get<HandoffInfo>(`/api/streams/${streamId}/handoff`));
     } catch (e: any) {
       setErr(e.message);
@@ -139,7 +204,11 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
         </button>
       ) : (
         <div className="handoff-form">
-          <p className="muted small">Writes everything this stream knows to BRIEF.md in the folder below{info.canOpenTerminal ? ', then opens Terminal with Claude Code running there' : ''}. Use it for coding work, which Work Commander's agent can't do.</p>
+          <p className="muted small">Writes everything this stream knows to BRIEF.md in the folder below{info.canOpenTerminal ? ', then opens Terminal with Claude Code running there' : ''}. Use it for work Work Commander's agent can't do itself: coding, or changing something it has no tool for, such as editing a Google Sheet or Doc.</p>
+          <label className="small">
+            What should Claude Code do?
+            <textarea aria-label="What should Claude Code do?" rows={4} value={task} placeholder="e.g. In the sheet linked in this stream, change the Gainsight column for row 12 to “Approved”. Don't touch other cells." onChange={(e) => setTask(e.target.value)} />
+          </label>
           <label className="small">
             Project folder
             <input aria-label="Project folder" value={folder} onChange={(e) => setFolder(e.target.value)} />
@@ -180,7 +249,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void }) {
+export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePending }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onTogglePending?: () => void }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -206,13 +275,36 @@ export function StreamOverview({ stream, items, onOpen }: { stream: WorkStream; 
     <div className="item-view overview">
       <div className="item-head">
         <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
-        <button className="btn small" onClick={() => save({ status: stream.status === 'open' ? 'closed' : 'open' })}>
-          {stream.status === 'open' ? 'Close stream' : 'Reopen'}
-        </button>
+        {onTogglePending && stream.status === 'open' && (
+          <button
+            type="button"
+            className={`btn small pending-btn ${stream.pending ? 'on' : ''}`}
+            aria-label={stream.pending ? 'Pending: put back in Open' : 'Mark pending'}
+            aria-pressed={stream.pending}
+            title={stream.pending ? 'Pending: waiting on others. Click to put it back in Open.' : "Mark pending (snooze): I've done all I can for now and am waiting on others. It stays open and returns to the top when something new arrives, or as a Reminder if nothing happens for a few days (Settings → Display)."}
+            onClick={onTogglePending}
+          >
+            <AlarmIcon />
+          </button>
+        )}
+        {onMarkUnread && (
+          <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
+            Mark unread
+          </button>
+        )}
+        {stream.status === 'open' ? (
+          <ConfirmButton onConfirm={() => save({ status: 'closed' })} armedChildren="Click again to close" title="Close this work stream (asks you to click twice)" armedTitle="Click again to close this work stream">
+            Close stream
+          </ConfirmButton>
+        ) : (
+          <button className="btn small" onClick={() => save({ status: 'open' })}>
+            Reopen
+          </button>
+        )}
       </div>
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="muted small">
-        Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)} · {stream.labels.join(', ') || 'no labels'}
+        Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)}
       </div>
 
       {history.length > 0 && (

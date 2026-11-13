@@ -105,14 +105,16 @@ export class IntegrationHub {
     } else {
       const s = await this.settings.get();
       const tracked = async (source: string) => {
+        const skipMuted = !!(await this.settings.get()).silencing?.skipPolling;
         const rows = await this.repo.db
           .selectFrom('items')
           .innerJoin('streams', 'streams.id', 'items.stream_id')
-          .select('items.external_id')
+          .select(['items.external_id', 'items.data'])
           .where('streams.status', '=', 'open')
           .where('items.source', '=', source as any)
           .execute();
-        return rows.map((r) => r.external_id);
+        // With "don't poll silenced items", a silenced thread is not looked at again until it is un-silenced.
+        return rows.filter((r) => !(skipMuted && r.data.includes('"muted":true'))).map((r) => r.external_id);
       };
       if (s.google.enabled && s.google.mode === 'oauth' && s.google.oauth.refreshTokenId) {
         try {
