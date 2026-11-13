@@ -13,7 +13,7 @@ describe('Triage again', () => {
   let seen: string[];
   const triage = () =>
     new TriagePipeline(repo, { structured: async (i: any) => (seen.push(i.prompt), answer) } as any, { run: async () => undefined } as any, async () => defaultSettings());
-  const item = (messages: any[]) => repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 't1', title: 'Development Idea', data: { messages }, eventId: 'e1' });
+  const item = (messages: any[]) => repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 't1', title: 'Development Idea', data: { messages } });
   beforeEach(async () => {
     repo = new Repo((await openDatabase('sqlite::memory:')).db);
     seen = [];
