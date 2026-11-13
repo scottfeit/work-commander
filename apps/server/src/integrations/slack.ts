@@ -90,6 +90,27 @@ export class SlackWorkspace implements ChatApi {
     };
   }
 
+  /** A whole DM conversation as one item: recent history including the PU's own messages. */
+  async getDmConversation(channel: string, triggerTs?: string): Promise<InboundItem> {
+    const me = await this.selfUserId();
+    const h = await this.web.conversations.history({ channel, limit: 50 });
+    const msgs = ((h.messages ?? []) as any[]).sort((a, b) => Number(a.ts) - Number(b.ts));
+    const messages: ThreadMessage[] = [];
+    for (const m of msgs) {
+      const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+    }
+    const chName = await this.channelName(channel);
+    return {
+      source: 'slack',
+      kind: 'slack_thread',
+      externalId: `${channel}:dm`,
+      title: chName,
+      data: { messages, slack: { channel, channelName: chName, threadTs: msgs[0]?.ts ?? '' } },
+      eventId: `${channel}:${triggerTs ?? msgs[msgs.length - 1]?.ts ?? 'dm'}`,
+    };
+  }
+
   async search(query: string, max = 10) {
     const r = await this.web.search.messages({ query, count: max, sort: 'timestamp' });
     return ((r.messages as any)?.matches ?? []).map((m: any) => ({
@@ -217,7 +238,16 @@ export class SlackIngestor implements Ingestor {
       const ims = await this.slack.web.conversations.list({ types: 'im,mpim', exclude_archived: true, limit: 100 });
       for (const c of (ims.channels ?? []).slice(0, 60)) {
         const h = await this.slack.web.conversations.history({ channel: c.id!, oldest: String(since), limit: 20 });
-        for (const m of (h.messages ?? []) as any[]) if (m.user !== me) await emit(c.id!, m.thread_ts ?? m.ts, m.ts);
+        const msgs = (h.messages ?? []) as any[];
+        if (c.is_im) {
+          // A DM is one conversation item; new messages from either side (the PU's own replies too) update it.
+          if (msgs.length && !seen.has(c.id!)) {
+            seen.add(c.id!);
+            const newest = msgs.reduce((a, b) => (Number(b.ts) > Number(a.ts) ? b : a)).ts;
+            await this.sink(await this.slack.getDmConversation(c.id!, newest));
+            maxTs = Math.max(maxTs, Number(newest));
+          }
+        } else for (const m of msgs) if (m.user !== me) await emit(c.id!, m.thread_ts ?? m.ts, m.ts);
       }
       for (const k of await this.trackedThreads()) {
         const [channel, threadTs] = k.split(':');

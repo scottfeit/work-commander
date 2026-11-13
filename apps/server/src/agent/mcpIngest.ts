@@ -20,9 +20,16 @@ const Polled = z.object({
 
 const DEFAULTS: Record<'google' | 'slack' | 'atlassian', string> = {
   google: 'Find email threads in the PU\'s inbox with messages received after {since}. Skip newsletters and promotions.',
-  slack: 'Find Slack messages after {since} that are direct messages to the PU, mention the PU, or reply in threads the PU is in.',
+  slack:
+    'Find Slack messages after {since} that are direct messages to the PU, mention the PU, or reply in threads the PU is in. ' +
+    'A direct-message conversation is ONE item: use externalId "<DM channel id>:dm" (the D… id) and put every new message in it, ' +
+    'including messages the PU wrote themself (e.g. replies sent from Slack directly), with authorName set to the sender\'s display name. ' +
+    'Also return the PU\'s own new messages in DM conversations and threads that already exist, even when nobody else has written since.',
   atlassian: 'Find Jira/JSM issues updated after {since} that are assigned to, reported by, or watched by the PU. Include comments.',
 };
+
+/** How far before the previous poll each poll looks, to catch messages search had not indexed yet. */
+const OVERLAP_MS = 10 * 60_000;
 
 const SOURCE: Record<'google' | 'slack' | 'atlassian', ItemSource> = { google: 'gmail', slack: 'slack', atlassian: 'jira' };
 const KIND = { google: 'email_thread', slack: 'slack_thread', atlassian: 'ticket' } as const;
@@ -54,6 +61,20 @@ export class McpPollIngestor implements Ingestor {
     clearInterval(this.timer);
   }
 
+  /** Slack channels/DMs that have an item in an open work stream. */
+  private async trackedSlackChannels() {
+    // Per conversation, "after" is the newest message already stored, so nothing between polls can fall through a gap.
+    const latest = new Map<string, string>();
+    for (const st of await this.repo.listStreams(false))
+      for (const it of await this.repo.listItems(st.id)) {
+        if (it.source !== 'slack') continue;
+        const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
+        const at = (it.data.messages ?? []).filter((m) => !m.id.startsWith('sent-')).map((m) => m.at).sort().pop() ?? it.updatedAt;
+        if (!latest.has(channel) || at > latest.get(channel)!) latest.set(channel, at);
+      }
+    return [...latest].slice(0, 20).map(([channel, after]) => ({ channel, after }));
+  }
+
   async pollOnce() {
     if (this.busy) return;
     this.busy = true;
@@ -62,11 +83,22 @@ export class McpPollIngestor implements Ingestor {
       const m = s[this.system].mcp;
       if (!m) throw new Error('MCP server not configured');
       const key = `mcp.${this.system}.since`;
-      const since = (await this.repo.getSync(key)) || new Date(Date.now() - 86400_000).toISOString();
+      const lastRun = (await this.repo.getSync(key)) || new Date(Date.now() - 86400_000).toISOString();
+      // Search indexes lag and a miss would otherwise be permanent, so look back past the last run. Repeats are harmless: messages merge by id.
+      const since = new Date(Math.min(Date.parse(lastRun) - OVERLAP_MS, Date.now())).toISOString();
       const started = new Date().toISOString();
       const config = await toSdkMcpConfig(m, (id) => this.secrets.get(id));
       const ext = [{ name: this.system, system: this.system, settings: m, config }];
-      const instruction = (m.ingestionPrompt || DEFAULTS[this.system]).replaceAll('{since}', since);
+      let instruction = (m.ingestionPrompt || DEFAULTS[this.system]).replaceAll('{since}', since);
+      if (this.system === 'slack') {
+        // Conversations already in open work streams are checked directly, not left to Slack search.
+        const channels = await this.trackedSlackChannels();
+        if (channels.length)
+          instruction +=
+            '\nAlso read the history of these Slack conversations the PU is already working on and return every message after the time given for each, from anyone including the PU. ' +
+            'Use the channel-history read tool for each; do not rely on search for them.\n' +
+            channels.map((c) => `- channel ${c.channel}: messages after ${c.after}`).join('\n');
+      }
       const r = await this.backend.structured({
         systemPrompt: `You collect new work activity for ${s.pu.name} <${s.pu.email}> using read-only tools. Return only items with activity after the given time, with full message text. Return an empty list if nothing is new.`,
         prompt: instruction,
@@ -84,7 +116,7 @@ export class McpPollIngestor implements Ingestor {
           cc: x.cc ?? undefined,
           text: x.text,
           at: x.at,
-          isFromPU: !!x.authorEmail && x.authorEmail.toLowerCase() === pu,
+          isFromPU: (!!x.authorEmail && x.authorEmail.toLowerCase() === pu) || (!!x.authorName && x.authorName.trim().toLowerCase() === s.pu.name.trim().toLowerCase()),
         }));
         const last = messages[messages.length - 1];
         await this.sink({

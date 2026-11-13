@@ -17,14 +17,37 @@ export function pick(rec: any, expr?: string): string | undefined {
 const str = (v: unknown) => (v == null ? undefined : typeof v === 'object' ? ((v as any).descriptor ?? (v as any).text ?? JSON.stringify(v)) : String(v).trim() || undefined);
 
 export function mapRecords(records: any[], m: FieldMapping): PersonRow[] {
+  const byId = m.managerLink === 'employeeId';
   const out: PersonRow[] = [];
+  const ids: (string | undefined)[] = [];
+  const managerIds: (string | undefined)[] = [];
+  const emailById = new Map<string, string>();
   for (const r of records) {
     const email = pick(r, m.email)?.toLowerCase();
     const name = pick(r, m.name);
     if (!email || !name) continue;
-    out.push({ name, email, title: pick(r, m.title), department: pick(r, m.department), managerEmail: pick(r, m.managerEmail)?.toLowerCase(), slackUserId: pick(r, m.slackUserId) });
+    const id = byId ? pick(r, m.employeeId) : undefined;
+    if (id) emailById.set(id, email);
+    ids.push(id);
+    managerIds.push(byId ? pick(r, m.managerEmployeeId) : undefined);
+    out.push({ name, email, title: pick(r, m.title), department: pick(r, m.department), managerEmail: byId ? undefined : pick(r, m.managerEmail)?.toLowerCase() });
   }
+  // Linking by employee ID: resolve the manager's ID to their email so the rest of the app can keep using emails.
+  if (byId) out.forEach((p, i) => { const mid = managerIds[i]; if (mid) p.managerEmail = emailById.get(mid); });
   return out;
+}
+
+/**
+ * Mapped columns that appear in none of the records. Workday omits empty values, so a column that is
+ * absent everywhere means the report changed (renamed/removed field) rather than just being blank.
+ */
+export function missingMappedFields(records: any[], m: FieldMapping): string[] {
+  const byId = m.managerLink === 'employeeId';
+  const wanted: [string, string | undefined][] = [
+    ['name', m.name], ['email', m.email], ['title', m.title], ['department', m.department],
+    ...(byId ? ([['employeeId', m.employeeId], ['managerEmployeeId', m.managerEmployeeId]] as [string, string | undefined][]) : [['managerEmail', m.managerEmail] as [string, string | undefined]]),
+  ];
+  return wanted.filter(([, expr]) => expr && !records.some((r) => pick(r, expr) !== undefined)).map(([k, expr]) => `${k} (${expr})`);
 }
 
 export async function parseFile(filename: string, buf: Buffer): Promise<any[]> {
@@ -75,8 +98,13 @@ export async function fetchWorkdayRaas(s: Extract<OrgChartSourceSettings, { type
   if (!s.passwordId) throw new Error('Workday RaaS password is required');
   const url = new URL(s.url);
   url.searchParams.set('format', 'json');
-  const r = await fetch(url, { headers: { Authorization: 'Basic ' + Buffer.from(`${s.username}:${await secret(s.passwordId)}`).toString('base64') } });
-  if (!r.ok) throw new Error(`Workday RaaS: ${r.status} ${await r.text()}`);
+  let r: Response;
+  try {
+    r = await fetch(url, { headers: { Authorization: 'Basic ' + Buffer.from(`${s.username}:${await secret(s.passwordId)}`).toString('base64') }, signal: AbortSignal.timeout(60_000) });
+  } catch (e: any) {
+    throw new Error(`Workday report unreachable: ${e.cause?.code ?? e.message}`);
+  }
+  if (!r.ok) throw new Error(`Workday RaaS: ${r.status} ${(await r.text()).slice(0, 300)}`);
   const j = (await r.json()) as { Report_Entry?: any[] };
   return j.Report_Entry ?? [];
 }
@@ -126,7 +154,7 @@ export async function fetchJiraAssets(
 
 export const DEFAULT_MAPPINGS: Record<Exclude<OrgChartSourceSettings['type'], 'none'>, FieldMapping> = {
   'workday-rest': { name: 'descriptor', email: 'primaryWorkEmail', title: 'businessTitle', department: 'primarySupervisoryOrganization.descriptor', managerEmail: 'manager.primaryWorkEmail' },
-  'workday-raas': { name: 'Worker', email: 'Email_-_Primary_Work', title: 'businessTitle', department: 'Supervisory_Organization', managerEmail: 'Manager_Email' },
+  'workday-raas': { name: 'Worker', email: 'Email_-_Primary_Work', title: 'businessTitle', department: 'Supervisory_Organization', managerEmail: 'Manager_Email', employeeId: 'Employee_ID', managerEmployeeId: 'Manager_Employee_ID', managerLink: 'email' },
   file: { name: 'Name', email: 'Email', title: 'Title', department: 'Department', managerEmail: 'Manager Email' },
   'jira-assets': { name: 'Name', email: 'Email', title: 'Title', department: 'Department', managerEmail: 'Manager.email' },
 };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, EnvironmentInfo, Proposal, ServerEvent, StreamItem, WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
-import { get, patch, useServerEvents } from './api';
+import { get, patch, post, useServerEvents } from './api';
 import { StreamList } from './components/StreamList';
 import { TabBar, OVERVIEW_TAB } from './components/TabBar';
 import { ItemView, StreamOverview } from './components/ItemView';
@@ -32,6 +32,9 @@ export function App() {
   const [selected, setSelected] = useState<string>(GENERAL_STREAM);
   const [items, setItems] = useState<StreamItem[]>([]);
   const [tab, setTab] = useState<string>(OVERVIEW_TAB);
+  // A skipped item being looked at: shown as a temporary tab, gone as soon as you navigate away or dismiss it.
+  const [peek, setPeek] = useState<StreamItem | null>(null);
+  const [skippedVersion, setSkippedVersion] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [drafts, setDrafts] = useState<Proposal[]>([]);
   const [live, setLive] = useState<{ runId: string; text: string } | null>(null);
@@ -63,6 +66,28 @@ export function App() {
   }, [nav]);
   useEffect(() => void loadStreams(), [loadStreams]);
   useEffect(() => {
+    if (peek && tab !== peek.id) setPeek(null);
+  }, [tab, peek]);
+  const openSkipped = useCallback(async (id: string) => {
+    try {
+      const it = await get<StreamItem>(`/api/items/${id}`);
+      setPeek(it);
+      setTab(it.id);
+    } catch {
+      /* gone */
+    }
+  }, []);
+  const closePeek = useCallback(() => {
+    setPeek(null);
+    setTab(OVERVIEW_TAB);
+  }, []);
+  const dismissPeek = useCallback(async () => {
+    if (!peek) return;
+    await post(`/api/items/${peek.id}/dismiss`).catch(() => undefined);
+    closePeek();
+    setSkippedVersion((v) => v + 1);
+  }, [peek, closePeek]);
+  useEffect(() => {
     setLive(null);
     setTab(OVERVIEW_TAB);
     void loadSelected(selected);
@@ -88,7 +113,9 @@ export function App() {
           });
           break;
         case 'item.updated':
-          if (e.item.streamId === cur) setItems((xs) => (xs.some((x) => x.id === e.item.id) ? xs.map((x) => (x.id === e.item.id ? e.item : x)) : [...xs, e.item]));
+          if (e.item.streamId === null) setPeek((p) => (p && p.id === e.item.id ? e.item : p));
+          if (e.item.streamId !== cur) setItems((xs) => xs.filter((x) => x.id !== e.item.id));
+          else setItems((xs) => (xs.some((x) => x.id === e.item.id) ? xs.map((x) => (x.id === e.item.id ? e.item : x)) : [...xs, e.item]));
           break;
         case 'proposal.updated':
           if (sidOf(e.proposal.streamId) === cur)
@@ -123,7 +150,8 @@ export function App() {
   );
 
   const stream = useMemo(() => streams.find((s) => s.id === selected) ?? null, [streams, selected]);
-  const selectedItem = items.find((i) => i.id === tab) ?? null;
+  const selectedItem = items.find((i) => i.id === tab) ?? (peek && tab === peek.id ? peek : null);
+  const selectedIsPeek = !!selectedItem && !items.some((i) => i.id === selectedItem.id);
   const running = selected === GENERAL_STREAM ? !!live : stream?.runState === 'running' || !!live;
 
   // Drag the divider between the top pane and the bottom panes.
@@ -156,11 +184,17 @@ export function App() {
         onToggleClosed={() => setShowClosed((v) => !v)}
         onSettings={() => nav('/settings')}
         demo={!!env?.demoMode}
+        onOpenSkipped={(id) => void openSkipped(id)}
+        onSkippedDismissed={(ids) => peek && ids.includes(peek.id) && closePeek()}
+        skippedVersion={skippedVersion}
+        peekId={peek?.id ?? null}
       />
       <main className="main" ref={mainRef} style={{ gridTemplateRows: `auto ${split}fr 6px ${1 - split}fr` }}>
-        <TabBar stream={stream} items={items} tab={tab} onTab={setTab} />
+        <TabBar stream={stream} items={items} tab={tab} onTab={setTab} peek={peek} onClosePeek={closePeek} />
         <section className="top-pane">
-          {selected === GENERAL_STREAM ? (
+          {selectedItem ? (
+            <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} />
+          ) : selected === GENERAL_STREAM ? (
             <div className="empty-state">
               <h2>All open work</h2>
               <p>
@@ -168,8 +202,6 @@ export function App() {
                 {streams.reduce((n, s) => n + s.pendingProposals, 0)} drafts waiting for you. Pick a stream on the left, or ask Claude below about anything across them.
               </p>
             </div>
-          ) : selectedItem ? (
-            <ItemView item={selectedItem} />
           ) : stream ? (
             <StreamOverview stream={stream} items={items} onOpen={setTab} />
           ) : null}

@@ -485,6 +485,19 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
         ], a.after),
     });
     add({
+      name: 'propose_ticket_assign',
+      description: 'Draft reassigning a Jira/JSM ticket. assignee is the new assignee\'s email address, "me" for the PU, or "unassigned".',
+      shape: { key: z.string(), assignee: z.string(), rationale: z.string(), after },
+      access: 'write',
+      system: 'atlassian',
+      kind: 'ticket_assign',
+      handler: async (a) =>
+        propose('ticket_assign', 'atlassian', `Assign ${a.key} to ${a.assignee}`, a.rationale, { key: a.key, assignee: a.assignee }, [
+          { key: 'key', label: 'Ticket', type: 'readonly' },
+          { key: 'assignee', label: 'Assignee (email, "me" or "unassigned")', type: 'text' },
+        ], a.after),
+    });
+    add({
       name: 'propose_ticket_transition',
       description: 'Draft a status change (e.g. to "Resolved"/"Done").',
       shape: { key: z.string(), to_status: z.string(), resolution: z.string().optional(), rationale: z.string(), after },

@@ -1,5 +1,5 @@
 import { notFound, conflict } from './errors.js';
-import type { Proposal, Settings } from '@wc/shared';
+import type { Proposal, Settings, ThreadMessage } from '@wc/shared';
 import type { Repo } from './repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
 import type { GrantService, AuthScheme } from '../onepassword/grants.js';
@@ -138,16 +138,50 @@ export class Executor {
     return item;
   }
 
-  /** After a Slack message is sent through an MCP server, show it in the stream's conversation tab. Native drafts aren't sent, so they're skipped. */
+  /**
+   * After something is sent or created through an MCP server (Slack message, email, ticket), make sure it shows up as an item
+   * in the stream's tabs. MCP gives no way to re-fetch it, so the item is built from what was sent. Native drafts aren't sent, so they're skipped.
+   */
   private async recordMcpSend(p: Proposal, x: Record<string, any>, resultText: string) {
-    if (!p.streamId || x.system !== 'slack' || /draft/i.test(x.tool) || !/(send|post|reply)/i.test(x.tool)) return;
+    if (!p.streamId || /draft/i.test(x.tool)) return;
     const a = x.args ?? {};
-    const channel = a.channel_id ?? a.channel;
-    const text = a.message ?? a.text;
-    if (!channel || typeof text !== 'string') return;
-    const ts = resultText.match(/"(?:message_ts|ts)"\s*:\s*"([\d.]+)"/)?.[1];
     const pu = (await this.settings()).pu;
-    await this.repo.recordSentMessage(p.streamId, 'slack', { channel, threadTs: a.thread_ts }, text, ts ?? p.id, { name: pu.name, email: pu.email }).catch(() => undefined);
+    const me = { name: pu.name, email: pu.email };
+    const at = new Date().toISOString();
+    const refs = extractRefs(resultText);
+    if (x.system === 'slack' && /(send|post|reply)/i.test(x.tool)) {
+      // Sending to a user id opens a DM; the result names the real channel, which later replies will use.
+      const channel = resultText.match(/"channel(?:_id)?"\s*:\s*"([CDG][A-Z0-9]+)"/)?.[1] ?? a.channel_id ?? a.channel;
+      const text = a.message ?? a.text;
+      if (!channel || typeof text !== 'string') return;
+      const ts = resultText.match(/"(?:message_ts|ts)"\s*:\s*"([\d.]+)"/)?.[1];
+      const msg: ThreadMessage = { id: `sent-${ts ?? p.id}`, author: me, text, at, isFromPU: true };
+      const who = a.recipient_name ?? a.user_name ?? a.recipient ?? a.channel_name;
+      await this.repo
+        .recordSentOrCreate(p.streamId, 'slack', { channel, threadTs: a.thread_ts }, msg, {
+          kind: 'slack_thread',
+          externalId: `${channel}:${a.thread_ts ?? ts ?? p.id}`,
+          title: typeof who === 'string' && who ? (String(channel).startsWith('D') ? `DM with ${who}` : `Slack: ${who}`) : String(channel).startsWith('D') ? 'Slack DM' : 'Slack message',
+          url: refs.url,
+          data: { slack: { channel, channelName: undefined, threadTs: a.thread_ts } },
+        })
+        .catch(() => undefined);
+    } else if (x.system === 'google' && /(send|reply)/i.test(x.tool)) {
+      const body = a.body ?? a.message ?? a.text;
+      if (typeof body !== 'string') return;
+      const threadId = resultText.match(/"threadId"\s*:\s*"([^"]+)"/)?.[1];
+      const to = asList(a.to);
+      const msg: ThreadMessage = { id: `sent-${p.id}`, author: me, to, cc: asList(a.cc), text: body, at, isFromPU: true };
+      await this.repo
+        .recordSentOrCreate(p.streamId, 'gmail', { threadId }, msg, { kind: 'email_thread', externalId: threadId ?? `mcp-sent-${p.id}`, title: a.subject || '(no subject)', data: {} })
+        .catch(() => undefined);
+    } else if (x.system === 'atlassian' && /create/i.test(x.tool) && /(issue|request|ticket)/i.test(x.tool) && refs.key) {
+      const flavor = /service|request|jsm/i.test(`${x.tool} ${a.serviceDeskId ?? a.service_desk_id ?? ''}`) ? 'jsm' : 'jira';
+      const ticket = { key: refs.key, summary: String(a.summary ?? refs.key), status: 'Open', description: typeof a.description === 'string' ? a.description : undefined, flavor: flavor as 'jsm' | 'jira', comments: [] as ThreadMessage[] };
+      await this.repo
+        .recordSentOrCreate(p.streamId, flavor, { ticketKey: refs.key }, null, { kind: 'ticket', externalId: refs.key, title: `${refs.key}: ${ticket.summary}`, url: refs.url, data: { ticket } })
+        .catch(() => undefined);
+    }
   }
 
   private async run(p: Proposal, x: Record<string, any>): Promise<Record<string, unknown>> {
@@ -196,6 +230,14 @@ export class Executor {
       case 'ticket_transition': {
         const t = await this.hub.api('tickets');
         const r = await t.transition({ key: x.key, to: x.to_status, resolution: x.resolution || undefined });
+        const moved = await this.attachInbound(p.streamId, await t.getIssue(x.key));
+        await this.repo.noteWcTransition(moved.id);
+        return { ...r, key: x.key };
+      }
+      case 'ticket_assign': {
+        const t = await this.hub.api('tickets');
+        const who = String(x.assignee ?? '').trim();
+        const r = await t.assign({ key: x.key, assignee: !who || /^unassign/i.test(who) ? null : /^(me|myself)$/i.test(who) ? 'me' : who });
         await this.attachInbound(p.streamId, await t.getIssue(x.key));
         return { ...r, key: x.key };
       }

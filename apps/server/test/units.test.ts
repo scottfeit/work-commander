@@ -27,6 +27,15 @@ describe('org chart mapping', () => {
     const [p] = mapRecords([rec], { name: 'descriptor', email: 'primaryWorkEmail', title: 'businessTitle', department: 'primarySupervisoryOrganization', managerEmail: 'Manager Email' });
     expect(p).toMatchObject({ name: 'Ann Lee', email: 'ann@x.com', department: 'Platform', managerEmail: 'boss@x.com' });
   });
+  it('links managers by employee ID, resolving to the manager email', () => {
+    const recs = [
+      { N: 'Boss', E: 'boss@x.com', ID: '100', MID: '' },
+      { N: 'Ann', E: 'ANN@x.com', ID: '101', MID: '100' },
+      { N: 'Orphan', E: 'o@x.com', ID: '102', MID: '999' },
+    ];
+    const out = mapRecords(recs, { name: 'N', email: 'E', managerLink: 'employeeId', employeeId: 'ID', managerEmployeeId: 'MID' });
+    expect(out.map((p) => p.managerEmail)).toEqual([undefined, 'boss@x.com', undefined]);
+  });
   it('skips records without name or email', () => {
     expect(mapRecords([{ Name: 'x' }, { Email: 'y@z' }], { name: 'Name', email: 'Email' })).toHaveLength(0);
   });

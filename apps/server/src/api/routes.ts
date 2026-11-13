@@ -8,7 +8,8 @@ import { GOOGLE_SCOPES, oauthClient } from '../integrations/google.js';
 import { McpConnection, isReadOnlyTool } from '../integrations/mcp.js';
 import { AtlassianCloud } from '../integrations/atlassian.js';
 import { SlackWorkspace } from '../integrations/slack.js';
-import { DEFAULT_MAPPINGS, fetchJiraAssets, fetchWorkdayRaas, fetchWorkdayRest, mapRecords, parseFile } from '../orgchart/import.js';
+import { DEFAULT_MAPPINGS, fetchJiraAssets, fetchWorkdayRaas, fetchWorkdayRest, mapRecords, missingMappedFields, parseFile } from '../orgchart/import.js';
+import { getOrgChartSync, refreshOrgChart } from '../orgchart/refresh.js';
 import { notFound } from '../core/errors.js';
 import { CREDENTIAL_LABELS } from '../secrets/store.js';
 import { buildBrief, defaultHandoffFolder, handoffCommand, openInTerminal, resolveHandoffFolder, writeHandoff } from '../core/handoff.js';
@@ -160,11 +161,31 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (id !== null && !(await repo.getStream(id))) throw notFound('Work stream');
     return id;
   };
+  f.get('/api/items/:id', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item) throw new Error('Item not found');
+    return item;
+  });
   f.get('/api/items/skipped', async () => repo.listSkipped(14));
+  f.post('/api/items/:id/dismiss', async (req) => {
+    await repo.dismissSkipped((req.params as any).id);
+    return { ok: true };
+  });
   f.post('/api/items/:id/retriage', async (req) => {
     const b = z.object({ force: z.boolean().default(false) }).parse(req.body ?? {});
     const r = await app.triage.retriage((req.params as any).id, b.force);
     return { relevant: r.decision.relevant, reason: r.decision.reason, streamId: r.streamId };
+  });
+  f.post('/api/items/:id/not-relevant', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item?.streamId) throw new Error('Item is not in a work stream');
+    await repo.markItemNotRelevant(item.id, item.streamId);
+    return { ok: true };
+  });
+  f.post('/api/items/:id/move', async (req) => {
+    const b = z.object({ streamId: z.string() }).parse(req.body);
+    await repo.moveItem((req.params as any).id, b.streamId);
+    return { ok: true };
   });
   f.get('/api/streams/:id/items', async (req) => repo.listItems((await existing((req.params as any).id)) ?? ''));
   f.get('/api/streams/:id/grants', async (req) => app.grants.list((req.params as any).id));
@@ -192,6 +213,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const accept = z.object({ accept: z.boolean() }).parse(req.body).accept;
     await repo.updateChatMeta(m.id, { ...m.meta, suggestion: { ...m.meta.suggestion, status: accept ? 'accepted' : 'dismissed' } });
     if (accept) void runner.run({ streamId: m.streamId, origin: 'user', prompt: `The PU accepted your offer: ${m.meta.suggestion.instruction}` });
+    else await repo.offerCloseAfterDecline(m.streamId, m.id);
     return { ok: true };
   });
 
@@ -392,11 +414,20 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
       if (!s.atlassian.api.apiTokenId) throw new Error('Jira Assets uses the Atlassian API token; add it under Atlassian');
       records = await fetchJiraAssets(oc, { email: s.atlassian.api.email, token: await secrets.get(s.atlassian.api.apiTokenId) });
     } else throw new Error('Choose an org chart source first');
+    if (oc.type === 'workday-raas' && !preview) {
+      const missing = missingMappedFields(records, oc.mapping);
+      if (missing.length) throw new Error(`The report has no values for mapped field(s): ${missing.join(', ')}. The org chart was not changed.`);
+    }
     const people = mapRecords(records, oc.mapping);
     if (preview) return { fields: Object.keys(records[0] ?? {}), sample: records.slice(0, 3), mapped: people.slice(0, 5), total: records.length, mappedTotal: people.length };
     const source = oc.type === 'file' ? 'file' : oc.type;
     await repo.replacePeople(source, people);
     return { imported: people.length, skipped: records.length - people.length };
+  });
+  f.get('/api/orgchart/sync', async () => getOrgChartSync(repo));
+  f.post('/api/orgchart/refresh', async () => {
+    const st = await refreshOrgChart({ repo, secrets, settings: () => settings.get() });
+    return st;
   });
   f.post('/api/people', async (req) => {
     const b = z.object({ name: z.string(), email: z.string(), title: z.string().optional(), department: z.string().optional(), managerEmail: z.string().optional() }).parse(req.body);

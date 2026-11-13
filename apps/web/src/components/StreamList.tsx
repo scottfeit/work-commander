@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, post, timeAgo } from '../api';
-import { SourceBadge } from './TabBar';
+import { ITEM_DRAG, SourceBadge, dragItem } from './TabBar';
 
 interface Props {
   streams: WorkStream[];
@@ -12,12 +12,21 @@ interface Props {
   onToggleClosed: () => void;
   onSettings: () => void;
   demo: boolean;
+  /** Open a skipped item in the main pane (a temporary tab). */
+  onOpenSkipped: (id: string) => void;
+  onSkippedDismissed: (ids: string[]) => void;
+  /** Bumped when something changed the skipped list from elsewhere. */
+  skippedVersion: number;
+  peekId: string | null;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const [moved, setMoved] = useState(0);
+  const [moveErr, setMoveErr] = useState<string | null>(null);
   const shown = streams.filter((s) => (showClosed || s.status === 'open') && (!q || `${s.title} ${s.summary} ${s.labels.join(' ')}`.toLowerCase().includes(q.toLowerCase())));
   const open = shown.filter((s) => s.status === 'open');
   const closed = shown.filter((s) => s.status === 'closed');
@@ -30,8 +39,33 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
     onSelect(s.id);
   };
 
+  const accepts = (e: React.DragEvent, s: WorkStream) => s.status === 'open' && e.dataTransfer.types.includes(ITEM_DRAG);
+  const drop = async (e: React.DragEvent, s: WorkStream) => {
+    e.preventDefault();
+    setDropOn(null);
+    const id = e.dataTransfer.getData(ITEM_DRAG);
+    if (!id || !accepts(e, s)) return;
+    setMoveErr(null);
+    try {
+      await post(`/api/items/${id}/move`, { streamId: s.id });
+      setMoved((n) => n + 1);
+    } catch (err: any) {
+      setMoveErr(err.message);
+    }
+  };
   const row = (s: WorkStream) => (
-    <button key={s.id} className={`stream ${s.id === selected ? 'active' : ''} ${s.status}`} onClick={() => onSelect(s.id)}>
+    <button
+      key={s.id}
+      className={`stream ${s.id === selected ? 'active' : ''} ${s.status} ${dropOn === s.id ? 'drop-target' : ''}`}
+      onClick={() => onSelect(s.id)}
+      onDragOver={(e) => {
+        if (!accepts(e, s)) return;
+        e.preventDefault();
+        setDropOn(s.id);
+      }}
+      onDragLeave={() => setDropOn((d) => (d === s.id ? null : d))}
+      onDrop={(e) => void drop(e, s)}
+    >
       <div className="stream-head">
         {s.unread && s.id !== selected && <span className="dot" aria-label="unread" />}
         <span className="stream-title">{s.title}</span>
@@ -82,7 +116,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         {open.map(row)}
         {showClosed && closed.length > 0 && <div className="section-label">Closed · {closed.length}</div>}
         {showClosed && closed.map(row)}
-        <Skipped onSelect={onSelect} refreshKey={streams.length} />
+        {moveErr && <div className="small error pad">{moveErr}</div>}
+        <Skipped onSelect={onSelect} refreshKey={streams.length + moved + skippedVersion} onOpen={onOpenSkipped} onDismissed={onSkippedDismissed} peekId={peekId} />
       </div>
       <div className="sidebar-foot">
         <label className="toggle">
@@ -99,7 +134,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
 type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string };
 
 /** Messages triage passed over in the last 14 days, with "Triage again" for any that should have been work. */
-function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; refreshKey: number }) {
+function Skipped({ onSelect, refreshKey, onOpen, onDismissed, peekId }: { onSelect: (id: string) => void; refreshKey: number; onOpen: (id: string) => void; onDismissed: (ids: string[]) => void; peekId: string | null }) {
   const [items, setItems] = useState<SkippedItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Record<string, string>>({});
@@ -120,13 +155,23 @@ function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; ref
       setBusy(null);
     }
   };
+  const dismiss = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => post(`/api/items/${id}/dismiss`).catch(() => undefined)));
+    onDismissed(ids);
+    await load();
+  };
   return (
     <details className="skipped">
       <summary className="section-label">Skipped · {items.length}</summary>
+      <div className="pad">
+        <button className="btn small ghost" onClick={() => void dismiss(items.map((i) => i.id))}>
+          Dismiss all
+        </button>
+      </div>
       <p className="muted small pad">Messages from the last 14 days that triage didn't turn into work.</p>
       {items.map((i) => (
-        <div key={i.id} className="skipped-row">
-          <div className="skipped-title">
+        <div key={i.id} className={`skipped-row ${peekId === i.id ? 'open' : ''}`} title="Click to view. Drag onto a work stream to add it there" {...dragItem(i.id)}>
+          <div className="skipped-title clickable" role="button" tabIndex={0} onClick={() => onOpen(i.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(i.id)}>
             <SourceBadge source={i.source} /> <span title={i.title}>{i.title}</span>
           </div>
           <div className="muted small" title={i.reason}>
@@ -140,11 +185,19 @@ function Skipped({ onSelect, refreshKey }: { onSelect: (id: string) => void; ref
               <button className="btn small" disabled={busy === i.id} onClick={() => retriage(i.id, true)}>
                 {busy === i.id ? 'Creating…' : 'Create work stream anyway'}
               </button>
+              <button className="btn small ghost" onClick={() => void dismiss([i.id])}>
+                Dismiss
+              </button>
             </div>
           ) : (
-            <button className="btn small ghost" disabled={busy === i.id} onClick={() => retriage(i.id, false)}>
-              {busy === i.id ? 'Triaging…' : 'Triage again'}
-            </button>
+            <div className="inline">
+              <button className="btn small ghost" disabled={busy === i.id} onClick={() => retriage(i.id, false)}>
+                {busy === i.id ? 'Triaging…' : 'Triage again'}
+              </button>
+              <button className="btn small ghost" title="Hide this until it has new activity" onClick={() => void dismiss([i.id])}>
+                Dismiss
+              </button>
+            </div>
           )}
         </div>
       ))}
