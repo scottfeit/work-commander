@@ -62,7 +62,7 @@ export function defaultSettings(): Settings {
     silencing: { skipPolling: false, mentionsOverride: false },
     reminders: { pendingDays: 3 },
     usage: { unit: 'tokens', dailyBudget: 0, alertBanner: true, alertDesktop: false, alertEmail: false },
-    triage: { engine: 'claude', agreeThreshold: 0.95, minMessages: 200 },
+    triage: { engine: 'claude', newStreams: 'create', agreeThreshold: 0.95, minMessages: 200 },
     playbooks: '',
     setupComplete: false,
   };

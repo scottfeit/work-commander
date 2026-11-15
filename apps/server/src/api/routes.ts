@@ -278,13 +278,24 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     return html;
   });
   f.get('/api/items/skipped', async (req) => repo.listSkipped(14, (req.query as any).dismissed === '1'));
+  f.post('/api/items/:id/decline', async (req) => {
+    await app.triage.declineProposed((req.params as any).id);
+    return { ok: true };
+  });
   f.post('/api/items/:id/dismiss', async (req) => {
     await repo.dismissSkipped((req.params as any).id);
     return { ok: true };
   });
   // "Accept": make a skipped item a work stream (or file it into the existing stream it belongs to).
   f.post('/api/items/:id/accept', async (req) => {
-    const r = await app.triage.retriage((req.params as any).id, true);
+    const id = (req.params as any).id as string;
+    // A proposed new work stream (Settings → Triage, "Ask me first"): create it as triage proposed it.
+    if ((await repo.getItem(id))?.data.proposedStream) {
+      const streamId = await app.triage.acceptProposed(id);
+      await app.laya.correction(id, { kind: 'relevant' });
+      return { streamId };
+    }
+    const r = await app.triage.retriage(id, true);
     await app.laya.correction((req.params as any).id, { kind: 'relevant' });
     return { streamId: r.streamId };
   });

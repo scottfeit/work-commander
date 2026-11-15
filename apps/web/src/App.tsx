@@ -110,7 +110,7 @@ export function App() {
   }, []);
   const dismissPeek = useCallback(async () => {
     if (!peek) return;
-    await post(`/api/items/${peek.id}/dismiss`).catch(() => undefined);
+    await post(`/api/items/${peek.id}/${peek.data.proposedStream ? 'decline' : 'dismiss'}`).catch(() => undefined);
     closePeek();
     setSkippedVersion((v) => v + 1);
   }, [peek, closePeek]);
@@ -172,7 +172,10 @@ export function App() {
           if (cur === e.streamId) setSelected(e.movedTo ?? GENERAL_STREAM);
           break;
         case 'item.updated':
-          if (e.item.streamId === null) setPeek((p) => (p && p.id === e.item.id ? e.item : p));
+          if (e.item.streamId === null) {
+            setPeek((p) => (p && p.id === e.item.id ? e.item : p));
+            setSkippedVersion((v) => v + 1); // a newly skipped item, or a proposed work stream, shows in the list
+          }
           if (e.item.streamId !== cur) setItems((xs) => xs.filter((x) => x.id !== e.item.id));
           else setItems((xs) => (xs.some((x) => x.id === e.item.id) ? xs.map((x) => (x.id === e.item.id ? e.item : x)) : [...xs, e.item]));
           break;

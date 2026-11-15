@@ -362,7 +362,7 @@ function SwipeRow({ children, onSwipe, label }: { children: ReactNode; onSwipe: 
   );
 }
 
-type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string; dismissed: boolean };
+type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string; dismissed: boolean; proposed?: { title: string; summary: string } };
 
 /**
  * A message triage didn't think was work, shown among the work streams with a "?". Accept makes it a work stream (or files it into the
@@ -388,6 +388,39 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
     await post(`/api/items/${i.id}/dismiss`).catch(() => undefined);
     onDismissed();
   };
+  const p = i.proposed;
+  if (p)
+    // Triage proposes a new work stream (Settings → Triage, "Ask me first"): accept to create it, or decline.
+    return (
+      <div className={`stream skipped-tile proposed-tile ${active ? 'active' : ''} ${i.dismissed ? 'closed' : ''}`} title="Proposed work stream. Click to view the message. Drag onto a work stream to add it there instead" {...dragItem(i.id)}>
+        <button type="button" className="skipped-open" onClick={onOpen}>
+          <div className="stream-head">
+            <span className="chip new-chip" title={`Triage proposes a new work stream${i.reason ? `: ${i.reason}` : ''}`}>
+              New?
+            </span>
+            <SourceBadge source={i.source} />
+            <span className="stream-title">{p.title}</span>
+            <span className="muted small">{timeAgo(i.updatedAt)}</span>
+          </div>
+          <div className="stream-summary" title={p.summary}>
+            {p.summary || i.reason}
+          </div>
+        </button>
+        <div className="stream-meta">
+          <button className="btn small primary" disabled={busy} title="Create this work stream" onClick={() => void accept()}>
+            {busy ? 'Creating…' : 'Accept'}
+          </button>
+          {i.dismissed ? (
+            <span className="chip">declined</span>
+          ) : (
+            <button className="btn small ghost" title="Don't make this a work stream. It comes back if there is new activity." onClick={() => void post(`/api/items/${i.id}/decline`).catch(() => undefined).then(onDismissed)}>
+              Decline
+            </button>
+          )}
+        </div>
+        {err && <div className="small error">{err}</div>}
+      </div>
+    );
   return (
     <div className={`stream skipped-tile ${active ? 'active' : ''} ${i.dismissed ? 'closed' : ''}`} title="Click to view. Drag onto a work stream to add it there" {...dragItem(i.id)}>
       <button type="button" className="skipped-open" onClick={onOpen}>

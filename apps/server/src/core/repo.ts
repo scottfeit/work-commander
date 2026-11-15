@@ -725,9 +725,10 @@ export class Repo {
     const cur = await this.getItem(itemId);
     const set: { stream_id: string; updated_at: string; data?: string } = { stream_id: streamId, updated_at: now() };
     // Deliberately (re)attaching an item to a stream overrides an earlier "not relevant" for that stream.
-    if (cur?.data.notRelevantTo?.includes(streamId)) {
-      const notRelevantTo = cur.data.notRelevantTo.filter((x) => x !== streamId);
-      set.data = j({ ...cur.data, notRelevantTo: notRelevantTo.length ? notRelevantTo : undefined });
+    if (cur && (cur.data.notRelevantTo?.includes(streamId) || cur.data.proposedStream)) {
+      const notRelevantTo = (cur.data.notRelevantTo ?? []).filter((x) => x !== streamId);
+      // In a work stream now, so a new-stream proposal waiting on it is settled.
+      set.data = j({ ...cur.data, notRelevantTo: notRelevantTo.length ? notRelevantTo : undefined, proposedStream: undefined });
     }
     await this.db.updateTable('items').set(set).where('id', '=', itemId).execute();
     const item = await this.getItem(itemId);
@@ -1113,6 +1114,16 @@ export class Repo {
       });
   }
 
+  /** Triage proposes a new work stream for an item in no stream (or withdraws the proposal, with null). */
+  async proposeStream(itemId: string, p: ItemData['proposedStream'] | null) {
+    const it = await this.getItem(itemId);
+    if (!it || it.streamId) return;
+    // A fresh proposal shows again even if an earlier one was declined.
+    const data: ItemData = { ...it.data, proposedStream: p ?? undefined, ...(p ? { dismissedAt: undefined } : {}) };
+    await this.db.updateTable('items').set({ data: j(data), updated_at: now() }).where('id', '=', itemId).execute();
+    bus.publish({ type: 'item.updated', item: { ...it, data } });
+  }
+
   /** Hide a skipped item from the Skipped list until it has new activity. */
   async dismissSkipped(itemId: string) {
     const it = await this.getItem(itemId);
@@ -1133,7 +1144,17 @@ export class Repo {
       const dismissed = !!it.data.dismissedAt && it.updatedAt <= it.data.dismissedAt;
       if (dismissed && !includeDismissed) continue;
       const last = (it.data.messages ?? it.data.ticket?.comments ?? []).slice(-1)[0];
-      out.push({ id: it.id, source: it.source, title: it.title, updatedAt: it.updatedAt, from: last?.author.name ?? last?.author.email ?? '', reason: it.data.notRelevantTo?.length ? 'You marked it not relevant to a work stream' : (d.reason ?? d.skipped ?? ''), dismissed });
+      const prop = it.data.proposedStream;
+      out.push({
+        id: it.id,
+        source: it.source,
+        title: it.title,
+        updatedAt: it.updatedAt,
+        from: last?.author.name ?? last?.author.email ?? '',
+        reason: prop ? prop.reason : it.data.notRelevantTo?.length ? 'You marked it not relevant to a work stream' : (d.reason ?? d.skipped ?? ''),
+        dismissed,
+        ...(prop ? { proposed: { title: prop.title, summary: prop.summary } } : {}),
+      });
     }
     return out;
   }

@@ -352,7 +352,7 @@ export class TriagePipeline {
     }
     await this.repo.audit('pu', 'item.retriaged', { itemId, force, relevant: decision.relevant, reason: decision.reason });
     try {
-      await this.route(inbound, item, decision, s); // even when nothing is needed: the model may still say which stream it belongs to
+      await this.route(inbound, item, decision, s, force ? false : undefined); // even when nothing is needed: the model may still say which stream it belongs to
     } finally {
       await this.settleUsage(held, itemId);
     }
@@ -361,8 +361,33 @@ export class TriagePipeline {
     return { decision, streamId: (await this.repo.getItem(itemId))?.streamId ?? null };
   }
 
+  /**
+   * The PU accepted a proposed new work stream: create it from the decision triage made then (no new model call),
+   * and carry on as triage would have (notify, draft or offer the next step).
+   */
+  async acceptProposed(itemId: string): Promise<string | null> {
+    const item = await this.repo.getItem(itemId);
+    const prop = item?.data.proposedStream;
+    if (!item || !prop) throw new Error('Nothing is proposed for this item');
+    if (item.streamId) return item.streamId;
+    const s = await this.settings();
+    const decision = { ...(prop.decision as TriageDecision), relevant: true, stream: { action: 'new' as const, streamId: null, title: prop.title, summary: prop.summary, labels: prop.labels } };
+    const inbound: InboundItem = { source: item.source, kind: item.kind, externalId: item.externalId, title: item.title, url: item.url, data: item.data, eventId: `accept-${Date.now()}` };
+    await this.repo.audit('pu', 'stream.proposal_accepted', { itemId, title: prop.title });
+    await this.route(inbound, item, decision, s, false);
+    return (await this.repo.getItem(itemId))?.streamId ?? null;
+  }
+
+  /** The PU declined a proposed new work stream: it goes where dismissed skipped items go, until new activity brings it back. */
+  async declineProposed(itemId: string) {
+    const item = await this.repo.getItem(itemId);
+    if (!item?.data.proposedStream) throw new Error('Nothing is proposed for this item');
+    await this.repo.audit('pu', 'stream.proposal_declined', { itemId, title: item.data.proposedStream.title });
+    await this.repo.dismissSkipped(itemId);
+  }
+
   /** Steps after the decision: pick or create the stream, then draft or offer. */
-  private async route(inbound: InboundItem, item: StreamItem, decision: TriageDecision, s: Settings) {
+  private async route(inbound: InboundItem, item: StreamItem, decision: TriageDecision, s: Settings, ask = s.triage?.newStreams === 'ask') {
     if (!decision.relevant && !item.streamId) {
       // No action needed, but if triage says it belongs to an open stream, file it there anyway.
       const home = decision.stream.action === 'existing' ? decision.stream.streamId : null;
@@ -379,6 +404,13 @@ export class TriagePipeline {
       const open = await this.repo.listStreams(false);
       if (decision.stream.action === 'existing' && decision.stream.streamId && !item.data.notRelevantTo?.includes(decision.stream.streamId) && open.some((o) => o.id === decision.stream.streamId)) {
         streamId = decision.stream.streamId;
+      } else if (decision.stream.action !== 'none' && ask) {
+        // "Ask me first": hold the new stream as a proposal on the item; acceptProposed() carries on from here.
+        const title = decision.stream.title || inbound.title.slice(0, 80);
+        await this.repo.proposeStream(item.id, { title, summary: decision.stream.summary || decision.reason, labels: decision.stream.labels ?? [], reason: decision.reason, at: new Date().toISOString(), decision });
+        await this.repo.audit('triage', 'stream.proposed', { itemId: item.id, title });
+        bus.publish({ type: 'notify', streamId: null, title: 'New work stream proposed', body: `${title}: ${decision.notify?.body ?? decision.reason}`.slice(0, 300) });
+        return;
       } else if (decision.stream.action !== 'none') {
         streamId = (await this.repo.createStream({ title: decision.stream.title || inbound.title.slice(0, 80), summary: decision.stream.summary || decision.reason, labels: decision.stream.labels ?? [] })).id;
       }

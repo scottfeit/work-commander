@@ -60,6 +60,19 @@ export function TriageSection({
     <section>
       <h2>Triage</h2>
       <Row
+        label="New work streams"
+        hint="Triage always adds new activity to the work stream it belongs to. When something looks like new work, it can start a work stream for it, or propose one in the list for you to accept or decline."
+      >
+        <Select
+          value={s.triage.newStreams ?? "create"}
+          onChange={(newStreams) => up("triage", { newStreams })}
+          options={[
+            { value: "create", label: "Create them automatically" },
+            { value: "ask", label: "Ask me first (accept or decline)" },
+          ]}
+        />
+      </Row>
+      <Row
         label="Triage with"
         hint="Laya is a small model that runs on this computer. It learns from Claude's triage decisions and your corrections, then takes over each part of triage once it agrees with Claude often enough and you say yes."
       >

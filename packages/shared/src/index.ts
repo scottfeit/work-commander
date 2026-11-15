@@ -112,6 +112,8 @@ export interface ItemData {
   tabOrderAt?: string;
   /** External ids of items folded into this one (Slack messages from the same channel discussion), so re-ingesting them lands here. */
   mergedExternalIds?: string[];
+  /** Triage wants this to be a new work stream and is waiting for the PU to accept or decline (Settings → Triage, "Ask me first"). */
+  proposedStream?: { title: string; summary: string; labels: string[]; reason: string; at: string; decision: unknown };
   /** The PU silenced this item: updates are still pulled in, but they don't notify, mark the stream unread or reopen it. */
   muted?: boolean;
   /** Ticket-specific */
@@ -409,6 +411,8 @@ export type LayaPartState = 'collecting' | 'shadowing' | 'proposed' | 'live';
 
 export interface TriageEngineSettings {
   engine: 'claude' | 'laya';
+  /** 'create': triage starts new work streams itself. 'ask': it proposes them, and the PU accepts or declines each one. */
+  newStreams: 'create' | 'ask';
   /** Agreement with Claude needed before WC offers to switch a part to Laya. */
   agreeThreshold: number;
   /** Over at least this many recent messages. */

@@ -96,6 +96,8 @@ Each integration section has:
 - **Pick up new activity**: real time, polling at an interval, or off.
 - **Approvals**: reads and writes each set to *Run automatically* or *Ask me first*.
 
+**Triage → New work streams** chooses what happens when triage finds new work. *Create them automatically* (the default) starts a work stream itself. *Ask me first* shows it in the list as a proposed work stream (marked **New?**) with **Accept** and **Decline**. Activity that belongs to an existing work stream is always added to it. A declined proposal comes back if the conversation has new activity.
+
 **Claude → Draft automatically** (off by default) controls whether Claude drafts replies and ticket changes on its own when new activity arrives, or posts an offer and drafts only once you accept. Drafts you ask for in chat are always made.
 
 ## Deploying to GCP

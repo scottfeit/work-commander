@@ -136,7 +136,7 @@ export function ItemView({
       <div className="item-head">
         <SourceBadge source={item.source} />
         <h2>{item.title}</h2>
-        {peek && <span className="chip subtle">Skipped · preview</span>}
+        {peek && <span className="chip subtle">{item.data.proposedStream ? `Proposed work stream: ${item.data.proposedStream.title}` : 'Skipped · preview'}</span>}
         {item.url && (
           <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
             Open ↗
@@ -162,8 +162,8 @@ export function ItemView({
           </button>
         )}
         {peek ? (
-          <button className="btn ghost small" title="Hide this from the Skipped list until it has new activity" onClick={onDismiss}>
-            Dismiss
+          <button className="btn ghost small" title={item.data.proposedStream ? "Don't make this a work stream. It comes back if there is new activity." : 'Hide this from the Skipped list until it has new activity'} onClick={onDismiss}>
+            {item.data.proposedStream ? 'Decline' : 'Dismiss'}
           </button>
         ) : (
           <button

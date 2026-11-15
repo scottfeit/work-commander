@@ -66,7 +66,7 @@ describe('Laya for triage', () => {
     repo = new Repo(db);
     s = defaultSettings();
     s.pu = { ...s.pu, name: 'Scott', email: 'scott@x.com' };
-    s.triage = { engine: 'laya', agreeThreshold: 0.75, minMessages: 4 };
+    s.triage = { engine: 'laya', newStreams: 'create', agreeThreshold: 0.75, minMessages: 4 };
     mgr = fakeManager();
     laya = new LayaService(db, repo, mgr as any, async () => s, true);
     claudeCalls = [];
