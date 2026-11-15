@@ -3,7 +3,8 @@ import type { ItemSource, Settings, StreamItem } from '@wc/shared';
 import type { Repo } from '../core/repo.js';
 import type { SecretStore } from '../secrets/store.js';
 import type { InboundSink, Ingestor } from '../integrations/types.js';
-import { isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
+import { McpConnection, isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
+import { pollSlackDirect, selfIdFromTools } from '../integrations/slackMcp.js';
 import type { AgentBackend } from './backend.js';
 import { parseWatchedChannels } from '../integrations/slack.js';
 
@@ -98,6 +99,55 @@ export class McpPollIngestor implements Ingestor {
     return planTrackedSlackReads(items, { skipMuted: !!(await this.settings()).silencing?.skipPolling });
   }
 
+  /**
+   * Each check looks back past the previous one, so without this Claude copies out again messages Work Commander already has
+   * (most of a check's output). Tell it what is held and up to which message, so it returns only newer ones.
+   */
+  private async alreadyHeld(since: string) {
+    const sources = this.system === 'atlassian' ? ['jira', 'jsm'] : [SOURCE[this.system]];
+    const rows = await this.repo.db
+      .selectFrom('items')
+      .selectAll()
+      .where('source', 'in', sources)
+      .where('updated_at', '>=', new Date(Date.parse(since) - 86_400_000).toISOString())
+      .orderBy('updated_at', 'desc')
+      .limit(40)
+      .execute();
+    const held = rows
+      .map((r) => {
+        const d = JSON.parse(r.data || '{}');
+        const msgs: { id: string; at: string }[] = d.messages ?? d.ticket?.comments ?? [];
+        const last = [...msgs].sort((a, b) => a.at.localeCompare(b.at)).pop();
+        return last ? `- ${r.external_id}: up to message ${last.id} (${last.at})` : null;
+      })
+      .filter(Boolean);
+    return held.length
+      ? `\nAlready collected (do not return these messages again): for each item below, return only messages newer than the one shown, and leave the item out entirely if it has nothing newer. Keep using the same externalId.\n${held.join('\n')}`
+      : '';
+  }
+
+  private slackSelf?: string;
+  /** Slack over MCP without Claude (see slackMcp.ts). Returns how many items were passed on. */
+  private async pollSlackDirectly(s: Settings, since: string) {
+    const conn = await McpConnection.open(s.slack.mcp!, (id) => this.secrets.get(id));
+    try {
+      if (!this.slackSelf) this.slackSelf = s.pu.slackUserId || selfIdFromTools(await conn.listTools());
+      const { conversations, threads } = await this.trackedSlackReads();
+      const { items } = await pollSlackDirect(async (tool, args) => (await conn.call(tool, args)).text, {
+        since: Date.parse(since) / 1000,
+        puEmail: s.pu.email,
+        me: this.slackSelf,
+        watched: parseWatchedChannels(s.slack.watchedChannels),
+        conversations,
+        threads,
+      });
+      for (const it of items) await this.sink(it);
+      return items.length;
+    } finally {
+      await conn.close();
+    }
+  }
+
   async pollOnce() {
     if (this.busy) return;
     this.busy = true;
@@ -110,6 +160,16 @@ export class McpPollIngestor implements Ingestor {
       // Search indexes lag and a miss would otherwise be permanent, so look back past the last run. Repeats are harmless: messages merge by id.
       const since = new Date(Math.min(Date.parse(lastRun) - OVERLAP_MS, Date.now())).toISOString();
       const started = new Date().toISOString();
+      if (this.system === 'slack' && s.slack.mcpDirect !== false) {
+        try {
+          const n = await this.pollSlackDirectly(s, since);
+          await this.repo.setSync(key, started);
+          this.status(true, `slack (MCP, read directly) synced: ${n} items`);
+          return;
+        } catch (e: any) {
+          console.warn(`[slack] direct MCP read failed, using Claude for this check: ${e.message}`);
+        }
+      }
       const config = await toSdkMcpConfig(m, (id) => this.secrets.get(id));
       const ext = [{ name: this.system, system: this.system, settings: m, config }];
       let instruction = (m.ingestionPrompt || DEFAULTS[this.system]).replaceAll('{since}', since);
@@ -132,6 +192,7 @@ export class McpPollIngestor implements Ingestor {
             'and return the whole current thread (the parent and every reply) as one item with externalId "<channel id>:<thread_ts>", from anyone including the PU.\n' +
             threads.map((t) => `- thread ${t.channel}:${t.ts}`).join('\n');
       }
+      instruction += await this.alreadyHeld(since);
       const r = await this.backend.structured({
         usage: { kind: 'mcpIngest' },
         systemPrompt: `You collect new work activity for ${s.pu.name} <${s.pu.email}> using read-only tools. Return only items with activity after the given time, with full message text. Return an empty list if nothing is new.`,

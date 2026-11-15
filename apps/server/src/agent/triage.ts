@@ -466,6 +466,7 @@ export class TriagePipeline {
       void this.runner.run({
         streamId,
         origin: 'system',
+        purpose: 'draft',
         prompt: `[New activity on item ${item.id}: ${inbound.title}]\nTriage says: ${decision.reason}\nPrepare drafts for the PU to review: ${decision.next.instruction}\nThen tell the PU in one or two sentences what you prepared.`,
       });
     } else if (decision.next.type === 'offer' || decision.next.type === 'handoff' || (decision.next.type === 'draft' && !s.claude.autoDraft)) {

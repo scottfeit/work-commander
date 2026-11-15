@@ -7,7 +7,7 @@
  */
 import { sql } from 'kysely';
 import type { Settings, StreamUsage, UsageKind, UsageReport, UsageTotals } from '@wc/shared';
-import { formatUsage, totalTokens } from '@wc/shared';
+import { formatUsage, totalTokens, usageCategoryOf } from '@wc/shared';
 import type { Database } from '../db/index.js';
 import { now } from '../db/index.js';
 import { bus } from './bus.js';
@@ -160,8 +160,10 @@ export class UsageLog {
 
   async forStream(streamId: string): Promise<StreamUsage> {
     const rows = await this.db.selectFrom('usage_daily').selectAll().where('stream_id', '=', streamId).execute();
-    const out: StreamUsage = { unit: (await this.d.settings()).usage?.unit ?? 'tokens', triage: zeroTotals(), agent: zeroTotals(), total: zeroTotals() };
+    const out: StreamUsage = { unit: (await this.d.settings()).usage?.unit ?? 'tokens', triage: zeroTotals(), agent: zeroTotals(), total: zeroTotals(), byCategory: {} };
     for (const r of rows) {
+      const c = usageCategoryOf(r.kind as UsageKind);
+      out.byCategory[c] = add(out.byCategory[c] ?? zeroTotals(), r);
       if (TRIAGE_KINDS.includes(r.kind as UsageKind)) out.triage = add(out.triage, r);
       else out.agent = add(out.agent, r);
       out.total = add(out.total, r);

@@ -270,6 +270,11 @@ export interface SlackSettings {
   mcp?: McpServerSettings;
   /** Channels to watch for new messages even when they don't mention the PU: names (#sys-eng) or ids, separated by commas or new lines. */
   watchedChannels: string;
+  /**
+   * MCP mode: read Slack with plain tool calls (no Claude, no tokens). Off: Claude collects activity with the same tools,
+   * following the server's ingestion instructions. If a direct read fails, that poll falls back to Claude. Default on.
+   */
+  mcpDirect?: boolean;
   ingestion: IngestionMode;
   pollSeconds: number;
   policy: { read: PolicyMode; write: PolicyMode };
@@ -338,18 +343,38 @@ export type ModelChoice = 'main' | 'haiku' | 'sonnet' | 'opus';
 export type TaskModels = Record<BackgroundTask, ModelChoice>;
 
 /** Every kind of call usage is recorded for. */
-export type UsageKind = BackgroundTask | 'agent' | 'newStream' | 'overview' | 'test' | 'laya';
+/** 'agent' is Claude's stream work before turns were told apart (chat, drafting, hand-offs, keeping streams current). */
+export type UsageKind = BackgroundTask | 'agent' | 'agentChat' | 'agentDraft' | 'agentHandoff' | 'agentReview' | 'newStream' | 'overview' | 'test' | 'laya';
 export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   triage: 'Triage',
   topicSplit: 'Slack topic splitting',
   slackContext: 'Slack context',
   mcpIngest: 'MCP items',
-  agent: 'Agent (chat and drafts)',
+  agent: 'Agent (before categories)',
+  agentChat: 'Chatting with you',
+  agentDraft: 'Drafting messages',
+  agentHandoff: 'Claude Code hand-offs',
+  agentReview: 'Keeping streams up to date',
   newStream: 'New stream overviews',
   overview: 'Overview refreshes',
   test: 'Connection tests',
   laya: 'Laya (local)',
 };
+
+/** What usage is shown by (Settings → Usage, and each work stream's Overview). Fixed order: it is also the colour order. */
+export type UsageCategory = 'triage' | 'reading' | 'drafting' | 'handoff' | 'chat' | 'review' | 'overview' | 'other';
+export const USAGE_CATEGORIES: { id: UsageCategory; label: string; hint: string; kinds: UsageKind[] }[] = [
+  { id: 'triage', label: 'Triage', hint: 'Deciding whether new activity needs you and which work stream it belongs to, naming new streams, sorting Slack conversations by topic', kinds: ['triage', 'newStream', 'topicSplit'] },
+  { id: 'reading', label: 'Reading Slack and other sources', hint: 'Checking for new activity through MCP servers, and finding the later Slack messages a linked one leads to', kinds: ['mcpIngest', 'slackContext'] },
+  { id: 'drafting', label: 'Drafting messages', hint: "Claude's turns that prepared replies, messages or ticket changes for you to approve", kinds: ['agentDraft'] },
+  { id: 'handoff', label: 'Claude Code hand-offs', hint: 'Taking in what Claude Code reports back', kinds: ['agentHandoff'] },
+  { id: 'chat', label: 'Chatting with you', hint: 'Your messages to Claude and its answers (when it drafted something, that turn counts as drafting)', kinds: ['agentChat'] },
+  { id: 'review', label: 'Keeping streams up to date', hint: 'Claude reviewing new items, your direct replies and finished drafts, and updating the work stream', kinds: ['agentReview'] },
+  { id: 'overview', label: 'Overview refreshes', hint: 'Refresh overview, and overviews for streams you start by dropping an item on "+"', kinds: ['overview'] },
+  { id: 'other', label: 'Other', hint: 'Connection tests, and Claude stream work from before usage was split by category', kinds: ['agent', 'test', 'laya'] },
+];
+export const usageCategoryOf = (k: UsageKind): UsageCategory => USAGE_CATEGORIES.find((c) => c.kinds.includes(k))?.id ?? 'other';
+
 
 export interface UsageSettings {
   /** How usage figures (and the budget) are shown everywhere. */
@@ -395,6 +420,7 @@ export interface StreamUsage {
   triage: UsageTotals;
   agent: UsageTotals;
   total: UsageTotals;
+  byCategory: Partial<Record<UsageCategory, UsageTotals>>;
 }
 
 // ---------- Laya (local triage model) ----------

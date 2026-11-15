@@ -2,19 +2,8 @@ import { useEffect, useState } from "react";
 import type { Settings, UsageKind, UsageReport, UsageTotals } from "@wc/shared";
 import { USAGE_KIND_LABELS, formatUsage, totalTokens } from "@wc/shared";
 import { get } from "../api";
+import { byCategory } from "../components/usageViz";
 import { Row, Select, Toggle } from "./parts";
-
-const KIND_ORDER: UsageKind[] = [
-  "triage",
-  "newStream",
-  "overview",
-  "topicSplit",
-  "slackContext",
-  "mcpIngest",
-  "agent",
-  "test",
-  "laya",
-];
 
 /** Settings → Usage: how usage is shown, the daily budget and its alerts, and the last 30 days. */
 export function UsageSection({
@@ -37,6 +26,9 @@ export function UsageSection({
     unit === "dollars" ? t.costUsd : totalTokens(t);
   const max = Math.max(1e-9, ...(r?.days ?? []).map((d) => val(d.total)));
   const budget = s.usage.dailyBudget;
+  const allKinds = Object.fromEntries(
+    (r?.byKind ?? []).map((x) => [x.kind, x.totals]),
+  ) as Partial<Record<UsageKind, UsageTotals>>;
 
   return (
     <section>
@@ -160,21 +152,13 @@ export function UsageSection({
                   <span role="cell" className="usage-date">
                     {d.day}
                   </span>
-                  <span
-                    role="cell"
-                    className="usage-bar"
-                    title={KIND_ORDER.filter((k) => d.byKind[k])
-                      .map(
-                        (k) =>
-                          `${USAGE_KIND_LABELS[k]}: ${formatUsage(d.byKind[k]!, unit)}`,
-                      )
-                      .join("\n")}
-                  >
-                    {KIND_ORDER.filter((k) => d.byKind[k]).map((k) => (
+                  <span role="cell" className="usage-bar">
+                    {byCategory(d.byKind).map((c) => (
                       <i
-                        key={k}
-                        className={`k-${k}`}
-                        style={{ width: `${(100 * val(d.byKind[k]!)) / max}%` }}
+                        key={c.id}
+                        className={`c-${c.id}`}
+                        title={`${c.label}: ${formatUsage(c.t, unit)}`}
+                        style={{ width: `${(100 * val(c.t)) / max}%` }}
                       />
                     ))}
                   </span>
@@ -186,22 +170,27 @@ export function UsageSection({
             </div>
           )}
           <div className="usage-legend small muted">
-            {KIND_ORDER.filter((k) => r.byKind.some((x) => x.kind === k)).map(
-              (k) => (
-                <span key={k}>
-                  <i className={`k-${k}`} /> {USAGE_KIND_LABELS[k]}
-                </span>
-              ),
-            )}
+            {byCategory(allKinds).map((c) => (
+              <span key={c.id} title={c.hint}>
+                <i className={`c-${c.id}`} /> {c.label}
+              </span>
+            ))}
           </div>
-          <h3>By kind of call</h3>
+          <h3>By category</h3>
           <UsageTable
-            rows={r.byKind.map((x) => ({
-              name: USAGE_KIND_LABELS[x.kind] ?? x.kind,
-              t: x.totals,
-            }))}
+            rows={byCategory(allKinds).map((c) => ({ name: c.label, hint: c.hint, t: c.t }))}
             unit={unit}
           />
+          <details className="usage-kinds">
+            <summary className="small">Each kind of call</summary>
+            <UsageTable
+              rows={r.byKind.map((x) => ({
+                name: USAGE_KIND_LABELS[x.kind] ?? x.kind,
+                t: x.totals,
+              }))}
+              unit={unit}
+            />
+          </details>
           <h3>By model</h3>
           <UsageTable
             rows={r.byModel.map((x) => ({ name: x.model, t: x.totals }))}
@@ -217,7 +206,7 @@ function UsageTable({
   rows,
   unit,
 }: {
-  rows: { name: string; t: UsageTotals }[];
+  rows: { name: string; hint?: string; t: UsageTotals }[];
   unit: "tokens" | "dollars";
 }) {
   if (!rows.length) return <p className="muted small">Nothing yet.</p>;
@@ -241,7 +230,7 @@ function UsageTable({
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.name}>
+          <tr key={r.name} title={r.hint}>
             <td>{r.name}</td>
             <td>{r.t.calls}</td>
             <td>{k(r.t.inputTokens + r.t.cacheWriteTokens)}</td>

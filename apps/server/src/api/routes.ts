@@ -434,6 +434,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     void runner.run({
       streamId: m.streamId,
       origin: 'user',
+      purpose: 'draft',
       prompt: 'The PU chose to send a short acknowledgement first. Draft a brief, friendly "I\'m looking into it" reply to the person who asked (with the right propose_* tool, on the right item) and nothing more: do not do the work, do not offer a hand-off again, and do not repeat the question. Then tell the PU in one sentence what you drafted.',
     });
     return { ok: true };

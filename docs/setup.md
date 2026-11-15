@@ -29,7 +29,7 @@ Model accepts aliases (`sonnet`, `opus`) or a full model id. **Test Claude conne
 
 **Models for background calls.** Triage, Slack topic splitting, Slack context and MCP item polling each have their own model (default Haiku). The chat agent and drafting always use the main model.
 
-**Usage** (Settings → Usage) records every Claude call: tokens, and an estimated cost at API prices (with a Claude Code login you pay by subscription). Show it as tokens or dollars, set a daily budget, and choose where the alert goes: a banner, a desktop notification, or an email to yourself (needs Google connected with OAuth). Per-call records are kept for a year; daily totals for good. Each work stream's Overview shows its own usage.
+**Usage** (Settings → Usage) records every Claude call: tokens, and an estimated cost at API prices (with a Claude Code login you pay by subscription). Show it as tokens or dollars, set a daily budget, and choose where the alert goes: a banner, a desktop notification, or an email to yourself (needs Google connected with OAuth). Usage is grouped by what it was for: triage, reading Slack and other sources, drafting messages, Claude Code hand-offs, chatting with you, keeping streams up to date, overview refreshes and other. Per-call records are kept for a year; daily totals for good. Each work stream's Overview has a pie chart of its estimated cost by those categories.
 
 **Laya** (Settings → Triage, local hosting only) is a small model that runs on this computer and can take over triage from Claude:
 
@@ -55,6 +55,8 @@ Model accepts aliases (`sonnet`, `opus`) or a full model id. **Test Claude conne
 2. Store the **User OAuth Token** (`xoxp-…`). Messages are posted as you.
 3. For real time, create an **App-Level Token** with `connections:write` (`xapp-…`) and store it. Socket Mode needs no public URL.
 4. Press **Test**. This records your Slack user id.
+
+In **MCP mode**, *Read Slack without Claude* (on by default) checks for new activity with plain calls to Slack's MCP server (searches for your mentions and DMs, reads of watched channels and of conversations already in work streams), so checking costs no Claude tokens. If a direct read fails, that check falls back to Claude.
 
 ## 5. Atlassian
 

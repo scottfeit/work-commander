@@ -9,7 +9,8 @@ import type { SecretStore } from '../secrets/store.js';
 import { bus } from '../core/bus.js';
 import { isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
 import type { AgentBackend, ExternalMcp } from './backend.js';
-import { OFFER_ONLY_REFUSAL, buildTools, type ToolDeps } from './tools.js';
+import { DRAFT_KINDS, OFFER_ONLY_REFUSAL, buildTools, type ToolDeps } from './tools.js';
+import type { UsageEntry, UsageLog } from '../core/usage.js';
 import { STREAM_AGENT_RULES, itemsBlock, playbookBlock, puBlock, streamsBlock } from './prompts.js';
 
 export interface TurnRequest {
@@ -17,6 +18,11 @@ export interface TurnRequest {
   prompt: string;
   origin: 'user' | 'system' | 'resume';
   selectedItemId?: string;
+  /**
+   * What the turn is for, for Settings → Usage. Defaults: the PU's messages are chat, everything else keeps the stream up to date.
+   * Whatever the purpose, a turn that prepared drafts counts as drafting (except a hand-off coming back).
+   */
+  purpose?: 'chat' | 'draft' | 'handoff' | 'review';
 }
 
 /**
@@ -36,6 +42,7 @@ export class StreamAgentRunner {
     private secrets: SecretStore,
     private settings: () => Promise<Settings>,
     private toolDeps: ToolDeps,
+    private usage?: UsageLog,
   ) {
     executor.onRunSettled = (runId, streamId, proposals) => this.onRunSettled(runId, streamId, proposals);
   }
@@ -115,6 +122,19 @@ export class StreamAgentRunner {
     };
   }
 
+  /** Record a turn's usage under what it turned out to be (see TurnRequest.purpose). */
+  private async settleUsage(req: TurnRequest, runId: string, held: UsageEntry[]) {
+    if (!held.length || !this.usage) return;
+    try {
+      const purpose = req.purpose ?? (req.origin === 'user' ? 'chat' : 'review');
+      const drafted = purpose !== 'handoff' && (await this.repo.listProposals({ runId })).some((p) => DRAFT_KINDS.includes(p.kind));
+      const kind = drafted ? 'agentDraft' : ({ chat: 'agentChat', draft: 'agentDraft', handoff: 'agentHandoff', review: 'agentReview' } as const)[purpose];
+      for (const e of held.splice(0)) await this.usage.record({ ...e, kind });
+    } catch (e: any) {
+      console.error('[usage]', e.message);
+    }
+  }
+
   private async systemPrompt(streamId: string | null, selectedItemId?: string) {
     const s = await this.settings();
     const self = s.pu.email ? await this.repo.findPersonByEmail(s.pu.email) : null;
@@ -159,6 +179,7 @@ export class StreamAgentRunner {
     bus.publish({ type: 'run.state', streamId, runId, state: 'running' });
     let text = '';
     const toolCalls: { name: string; input: unknown }[] = [];
+    const held: UsageEntry[] = [];
     try {
       // Auto drafts off: a turn the PU didn't start (new activity, a hand-off coming back) may only offer drafts.
       const offerOnly = req.origin === 'system' && !(await this.settings()).claude.autoDraft;
@@ -178,7 +199,7 @@ export class StreamAgentRunner {
         },
         onToolCall: (name: string, input: unknown) => toolCalls.push({ name: name.replace(/^mcp__wc__/, ''), input }),
         canUseExternal: this.externalGate(streamId, runId, offerOnly),
-        usage: { kind: 'agent' as const, streamId },
+        usage: { kind: 'agentReview' as const, streamId, held },
       };
       const sessionId = await this.sessionFor(streamId);
       let out;
@@ -197,6 +218,7 @@ export class StreamAgentRunner {
       await this.repo.addChat({ streamId, role: 'system', content: `Agent error: ${e.message}`, meta: { runId } });
       bus.publish({ type: 'run.state', streamId, runId, state: 'error', error: e.message });
     } finally {
+      await this.settleUsage(req, runId, held);
       this.activeRuns.delete(runId);
       const pending = await this.repo.listProposals({ runId, status: ['pending'] });
       // The PU moved this stream's last item away while Claude was working, so the stream is gone: drop what this run made for it.

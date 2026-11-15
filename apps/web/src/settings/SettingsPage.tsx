@@ -253,7 +253,12 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 <CredentialField id="slack.appToken" label="App-level token (Socket Mode)" placeholder="xapp-…" {...credProps} />
               </>
             ) : (
-              <McpEditor value={s.slack.mcp!} onChange={(mcp) => up('slack', { mcp })} creds={creds} system="slack" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
+              <>
+                <McpEditor value={s.slack.mcp!} onChange={(mcp) => up('slack', { mcp })} creds={creds} system="slack" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
+                <Row label="Checking for activity" hint="On: Work Commander reads Slack's MCP server itself (searches, channel and thread reads), so checking costs no Claude tokens. Off: Claude does the reading, following the ingestion instructions above. If a direct read fails, that check uses Claude.">
+                  <Toggle checked={s.slack.mcpDirect !== false} onChange={(mcpDirect) => up('slack', { mcpDirect })} label="Read Slack without Claude" />
+                </Row>
+              </>
             )}
             <Row label="Watched channels" hint="Also look at new messages in the channels you tick, not only DMs, mentions and threads you're in">
               <ChannelPicker value={s.slack.watchedChannels} onChange={(watchedChannels) => up('slack', { watchedChannels })} canLoad={!dirty} />

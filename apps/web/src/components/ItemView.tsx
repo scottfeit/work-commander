@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
-import { formatUsage } from '@wc/shared';
+import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { fmtTime, get, patch, post, timeAgo } from '../api';
+import { UsagePie } from './usageViz';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
 import { SourceBadge, dragItem } from './TabBar';
@@ -400,7 +401,6 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
         </div>
         <RefreshOverview streamId={stream.id} disabled={items.length === 0} />
       </div>
-      <StreamUsageLine streamId={stream.id} updatedAt={stream.updatedAt} />
 
       {history.length > 0 && (
         <>
@@ -485,20 +485,25 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           </ul>
         </>
       )}
+
+      <StreamUsageLine streamId={stream.id} updatedAt={stream.updatedAt} />
     </div>
   );
 }
 
-/** This stream's Claude usage so far, split into triage and agent (Settings → Usage picks tokens or dollars). */
+/** This stream's Claude usage so far, in estimated dollars by category (a pie with a labelled legend). */
 function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt: string }) {
   const [u, setU] = useState<StreamUsage | null>(null);
   useEffect(() => {
     get<StreamUsage>(`/api/streams/${streamId}/usage`).then(setU, () => setU(null));
   }, [streamId, updatedAt]);
   if (!u || u.total.calls === 0) return null;
+  const parts = USAGE_CATEGORIES.filter((c) => u.byCategory?.[c.id]).map((c) => ({ id: c.id, label: c.label, hint: c.hint, t: u.byCategory[c.id]! }));
   return (
-    <div className="muted small stream-usage" title={u.unit === 'dollars' ? 'Estimated at API prices' : 'Input, cached and output tokens'}>
-      Usage so far: {formatUsage(u.total, u.unit)} (triage {formatUsage(u.triage, u.unit)}, agent {formatUsage(u.agent, u.unit)})
-    </div>
+    <section className="stream-usage">
+      <h3>Claude usage</h3>
+      <p className="muted small">Estimated at API prices{u.unit === 'tokens' ? ` · ${formatUsage(u.total, 'tokens')}` : ''}. Background checks for new activity aren't tied to one work stream; they're in Settings → Usage.</p>
+      <UsagePie parts={parts} />
+    </section>
   );
 }

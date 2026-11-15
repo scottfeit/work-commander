@@ -1,3 +1,4 @@
+import { parseSlackMessages } from '../integrations/slackMcp.js';
 import type { Settings, StreamItem, ThreadMessage } from '@wc/shared';
 import { Repo } from './repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
@@ -64,34 +65,10 @@ export function parseWorkItemUrl(raw: string): ParsedLink {
 
 const iso = (ts: string) => new Date(Number(ts) * 1000).toISOString();
 
-/** Parse the Slack MCP server's `slack_read_thread` text ("=== THREAD PARENT MESSAGE ===\nFrom: Name <email> (UID)\nTime: …\nMessage TS: …\ntext"). */
+/** Parse the Slack MCP server's `slack_read_thread` text (see parseSlackMessages for the layouts). */
 export function parseSlackThreadText(text: string, puEmail: string): { messages: ThreadMessage[]; channelLabel?: string } {
-  let body = text;
-  try {
-    const j = JSON.parse(text);
-    if (typeof j?.messages === 'string') body = j.messages;
-    else if (typeof j?.result === 'string') body = j.result;
-  } catch {
-    /* plain text */
-  }
-  const channelLabel = /^Channel:\s*(.+?)\s*\(([A-Z0-9]+)\)/m.exec(body)?.[1];
-  const messages: ThreadMessage[] = [];
-  for (const block of body.split(/\n(?==== )/)) {
-    // Two layouts: "From: Name <email> (UID)\nTime: …\nMessage TS: …" and "=== Message from Name <email> (UID) at … ===\nMessage TS: …".
-    const m =
-      /From:\s*(.+?)(?:\s*<([^>]+)>)?(?:\s*\(([A-Z0-9]+)\))?\s*\n(?:Time:[^\n]*\n)?Message TS:\s*([\d.]+)\n([\s\S]*?)\s*$/.exec(block) ??
-      /=== Message from\s*(.+?)(?:\s*<([^>]+)>)?(?:\s*\(([A-Z0-9]+)\))?\s+at [^=\n]*===\s*\nMessage TS:\s*([\d.]+)\n([\s\S]*?)\s*$/.exec(block);
-    if (!m) continue;
-    const text2 = m[5].replace(/\n+No thread messs?ages\s*$/i, '').replace(/\n+Thread: \d+ repl(?:y|ies)[^\n]*\s*$/i, '').replace(/^\s*\n/, '').trim();
-    messages.push({
-      id: m[4],
-      author: { name: m[1].trim(), email: m[2]?.toLowerCase(), slackUserId: m[3] },
-      text: text2,
-      at: iso(m[4]),
-      isFromPU: !!m[2] && m[2].toLowerCase() === puEmail.toLowerCase(),
-    });
-  }
-  return { messages: messages.sort((a, b) => a.at.localeCompare(b.at)), channelLabel };
+  const { messages, channelLabel } = parseSlackMessages(text, { email: puEmail });
+  return { messages: messages.map(({ replies: _r, ...m }) => m), channelLabel };
 }
 
 type Deps = { repo: Repo; hub: IntegrationHub; settings: () => Promise<Settings>; secret: (id: string) => Promise<string> };

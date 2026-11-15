@@ -78,7 +78,7 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   toolDeps = { repo, hub, grants, executor, settings: get, attachments, secret: (id) => secrets.get(id), structured: (i) => backend.structured(i), canHandoff: cfg.hosting === 'local' };
   const partial = { cfg, db, settings, repo, secrets, hub, grants, executor, attachments, mcpOAuth, usage };
   const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets, usage, sync);
-  const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps);
+  const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps, usage);
   let laya: LayaService;
   const layaManager = new LayaManager(cfg.dataDir, () => laya?.notify());
   laya = new LayaService(db, repo, layaManager, get, cfg.hosting === 'local');
