@@ -16,6 +16,7 @@ export function defaultSettings(): Settings {
       splitSlackByTopic: true,
       reopenClosedWithinDays: 14,
       maxTurns: 30,
+      taskModels: { triage: 'haiku', topicSplit: 'haiku', slackContext: 'haiku', mcpIngest: 'haiku' },
     },
     secrets: { defaultBackend: 'keychain', gcpProjectId: '' },
     google: {
@@ -60,6 +61,8 @@ export function defaultSettings(): Settings {
     backup: { enabled: false, folder: '', everyHours: 24, keep: 14 },
     silencing: { skipPolling: false, mentionsOverride: false },
     reminders: { pendingDays: 3 },
+    usage: { unit: 'tokens', dailyBudget: 0, alertBanner: true, alertDesktop: false, alertEmail: false },
+    triage: { engine: 'claude', agreeThreshold: 0.95, minMessages: 200 },
     playbooks: '',
     setupComplete: false,
   };

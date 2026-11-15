@@ -133,6 +133,7 @@ export class McpPollIngestor implements Ingestor {
             threads.map((t) => `- thread ${t.channel}:${t.ts}`).join('\n');
       }
       const r = await this.backend.structured({
+        usage: { kind: 'mcpIngest' },
         systemPrompt: `You collect new work activity for ${s.pu.name} <${s.pu.email}> using read-only tools. Return only items with activity after the given time, with full message text. Return an empty list if nothing is new.`,
         prompt: instruction,
         schema: Polled,

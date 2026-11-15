@@ -107,6 +107,68 @@ export interface DB {
   handoffs: { id: string; stream_id: string; folder: string; created_at: string; result_mtime: string | null; returned_at: string | null };
   /** Files attached to drafts (uploaded by the PU or taken from a Claude Code hand-off folder). `data` is base64 so it works on SQLite and Postgres alike. */
   attachments: { id: string; stream_id: string | null; filename: string; mime_type: string; size: number; source: string; data: string; created_at: string };
+  /** One row per model per Claude (or Laya) call. Kept for a year; usage_daily keeps the totals for good. */
+  usage_calls: {
+    id: Generated<number>;
+    at: string;
+    /** Local calendar day (YYYY-MM-DD) the call counts towards. */
+    day: string;
+    kind: string;
+    model: string;
+    stream_id: string | null;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    cost_usd: number;
+    duration_ms: number;
+    ok: number;
+  };
+  /** Per day, kind, model and stream ('' = none) totals, kept forever. */
+  usage_daily: {
+    day: string;
+    kind: string;
+    model: string;
+    stream_id: string;
+    calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    cost_usd: number;
+  };
+  /**
+   * Training examples for Laya, one per part (relevance / next) or per part and candidate stream (stream).
+   * `gold` is Claude's decision until the PU corrects it (`source` = 'pu').
+   */
+  laya_examples: {
+    id: string;
+    part: string;
+    item_id: string;
+    /** For the stream part: the candidate work stream this row asks about; '' otherwise. */
+    candidate: string;
+    state: string;
+    gold: string;
+    source: string;
+    created_at: string;
+    updated_at: string;
+  };
+  /** Laya's answer next to Claude's (or, once live, Laya's decision and whether the PU corrected it). */
+  laya_compare: {
+    id: Generated<number>;
+    at: string;
+    part: string;
+    item_id: string;
+    title: string;
+    version: number;
+    laya: string;
+    claude: string;
+    /** 1 agreed, 0 disagreed, null = Laya was unsure (it would have deferred to Claude). */
+    agree: number | null;
+    /** 1 when Laya made this decision itself (the part was live). */
+    live: number;
+    corrected: number;
+  };
   audit_log: {
     id: Generated<number>;
     at: string;
@@ -298,6 +360,68 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('html', 'text', (c) => c.notNull())
     .addPrimaryKeyConstraint('message_html_pk', ['item_id', 'message_id'])
     .execute();
+  let usage = s.createTable('usage_calls').ifNotExists();
+  usage = dialect === 'postgres' ? usage.addColumn('id', 'serial', (c) => c.primaryKey()) : usage.addColumn('id', 'integer', (c) => c.primaryKey().autoIncrement());
+  await usage
+    .addColumn('at', 'text', (c) => c.notNull())
+    .addColumn('day', 'text', (c) => c.notNull())
+    .addColumn('kind', 'text', (c) => c.notNull())
+    .addColumn('model', 'text', (c) => c.notNull())
+    .addColumn('stream_id', 'text')
+    .addColumn('input_tokens', 'integer', (c) => c.notNull())
+    .addColumn('output_tokens', 'integer', (c) => c.notNull())
+    .addColumn('cache_read_tokens', 'integer', (c) => c.notNull())
+    .addColumn('cache_write_tokens', 'integer', (c) => c.notNull())
+    .addColumn('cost_usd', 'double precision', (c) => c.notNull())
+    .addColumn('duration_ms', 'integer', (c) => c.notNull())
+    .addColumn('ok', 'integer', (c) => c.notNull())
+    .execute();
+  await s.createIndex('usage_calls_at').ifNotExists().on('usage_calls').column('at').execute();
+  await s
+    .createTable('usage_daily')
+    .ifNotExists()
+    .addColumn('day', 'text', (c) => c.notNull())
+    .addColumn('kind', 'text', (c) => c.notNull())
+    .addColumn('model', 'text', (c) => c.notNull())
+    .addColumn('stream_id', 'text', (c) => c.notNull())
+    .addColumn('calls', 'integer', (c) => c.notNull())
+    .addColumn('input_tokens', 'integer', (c) => c.notNull())
+    .addColumn('output_tokens', 'integer', (c) => c.notNull())
+    .addColumn('cache_read_tokens', 'integer', (c) => c.notNull())
+    .addColumn('cache_write_tokens', 'integer', (c) => c.notNull())
+    .addColumn('cost_usd', 'double precision', (c) => c.notNull())
+    .addPrimaryKeyConstraint('usage_daily_pk', ['day', 'kind', 'model', 'stream_id'])
+    .execute();
+  await s.createIndex('usage_daily_stream').ifNotExists().on('usage_daily').column('stream_id').execute();
+  await s
+    .createTable('laya_examples')
+    .ifNotExists()
+    .addColumn('id', 'text', (c) => c.primaryKey())
+    .addColumn('part', 'text', (c) => c.notNull())
+    .addColumn('item_id', 'text', (c) => c.notNull())
+    .addColumn('candidate', 'text', (c) => c.notNull())
+    .addColumn('state', 'text', (c) => c.notNull())
+    .addColumn('gold', 'text', (c) => c.notNull())
+    .addColumn('source', 'text', (c) => c.notNull())
+    .addColumn('created_at', 'text', (c) => c.notNull())
+    .addColumn('updated_at', 'text', (c) => c.notNull())
+    .execute();
+  await s.createIndex('laya_examples_key').ifNotExists().unique().on('laya_examples').columns(['part', 'item_id', 'candidate']).execute();
+  let cmp = s.createTable('laya_compare').ifNotExists();
+  cmp = dialect === 'postgres' ? cmp.addColumn('id', 'serial', (c) => c.primaryKey()) : cmp.addColumn('id', 'integer', (c) => c.primaryKey().autoIncrement());
+  await cmp
+    .addColumn('at', 'text', (c) => c.notNull())
+    .addColumn('part', 'text', (c) => c.notNull())
+    .addColumn('item_id', 'text', (c) => c.notNull())
+    .addColumn('title', 'text', (c) => c.notNull())
+    .addColumn('version', 'integer', (c) => c.notNull())
+    .addColumn('laya', 'text', (c) => c.notNull())
+    .addColumn('claude', 'text', (c) => c.notNull())
+    .addColumn('agree', 'integer')
+    .addColumn('live', 'integer', (c) => c.notNull())
+    .addColumn('corrected', 'integer', (c) => c.notNull())
+    .execute();
+  await s.createIndex('laya_compare_part').ifNotExists().on('laya_compare').columns(['part', 'id']).execute();
   let audit = s.createTable('audit_log').ifNotExists();
   audit =
     dialect === 'postgres'

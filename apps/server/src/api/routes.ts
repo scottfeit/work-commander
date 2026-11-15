@@ -114,6 +114,33 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   // Run the pending-reminder check now (the scheduler also does this every few minutes).
   f.post('/api/reminders/check', async () => ({ surfaced: await surfaceDueReminders({ repo, settings: () => settings.get(), run: (r) => runner.run(r) }) }));
   f.get('/api/streams/:id/summaries', async (req) => repo.listSummaries((req.params as any).id));
+  // Laya (local triage model)
+  const layaPart = (req: any) => z.enum(['relevance', 'stream', 'next']).parse(req.params.part);
+  const localOnly = () => {
+    if (cfg.hosting !== 'local') throw Object.assign(new Error('Laya runs only when Work Commander is hosted locally'), { statusCode: 400 });
+  };
+  f.get('/api/laya/status', async () => app.laya.status());
+  f.post('/api/laya/install', async () => {
+    localOnly();
+    void app.laya.manager.startInstall().then(() => app.laya.trainWhenReady());
+    return { ok: true };
+  });
+  f.post('/api/laya/parts/:part/train', async (req) => {
+    localOnly();
+    if (!app.laya.installed) throw new Error('Install Laya first');
+    const p = layaPart(req);
+    void app.laya.train(p).catch(() => undefined); // progress and errors arrive via laya.status
+    return { ok: true };
+  });
+  f.post('/api/laya/parts/:part/accept', async (req) => (await app.laya.accept(layaPart(req)), { ok: true }));
+  f.post('/api/laya/parts/:part/decline', async (req) => (await app.laya.decline(layaPart(req)), { ok: true }));
+  f.post('/api/laya/parts/:part/stop', async (req) => (await app.laya.stopUsing(layaPart(req)), { ok: true }));
+  f.get('/api/streams/:id/usage', async (req) => app.usage.forStream((req.params as any).id));
+  f.get('/api/usage', async (req) => app.usage.report(Math.min(366, Math.max(1, Number((req.query as any).days) || 30))));
+  f.post('/api/usage/dismiss', async () => {
+    await app.usage.dismissAlert();
+    return { ok: true };
+  });
 
   // ---------- draft attachments ----------
   f.post('/api/attachments', async (req) => {
@@ -255,22 +282,26 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   // "Accept": make a skipped item a work stream (or file it into the existing stream it belongs to).
   f.post('/api/items/:id/accept', async (req) => {
     const r = await app.triage.retriage((req.params as any).id, true);
+    await app.laya.correction((req.params as any).id, { kind: 'relevant' });
     return { streamId: r.streamId };
   });
   f.post('/api/items/:id/retriage', async (req) => {
     const b = z.object({ force: z.boolean().default(false) }).parse(req.body ?? {});
     const r = await app.triage.retriage((req.params as any).id, b.force);
+    if (b.force) await app.laya.correction((req.params as any).id, { kind: 'relevant' });
     return { relevant: r.decision.relevant, reason: r.decision.reason, streamId: r.streamId };
   });
   f.post('/api/items/:id/not-relevant', async (req) => {
     const item = await repo.getItem((req.params as any).id);
     if (!item?.streamId) throw new Error('Item is not in a work stream');
     await repo.markItemNotRelevant(item.id, item.streamId);
+    await app.laya.correction(item.id, { kind: 'notInStream', streamId: item.streamId });
     return { ok: true };
   });
   f.post('/api/items/:id/move', async (req) => {
     const b = z.object({ streamId: z.string() }).parse(req.body);
     await repo.moveItem((req.params as any).id, b.streamId);
+    await app.laya.correction((req.params as any).id, { kind: 'moved', toStreamId: b.streamId });
     return { ok: true };
   });
   // Split a Slack conversation by topic: move some of an item's messages into another work stream (or a new one, or out of every stream).

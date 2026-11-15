@@ -323,6 +323,121 @@ export interface OrgChartSyncStatus {
   lastCount?: number;
 }
 
+/** Background calls that can run on their own model. */
+export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest';
+export const BACKGROUND_TASKS: { id: BackgroundTask; label: string; hint: string }[] = [
+  { id: 'triage', label: 'Triage', hint: 'Whether a message needs you, which work stream it belongs to, and what to do next.' },
+  { id: 'topicSplit', label: 'Slack topic splitting', hint: 'Sorting a Slack conversation that runs several topics into the right work streams.' },
+  { id: 'slackContext', label: 'Slack context', hint: 'Picking the earlier Slack messages a linked message depends on.' },
+  { id: 'mcpIngest', label: 'MCP items', hint: 'Pulling new items in from a system connected through an MCP server.' },
+];
+/** 'main' = the main model; otherwise a Claude model alias. */
+export type ModelChoice = 'main' | 'haiku' | 'sonnet' | 'opus';
+export type TaskModels = Record<BackgroundTask, ModelChoice>;
+
+/** Every kind of call usage is recorded for. */
+export type UsageKind = BackgroundTask | 'agent' | 'newStream' | 'test' | 'laya';
+export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
+  triage: 'Triage',
+  topicSplit: 'Slack topic splitting',
+  slackContext: 'Slack context',
+  mcpIngest: 'MCP items',
+  agent: 'Agent (chat and drafts)',
+  newStream: 'New stream overviews',
+  test: 'Connection tests',
+  laya: 'Laya (local)',
+};
+
+export interface UsageSettings {
+  /** How usage figures (and the budget) are shown everywhere. */
+  unit: 'tokens' | 'dollars';
+  /** Daily budget in the chosen unit; 0 = no budget. An estimate at API prices when shown in dollars. */
+  dailyBudget: number;
+  /** Where the alert goes when today's usage passes the budget. */
+  alertBanner: boolean;
+  alertDesktop: boolean;
+  alertEmail: boolean;
+}
+
+export interface UsageTotals {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** Estimated cost at API list prices. */
+  costUsd: number;
+}
+/** All tokens a call used: input (including cached) plus output. */
+export const totalTokens = (t: UsageTotals) => t.inputTokens + t.outputTokens + t.cacheReadTokens + t.cacheWriteTokens;
+/** "12.3k tokens", or "$0.042" (dollar figures are estimates at API prices). */
+export function formatUsage(t: UsageTotals, unit: 'tokens' | 'dollars') {
+  if (unit === 'dollars') return `$${t.costUsd < 1 ? t.costUsd.toFixed(3) : t.costUsd.toFixed(2)}`;
+  const n = totalTokens(t);
+  return n >= 1e6 ? `${(n / 1e6).toFixed(2)}M tokens` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k tokens` : `${n} tokens`;
+}
+
+export interface UsageReport {
+  days: { day: string; byKind: Partial<Record<UsageKind, UsageTotals>>; total: UsageTotals }[];
+  byModel: { model: string; totals: UsageTotals }[];
+  byKind: { kind: UsageKind; totals: UsageTotals }[];
+  today: UsageTotals;
+  /** Set while today's usage is over the budget and the banner hasn't been dismissed. */
+  alert: { day: string; message: string } | null;
+}
+
+export interface StreamUsage {
+  /** The unit chosen in Settings → Usage. */
+  unit: 'tokens' | 'dollars';
+  triage: UsageTotals;
+  agent: UsageTotals;
+  total: UsageTotals;
+}
+
+// ---------- Laya (local triage model) ----------
+
+/** The three parts of triage Laya can take over, each judged separately. */
+export type LayaPart = 'relevance' | 'stream' | 'next';
+export const LAYA_PARTS: { id: LayaPart; label: string }[] = [
+  { id: 'relevance', label: 'Needs you?' },
+  { id: 'stream', label: 'Which work stream' },
+  { id: 'next', label: 'Next step' },
+];
+/** collecting: not enough examples to train yet; shadowing: trained, compared with Claude; proposed: qualified, waiting for the PU; live: Laya decides. */
+export type LayaPartState = 'collecting' | 'shadowing' | 'proposed' | 'live';
+
+export interface TriageEngineSettings {
+  engine: 'claude' | 'laya';
+  /** Agreement with Claude needed before WC offers to switch a part to Laya. */
+  agreeThreshold: number;
+  /** Over at least this many recent messages. */
+  minMessages: number;
+}
+
+export interface LayaPartStatus {
+  part: LayaPart;
+  state: LayaPartState;
+  /** Training examples collected for this part / needed for the first training. */
+  examples: number;
+  examplesNeeded: number;
+  /** Shadowing (or, once live, measured against the PU's corrections): compared messages in the window and how many agreed. */
+  compared: number;
+  agreed: number;
+  /** Live only: share of recent decisions the PU corrected, and whether WC suggests retraining. */
+  suggestRetrain: boolean;
+  trainedAt: string | null;
+  version: number;
+}
+
+export interface LayaStatus {
+  install: { state: 'absent' | 'installing' | 'installed' | 'failed'; message?: string; progress?: string };
+  server: { running: boolean; message?: string };
+  training: { running: boolean; message?: string };
+  parts: LayaPartStatus[];
+  /** Recent cases where Laya and Claude (or the PU) disagreed. */
+  disagreements: { at: string; part: LayaPart; itemId: string; title: string; laya: string; claude: string }[];
+}
+
 export interface ReminderSettings {
   /** Pending work streams untouched this many days come back to the top as a Reminder. 0 = never. */
   pendingDays: number;
@@ -379,6 +494,8 @@ export interface Settings {
     /** New activity on a closed stream reopens it only if it closed within this many days; otherwise a new stream starts. */
     reopenClosedWithinDays: number;
     maxTurns: number;
+    /** Model for each background call; 'main' means the model above. The chat agent and drafting always use the main model. */
+    taskModels?: TaskModels;
   };
   secrets: { defaultBackend: SecretBackend; gcpProjectId: string };
   google: GoogleSettings;
@@ -397,6 +514,8 @@ export interface Settings {
   silencing: SilencingSettings;
   /** When snoozed (Pending) work streams are surfaced again. */
   reminders: ReminderSettings;
+  usage: UsageSettings;
+  triage: TriageEngineSettings;
   /** The PU's standing instructions ("playbooks"): what to suggest when a kind of thing comes up. Given to triage and to Claude. */
   playbooks: string;
   setupComplete: boolean;
@@ -432,6 +551,9 @@ export type ServerEvent =
   | { type: 'chat.delta'; streamId: string | null; runId: string; text: string }
   | { type: 'run.state'; streamId: string | null; runId: string; state: 'running' | 'done' | 'error'; error?: string }
   | { type: 'notify'; streamId: string | null; title: string; body: string }
+  /** Today's usage passed the budget. `desktop`: also show a desktop notification; `banner`: show the in-app banner. */
+  | { type: 'usage.alert'; day: string; message: string; desktop: boolean; banner: boolean }
+  | { type: 'laya.status'; status: LayaStatus }
   | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string };
 
 export const GENERAL_STREAM = '__general__';

@@ -2,7 +2,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
 import type { McpServerConfig, PermissionResult, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerSettings, Settings, SystemId } from '@wc/shared';
+import type { BackgroundTask, McpServerSettings, Settings, SystemId } from '@wc/shared';
+import { BACKGROUND_TASKS } from '@wc/shared';
+import type { UsageEntry, UsageLog, UsageTag } from '../core/usage.js';
 import type { AppConfig } from '../config.js';
 import type { SecretStore } from '../secrets/store.js';
 
@@ -33,6 +35,18 @@ export interface TurnInput {
   onToolCall?: (name: string, input: unknown) => void;
   /** Called for external MCP tool calls; decides allow (possibly with edited input) or deny. */
   canUseExternal?: (server: ExternalMcp, tool: string, input: Record<string, unknown>) => Promise<PermissionResult>;
+  /** Usage is recorded as an agent turn on this stream unless given. */
+  usage?: UsageTag;
+}
+
+export interface StructuredInput<T> {
+  systemPrompt: string;
+  prompt: string;
+  schema: z.ZodType<T>;
+  external?: ExternalMcp[];
+  canUseExternal?: TurnInput['canUseExternal'];
+  /** Which call this is: picks the model (Settings → Claude → models per call) and labels the usage. */
+  usage: UsageTag;
 }
 
 export interface TurnOutput {
@@ -42,7 +56,7 @@ export interface TurnOutput {
 
 export interface AgentBackend {
   turn(i: TurnInput): Promise<TurnOutput>;
-  structured<T>(i: { systemPrompt: string; prompt: string; schema: z.ZodType<T>; external?: ExternalMcp[]; canUseExternal?: TurnInput['canUseExternal'] }): Promise<T>;
+  structured<T>(i: StructuredInput<T>): Promise<T>;
   test(): Promise<string>;
 }
 
@@ -65,6 +79,64 @@ export async function providerEnv(s: Settings, cfg: AppConfig, secrets: SecretSt
   }
 }
 
+/** The model a background call runs on: its own setting, or the main model. New-stream overviews follow triage. */
+export function modelFor(s: Settings, kind: UsageTag['kind']): string | undefined {
+  const task: BackgroundTask | null = kind === 'newStream' ? 'triage' : BACKGROUND_TASKS.some((t) => t.id === kind) ? (kind as BackgroundTask) : null;
+  const choice = task ? s.claude.taskModels?.[task] : undefined;
+  return (!choice || choice === 'main' ? s.claude.model : choice) || undefined;
+}
+
+type ModelUsageMap = Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }>;
+
+/**
+ * Turn a result message's per-model totals into usage entries. A resumed session's totals include its earlier turns,
+ * so `baseline` (the totals last seen for that session) is subtracted; without one, only this call's main-loop usage counts.
+ */
+export function usageEntries(m: { modelUsage?: ModelUsageMap; usage?: any; duration_ms?: number }, tag: UsageTag, ok: boolean, baseline?: ModelUsageMap | null, resumed = false): UsageEntry[] {
+  const mu = m.modelUsage ?? {};
+  const models = Object.keys(mu);
+  if (resumed && !baseline) {
+    const u = m.usage ?? {};
+    const model = models[0] ?? 'unknown';
+    const per = mu[model];
+    const tokens = (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    const allTokens = per ? per.inputTokens + per.outputTokens + per.cacheReadInputTokens + per.cacheCreationInputTokens : 0;
+    return [
+      {
+        kind: tag.kind,
+        model,
+        streamId: tag.streamId,
+        inputTokens: u.input_tokens ?? 0,
+        outputTokens: u.output_tokens ?? 0,
+        cacheReadTokens: u.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+        // Cost scaled by this call's share of the session's tokens.
+        costUsd: per && allTokens ? (per.costUSD * tokens) / allTokens : 0,
+        durationMs: m.duration_ms ?? 0,
+        ok,
+      },
+    ];
+  }
+  return models
+    .map((model, i) => {
+      const cur = mu[model];
+      const b = baseline?.[model];
+      return {
+        kind: tag.kind,
+        model,
+        streamId: tag.streamId,
+        inputTokens: cur.inputTokens - (b?.inputTokens ?? 0),
+        outputTokens: cur.outputTokens - (b?.outputTokens ?? 0),
+        cacheReadTokens: cur.cacheReadInputTokens - (b?.cacheReadInputTokens ?? 0),
+        cacheWriteTokens: cur.cacheCreationInputTokens - (b?.cacheCreationInputTokens ?? 0),
+        costUsd: cur.costUSD - (b?.costUSD ?? 0),
+        durationMs: i === 0 ? (m.duration_ms ?? 0) : 0,
+        ok,
+      };
+    })
+    .filter((e) => e.inputTokens + e.outputTokens + e.cacheReadTokens + e.cacheWriteTokens > 0 || e.costUsd > 0);
+}
+
 async function* single(prompt: string): AsyncIterable<SDKUserMessage> {
   yield { type: 'user', message: { role: 'user', content: prompt }, parent_tool_use_id: null } as SDKUserMessage;
 }
@@ -75,10 +147,30 @@ export class ClaudeAgentBackend implements AgentBackend {
     private cfg: AppConfig,
     private getSettings: () => Promise<Settings>,
     private secrets: SecretStore,
+    private usage?: UsageLog,
+    private sync?: { get(k: string): Promise<string | null | undefined>; set(k: string, v: string): Promise<void> },
   ) {
     // Sessions are persisted by the SDK relative to cwd; keep them in the app's data dir.
     this.cwd = path.join(cfg.dataDir, 'agent-workspace');
     fs.mkdirSync(this.cwd, { recursive: true });
+  }
+
+  /** Record (or, for triage, hold) a call's usage. Never fails the call. */
+  private async account(m: any, tag: UsageTag, ok: boolean, sessionId?: string, resumed = false) {
+    try {
+      const key = sessionId ? `usage.session.${sessionId}` : null;
+      let baseline: ModelUsageMap | null = null;
+      if (key && resumed && this.sync) {
+        const raw = await this.sync.get(key);
+        baseline = raw ? (JSON.parse(raw) as ModelUsageMap) : null;
+      }
+      const entries = usageEntries(m, tag, ok, baseline, resumed);
+      if (key && this.sync && m.modelUsage) await this.sync.set(key, JSON.stringify(m.modelUsage));
+      if (tag.held) tag.held.push(...entries);
+      else for (const e of entries) await this.usage?.record(e);
+    } catch (e: any) {
+      console.error('[usage]', e.message);
+    }
   }
 
   private async base() {
@@ -147,6 +239,7 @@ export class ClaudeAgentBackend implements AgentBackend {
           if (b.type === 'text') lastAssistantText = b.text;
         }
       } else if (m.type === 'result') {
+        await this.account(m, i.usage ?? { kind: 'agent', streamId: null }, m.subtype === 'success', sessionId || undefined, !!i.sessionId);
         if (m.subtype === 'success') text = m.result || lastAssistantText;
         else throw new Error(`Agent stopped: ${m.subtype}`);
       }
@@ -154,7 +247,7 @@ export class ClaudeAgentBackend implements AgentBackend {
     return { sessionId, text };
   }
 
-  async structured<T>(i: { systemPrompt: string; prompt: string; schema: z.ZodType<T>; external?: ExternalMcp[]; canUseExternal?: TurnInput['canUseExternal'] }): Promise<T> {
+  async structured<T>(i: StructuredInput<T>): Promise<T> {
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
     const { s, env } = await this.base();
     const jsonSchema = z.toJSONSchema(i.schema, { target: 'draft-7' }) as Record<string, unknown>;
@@ -164,7 +257,7 @@ export class ClaudeAgentBackend implements AgentBackend {
       prompt: single(i.prompt),
       options: {
         cwd: this.cwd,
-        model: s.claude.model || undefined,
+        model: modelFor(s, i.usage.kind),
         maxTurns: ext.length ? 15 : 3,
         systemPrompt: i.systemPrompt,
         settingSources: [],
@@ -185,6 +278,7 @@ export class ClaudeAgentBackend implements AgentBackend {
     let text = '';
     for await (const m of q) {
       if (m.type === 'result') {
+        await this.account(m, i.usage, m.subtype === 'success');
         if (m.subtype !== 'success') throw new Error(`Structured call failed: ${m.subtype}`);
         out = m.structured_output;
         text = m.result;
@@ -198,7 +292,7 @@ export class ClaudeAgentBackend implements AgentBackend {
   }
 
   async test() {
-    const r = await this.turn({ systemPrompt: 'Reply with exactly: ok', prompt: 'ping', tools: [], external: [] });
+    const r = await this.turn({ systemPrompt: 'Reply with exactly: ok', prompt: 'ping', tools: [], external: [], usage: { kind: 'test' } });
     return r.text.trim();
   }
 }

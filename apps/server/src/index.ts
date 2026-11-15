@@ -75,6 +75,21 @@ async function main() {
     await watcher.start();
   }
 
+  // Laya (local triage model): run it while it is chosen and installed; stop it when switched back to Claude.
+  if (cfg.hosting === 'local') {
+    const syncLaya = async () => {
+      const on = (await app.laya.active()) && app.laya.installed;
+      if (on) await app.laya.manager.ensure().then(() => app.laya.trainWhenReady()).catch((e) => f.log.warn(`laya: ${e.message}`));
+      else await app.laya.manager.stop();
+    };
+    void syncLaya();
+    app.settings.onChange((s, prev) => {
+      if (s.triage?.engine !== prev.triage?.engine) void syncLaya();
+    });
+    // The helper is a child process: make sure it never outlives the server.
+    process.once('exit', () => void app.laya.manager.stop());
+  }
+
   // Workday report as org chart source: re-pull it periodically (a failed pull leaves the org chart as it was).
   new OrgChartRefresher({ repo: app.repo, secrets: app.secrets, settings: () => app.settings.get() }, (m) => f.log.warn(m)).start();
 
@@ -102,6 +117,7 @@ async function main() {
   f.log.info(`Work Commander on ${cfg.publicUrl} (hosting=${cfg.hosting}, auth=${cfg.authMode}${cfg.demoMode ? ', DEMO MODE' : ''})`);
 
   const shutdown = async () => {
+    await app.laya.manager.stop();
     await app.hub.stop();
     await f.close();
     process.exit(0);

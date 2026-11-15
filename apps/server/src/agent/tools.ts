@@ -7,7 +7,7 @@ import type { Repo } from '../core/repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
 import type { GrantService } from '../onepassword/grants.js';
 import type { Executor } from '../core/executor.js';
-import type { ToolDef } from './backend.js';
+import type { StructuredInput, ToolDef } from './backend.js';
 import type { AttachmentStore } from '../core/attachments.js';
 import type { AttachmentRef } from '@wc/shared';
 
@@ -26,7 +26,7 @@ export interface ToolDeps {
   /** Reads a stored secret (the Slack MCP connection needs it to read a message by link). */
   secret?: (id: string) => Promise<string>;
   /** One-shot structured model call (picks which later Slack messages are related when a Slack link is added). */
-  structured?: (i: { systemPrompt: string; prompt: string; schema: z.ZodType<any> }) => Promise<any>;
+  structured?: (i: StructuredInput<any>) => Promise<any>;
   /** Hand-off to Claude Code is available (Work Commander runs on the PU's own machine). */
   canHandoff?: boolean;
 }

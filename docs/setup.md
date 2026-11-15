@@ -27,6 +27,17 @@ Choose a source, adjust the field mapping, press **Preview** to see the availabl
 
 Model accepts aliases (`sonnet`, `opus`) or a full model id. **Test Claude connection** sends a one-line prompt.
 
+**Models for background calls.** Triage, Slack topic splitting, Slack context and MCP item polling each have their own model (default Haiku). The chat agent and drafting always use the main model.
+
+**Usage** (Settings → Usage) records every Claude call: tokens, and an estimated cost at API prices (with a Claude Code login you pay by subscription). Show it as tokens or dollars, set a daily budget, and choose where the alert goes: a banner, a desktop notification, or an email to yourself (needs Google connected with OAuth). Per-call records are kept for a year; daily totals for good. Each work stream's Overview shows its own usage.
+
+**Laya** (Settings → Triage, local hosting only) is a small model that runs on this computer and can take over triage from Claude:
+
+1. Choose *Laya, learning from Claude* and save. Work Commander starts collecting training examples from Claude's triage decisions and your corrections (marking an item not relevant, moving it, accepting a skipped item).
+2. Press **Install Laya**. It downloads the uv tool, a private Python 3.12, Laya and its model (about 2 GB) into `~/.work-commander/laya`. Your own Python is not touched.
+3. Each part (*Needs you?*, *Which work stream*, *Next step*) is trained automatically once it has enough examples, then shadows Claude. When it agrees at least 95% of the time over 200 messages (both adjustable), Work Commander asks you before switching that part to Laya.
+4. Until then, and whenever Laya isn't sure, the Claude triage model decides. If your corrections show a live part slipping, Work Commander suggests **Retrain**; retraining puts that part back to shadowing.
+
 ## 3. Google Workspace
 
 **OAuth mode**

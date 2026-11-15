@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { BackupStatus, CredentialInfo, EnvironmentInfo, FieldMapping, OrgChartSourceSettings, OrgChartSyncStatus, Person, Settings } from '@wc/shared';
+import type { BackupStatus, CredentialInfo, EnvironmentInfo, FieldMapping, ModelChoice, OrgChartSourceSettings, OrgChartSyncStatus, Person, Settings, TaskModels } from '@wc/shared';
+import { BACKGROUND_TASKS } from '@wc/shared';
+import { UsageSection } from './UsageSection';
+import { TriageSection } from './TriageSection';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
 
 const SECTIONS = [
   ['pu', 'Primary user & org chart'],
   ['claude', 'Claude'],
+  ['triage', 'Triage'],
+  ['usage', 'Usage'],
   ['google', 'Google Workspace'],
   ['slack', 'Slack'],
   ['atlassian', 'Atlassian'],
@@ -25,6 +30,8 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
   const [section, setSection] = useState<Section>(() => {
     const q = new URLSearchParams(location.search);
     const mcp = q.get('mcp');
+    const named = q.get('section');
+    if (named && SECTIONS.some(([k]) => k === named)) return named as Section;
     return q.get('google') ? 'google' : mcp === 'google' || mcp === 'slack' || mcp === 'atlassian' ? (mcp as Section) : 'pu';
   });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -122,6 +129,23 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <Row label="Model" hint='An alias ("sonnet", "opus") or a full model id'>
               <Text value={s.claude.model} onChange={(model) => up('claude', { model })} />
             </Row>
+            <h3>Models for background calls</h3>
+            <p className="small muted">The chat agent and drafting always use the model above. These run without you, so a cheaper model saves the most here.</p>
+            {BACKGROUND_TASKS.map((t) => (
+              <Row key={t.id} label={t.label} hint={t.hint}>
+                <Select<ModelChoice>
+                  value={s.claude.taskModels?.[t.id] ?? 'main'}
+                  onChange={(v) => up('claude', { taskModels: { ...((s.claude.taskModels ?? {}) as TaskModels), [t.id]: v } })}
+                  options={[
+                    { value: 'haiku', label: 'Haiku (cheapest)' },
+                    { value: 'sonnet', label: 'Sonnet' },
+                    { value: 'opus', label: 'Opus' },
+                    { value: 'main', label: `Same as main model (${s.claude.model})` },
+                  ]}
+                />
+              </Row>
+            ))}
+            <h3>Behaviour</h3>
             <Row label="Draft automatically" hint="When triage spots something that needs a reply or a ticket, Claude prepares drafts right away. Nothing is sent without your approval unless a system's write policy is automatic.">
               <Toggle checked={s.claude.autoDraft} onChange={(autoDraft) => up('claude', { autoDraft })} label="Prepare drafts without asking first" />
             </Row>
@@ -361,6 +385,9 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <p className="muted small">One instruction per line works best. Include links and what to put where. Press Save changes to apply.</p>
           </section>
         )}
+        {section === 'triage' && saved && <TriageSection s={s} saved={saved} up={up} env={env} />}
+        {section === 'usage' && <UsageSection s={s} up={up} />}
+
         {section === 'display' && (
           <section>
             <h2>Display</h2>

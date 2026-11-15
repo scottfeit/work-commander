@@ -14,6 +14,9 @@ import { McpPollIngestor } from './agent/mcpIngest.js';
 import { runInternalTool, type ToolDeps } from './agent/tools.js';
 import { AttachmentStore } from './core/attachments.js';
 import { McpOAuth, setMcpOAuth } from './integrations/mcpOAuth.js';
+import { UsageLog } from './core/usage.js';
+import { LayaManager } from './laya/manager.js';
+import { LayaService } from './laya/service.js';
 
 export interface App {
   cfg: AppConfig;
@@ -29,10 +32,12 @@ export interface App {
   triage: TriagePipeline;
   attachments: AttachmentStore;
   mcpOAuth: McpOAuth;
+  usage: UsageLog;
+  laya: LayaService;
 }
 
 export interface AppOverrides {
-  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage'>) => AgentBackend;
+  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya'>) => AgentBackend;
   world?: (repo: Repo) => WorldOverride;
   onePassword?: () => Promise<OnePasswordClient>;
   grantFetch?: typeof fetch;
@@ -54,15 +59,31 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   });
   setMcpOAuth(mcpOAuth);
   const hub = new IntegrationHub(cfg, settings, secrets, repo, o.world?.(repo));
+  const sync = { get: (k: string) => repo.getSync(k), set: (k: string, v: string) => repo.setSync(k, v) };
+  const usage = new UsageLog(db, {
+    settings: get,
+    sync,
+    emailSelf: async (subject, body) => {
+      const s = await settings.get();
+      if (!s.pu.email) throw new Error('your email address is not set in Settings');
+      const mail = (await hub.api('email')) as { send(i: { to: string[]; cc: string[]; subject: string; body: string }): Promise<unknown> };
+      await mail.send({ to: [s.pu.email], cc: [], subject, body });
+      await repo.audit('system', 'usage.alert.emailed', { to: s.pu.email });
+    },
+    log: (m) => console.error('[usage]', m),
+  });
   const grants = new GrantService(repo, secrets, get, o.onePassword, o.grantFetch);
   let toolDeps: ToolDeps;
   const executor = new Executor(repo, hub, grants, get, secrets, () => (name, args, ctx) => runInternalTool(name, args, ctx, toolDeps), attachments, (p) => settings.update(p));
   toolDeps = { repo, hub, grants, executor, settings: get, attachments, secret: (id) => secrets.get(id), structured: (i) => backend.structured(i), canHandoff: cfg.hosting === 'local' };
-  const partial = { cfg, db, settings, repo, secrets, hub, grants, executor, attachments, mcpOAuth };
-  const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets);
+  const partial = { cfg, db, settings, repo, secrets, hub, grants, executor, attachments, mcpOAuth, usage };
+  const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets, usage, sync);
   const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps);
-  const triage = new TriagePipeline(repo, backend, runner, get, cfg.hosting === 'local');
+  let laya: LayaService;
+  const layaManager = new LayaManager(cfg.dataDir, () => laya?.notify());
+  laya = new LayaService(db, repo, layaManager, get, cfg.hosting === 'local');
+  const triage = new TriagePipeline(repo, backend, runner, get, cfg.hosting === 'local', usage, laya);
   hub.mcpIngestorFactory = (system, sink, report) => new McpPollIngestor(system, backend, get, secrets, repo, sink, report);
   await executor.recoverInterrupted();
-  return { ...partial, backend, runner, triage };
+  return { ...partial, backend, runner, triage, laya };
 }

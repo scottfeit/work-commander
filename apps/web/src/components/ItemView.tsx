@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { StreamItem, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
+import type { StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
+import { formatUsage } from '@wc/shared';
 import { fmtTime, get, patch, post, timeAgo } from '../api';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
@@ -370,6 +371,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
       <div className="muted small">
         Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)}
       </div>
+      <StreamUsageLine streamId={stream.id} updatedAt={stream.updatedAt} />
 
       {history.length > 0 && (
         <>
@@ -454,6 +456,20 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           </ul>
         </>
       )}
+    </div>
+  );
+}
+
+/** This stream's Claude usage so far, split into triage and agent (Settings → Usage picks tokens or dollars). */
+function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt: string }) {
+  const [u, setU] = useState<StreamUsage | null>(null);
+  useEffect(() => {
+    get<StreamUsage>(`/api/streams/${streamId}/usage`).then(setU, () => setU(null));
+  }, [streamId, updatedAt]);
+  if (!u || u.total.calls === 0) return null;
+  return (
+    <div className="muted small stream-usage" title={u.unit === 'dollars' ? 'Estimated at API prices' : 'Input, cached and output tokens'}>
+      Usage so far: {formatUsage(u.total, u.unit)} (triage {formatUsage(u.triage, u.unit)}, agent {formatUsage(u.agent, u.unit)})
     </div>
   );
 }

@@ -369,3 +369,39 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .move-messages { display: grid; gap: 6px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
 .move-messages label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .move-messages .row { display: flex; gap: 6px; }
+
+/* ---------- Usage ---------- */
+.app.has-banner { grid-template-rows: auto minmax(0, 1fr); }
+.usage-banner { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 6px 16px; background: var(--attn-bg); color: var(--attn); border-bottom: 1px solid var(--line); font-size: 13px; }
+.usage-banner span { flex: 1; }
+.usage-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.usage-days { display: grid; gap: 3px; margin: 6px 0 8px; }
+.usage-day { display: grid; grid-template-columns: 88px 1fr 96px; gap: 10px; align-items: center; font-size: 12px; }
+.usage-date { color: var(--muted); font-family: var(--mono); }
+.usage-bar { display: flex; height: 12px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.usage-bar i, .usage-legend i { display: inline-block; height: 100%; }
+.usage-num { text-align: right; font-variant-numeric: tabular-nums; }
+.usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.usage-legend i { width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.k-triage { background: #b4532f; }
+.k-newStream { background: #c08a1e; }
+.k-topicSplit { background: #7a6bb3; }
+.k-slackContext { background: #4f8fb8; }
+.k-mcpIngest { background: #3f9c86; }
+.k-agent { background: #5b5750; }
+.k-test { background: #b9b3a8; }
+.k-laya { background: #2f7d4f; }
+.usage-table, .laya-parts, .laya-dis { border-collapse: collapse; width: 100%; font-size: 12px; margin-bottom: 14px; }
+.usage-table th, .usage-table td, .laya-parts th, .laya-parts td, .laya-dis th, .laya-dis td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.usage-table td:not(:first-child), .usage-table th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.usage-table th, .laya-parts th, .laya-dis th { color: var(--muted); font-weight: 600; }
+.laya-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.stream-usage { margin-top: 2px; }
+.col { display: flex; flex-direction: column; gap: 4px; }
+input.num.wide { width: 120px; }
+@media (prefers-color-scheme: dark) {
+  .k-agent { background: #a19c92; }
+  .k-test { background: #5b5750; }
+  .k-triage { background: #e07a52; }
+  .k-laya { background: #6cc28f; }
+}

@@ -42,6 +42,15 @@ export function App() {
   const [drafts, setDrafts] = useState<Proposal[]>([]);
   const [live, setLive] = useState<{ runId: string; text: string } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  /** Today's usage passed the daily budget (Settings → Usage); shown until dismissed. */
+  const [usageAlert, setUsageAlert] = useState<{ day: string; message: string } | null>(null);
+  useEffect(() => {
+    get<{ alert: { day: string; message: string } | null }>('/api/usage?days=1').then((r) => setUsageAlert(r.alert), () => undefined);
+  }, []);
+  const dismissUsageAlert = () => {
+    setUsageAlert(null);
+    void post('/api/usage/dismiss').catch(() => undefined);
+  };
   const [split, setSplit] = useState(() => Number(localStorage.getItem('wc.split') ?? 0.52));
   const selRef = useRef(selected);
   selRef.current = selected;
@@ -183,6 +192,10 @@ export function App() {
         case 'run.state':
           if (sidOf(e.streamId) === cur && e.state !== 'running') setLive(null);
           break;
+        case 'usage.alert':
+          if (e.banner) setUsageAlert({ day: e.day, message: e.message });
+          if (e.desktop && 'Notification' in window && Notification.permission === 'granted') new Notification('Work Commander: usage budget passed', { body: e.message });
+          break;
         case 'notify':
           toast({ title: e.title, body: e.body, streamId: e.streamId ?? undefined, tone: 'info' });
           break;
@@ -240,7 +253,18 @@ export function App() {
   if (path.startsWith('/settings')) return <SettingsPage env={env} onBack={() => nav('/')} />;
 
   return (
-    <div className="app">
+    <div className={`app${usageAlert ? ' has-banner' : ''}`}>
+      {usageAlert && (
+        <div className="usage-banner" role="alert">
+          <span>{usageAlert.message}</span>
+          <button className="btn small" onClick={() => nav('/settings?section=usage')}>
+            See usage
+          </button>
+          <button className="btn small ghost" aria-label="Dismiss usage alert" onClick={dismissUsageAlert}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <StreamList
         streams={streams}
         selected={selected}

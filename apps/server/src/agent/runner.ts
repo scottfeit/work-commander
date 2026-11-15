@@ -173,6 +173,7 @@ export class StreamAgentRunner {
         },
         onToolCall: (name: string, input: unknown) => toolCalls.push({ name: name.replace(/^mcp__wc__/, ''), input }),
         canUseExternal: this.externalGate(streamId, runId),
+        usage: { kind: 'agent' as const, streamId },
       };
       const sessionId = await this.sessionFor(streamId);
       let out;
