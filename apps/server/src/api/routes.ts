@@ -3,6 +3,7 @@ import os from 'node:os';
 import { z } from 'zod';
 import { GENERAL_STREAM, type EnvironmentInfo, type SecretBackend, type Settings } from '@wc/shared';
 import type { App } from '../app.js';
+import type { StructuredInput } from '../agent/backend.js';
 import { bus } from '../core/bus.js';
 import { surfaceDueReminders } from '../core/reminders.js';
 import { GOOGLE_SCOPES, oauthClient } from '../integrations/google.js';
@@ -17,6 +18,7 @@ import { startQuickReply } from '../core/quickReply.js';
 import { addWorkItemFromUrl } from '../core/addByUrl.js';
 import { Repo } from '../core/repo.js';
 import { gatherSlackContext } from '../core/slackContext.js';
+import { refreshOverview } from '../core/overview.js';
 import { notFound } from '../core/errors.js';
 import { CREDENTIAL_LABELS } from '../secrets/store.js';
 import { buildBrief, defaultHandoffFolder, handoffCommand, openInTerminal, resolveHandoffFolder, writeHandoff } from '../core/handoff.js';
@@ -62,6 +64,7 @@ function credentialPointer(id: string, s: Settings): Partial<Settings> | null {
 
 export async function registerRoutes(f: FastifyInstance, app: App) {
   const { repo, settings, secrets, hub, executor, runner, cfg } = app;
+  const overviewDeps = { repo, settings: () => settings.get(), structured: <T,>(i: StructuredInput<T>) => app.backend.structured(i) };
 
   f.get('/healthz', async () => ({ ok: true }));
 
@@ -298,6 +301,17 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await app.laya.correction(item.id, { kind: 'notInStream', streamId: item.streamId });
     return { ok: true };
   });
+  // Dragged onto "+": a new work stream holding just this item, named and summarised by the triage model.
+  f.post('/api/items/:id/new-stream', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item) throw notFound('Item');
+    const st = await repo.createStream({ title: item.title.slice(0, 120) || 'New work stream', summary: '' }, 'you');
+    await repo.moveItem(item.id, st.id);
+    await app.laya.correction(item.id, { kind: 'newStream' });
+    void refreshOverview(overviewDeps, st.id, { title: true }).catch((e) => repo.addChat({ streamId: st.id, role: 'system', content: `Couldn't write the overview: ${e.message}` }));
+    return { streamId: st.id };
+  });
+  f.post('/api/streams/:id/refresh-overview', async (req) => refreshOverview(overviewDeps, (req.params as any).id));
   f.post('/api/items/:id/move', async (req) => {
     const b = z.object({ streamId: z.string() }).parse(req.body);
     await repo.moveItem((req.params as any).id, b.streamId);
@@ -345,7 +359,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
       await repo.addChat({ streamId: to.id, role: 'system', content: `${n} from "${item.title}" moved here${from ? ` from "${from.title}"` : ''}.` });
       await repo.updateStream(to.id, { touch: true });
     }
-    if (from && from.id !== toStreamId) await repo.addChat({ streamId: from.id, role: 'system', content: `${n} from "${item.title}" moved ${to ? `to "${to.title}"` : 'out of every work stream'}.` });
+    if (from && from.id !== toStreamId && !(await repo.removeIfEmpty(from.id, toStreamId)))
+      await repo.addChat({ streamId: from.id, role: 'system', content: `${n} from "${item.title}" moved ${to ? `to "${to.title}"` : 'out of every work stream'}.` });
     if (created && to && res.item) {
       void runner.run({
         streamId: to.id,

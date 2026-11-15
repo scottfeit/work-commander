@@ -281,6 +281,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 
 /* dragging an item onto a work stream */
 .stream.drop-target { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+.icon-btn.drop-target { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
 [draggable=true] { cursor: grab; }
 
 /* temporary tab for a previewed skipped item */
@@ -385,6 +386,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .usage-legend i { width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
 .k-triage { background: #b4532f; }
 .k-newStream { background: #c08a1e; }
+.k-overview { background: #a8507e; }
 .k-topicSplit { background: #7a6bb3; }
 .k-slackContext { background: #4f8fb8; }
 .k-mcpIngest { background: #3f9c86; }
@@ -405,3 +407,4 @@ input.num.wide { width: 120px; }
   .k-triage { background: #e07a52; }
   .k-laya { background: #6cc28f; }
 }
+.overview-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }

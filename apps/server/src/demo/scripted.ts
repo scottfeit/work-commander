@@ -18,6 +18,11 @@ export class ScriptedBackend implements AgentBackend {
     // Match on the incoming message only, not on the list of recently skipped items.
     // Splitting a conversation by topic: the demo keeps every message where it is.
     if (/Answer with one assignment per NEW message id/.test(i.prompt)) return { assignments: [] } as T;
+    // Refresh overview: a plain status from the item titles.
+    if (/^Current overview: /m.test(i.prompt)) {
+      const titles = [...i.prompt.matchAll(/<item>\n\[\w+\] (.+)/g)].map((m) => m[1].replace(/ \(ticket .*$/, ''));
+      return { title: titles[0] ?? null, summary: `Refreshed overview: ${titles.join('; ')}.` } as T;
+    }
     const p = i.prompt.replace(/Recently skipped messages[\s\S]*?\n\n/, '');
     const existing = p.match(/ALREADY attached to stream (\S+);/)?.[1] ?? null;
     let d: TriageDecision;

@@ -6,6 +6,9 @@ import { ITEM_DRAG, SourceBadge, dragItem } from './TabBar';
 import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
 
+/** dropOn value while an item is dragged over the "+" (new work stream) button. */
+const NEW_STREAM = '+new';
+
 interface Props {
   streams: WorkStream[];
   selected: string;
@@ -113,6 +116,21 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       setMoveErr(err.message);
     }
   };
+  // An item dropped on "+" starts a new work stream of its own; Claude names it and writes its overview.
+  const dropNew = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropOn(null);
+    const id = e.dataTransfer.getData(ITEM_DRAG);
+    if (!id) return;
+    setMoveErr(null);
+    try {
+      const r = await post<{ streamId: string }>(`/api/items/${id}/new-stream`);
+      setMoved((n) => n + 1);
+      onSelect(r.streamId);
+    } catch (err: any) {
+      setMoveErr(err.message);
+    }
+  };
   const row = (s: WorkStream) => (
     <SwipeRow key={s.id} onSwipe={() => onMarkUnread(s.id)} label="Unread">
     <div
@@ -182,7 +200,19 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       </button>
       <div className="sidebar-tools">
         <input className="search" placeholder="Filter streams" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="icon-btn" title="New work stream" onClick={() => setAdding((v) => !v)}>
+        <button
+          className={`icon-btn ${dropOn === NEW_STREAM ? 'drop-target' : ''}`}
+          title="New work stream (or drop a work item here to start one with it)"
+          aria-label="New work stream"
+          onClick={() => setAdding((v) => !v)}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes(ITEM_DRAG)) return;
+            e.preventDefault();
+            setDropOn(NEW_STREAM);
+          }}
+          onDragLeave={() => setDropOn((d) => (d === NEW_STREAM ? null : d))}
+          onDrop={(e) => void dropNew(e)}
+        >
           +
         </button>
       </div>

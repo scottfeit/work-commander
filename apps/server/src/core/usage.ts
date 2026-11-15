@@ -26,7 +26,7 @@ export interface UsageEntry {
 }
 
 const KEEP_CALLS_DAYS = 365;
-const TRIAGE_KINDS: UsageKind[] = ['triage', 'topicSplit', 'slackContext', 'mcpIngest', 'newStream', 'laya'];
+const TRIAGE_KINDS: UsageKind[] = ['triage', 'topicSplit', 'slackContext', 'mcpIngest', 'newStream', 'overview', 'laya'];
 
 /** The local calendar day, YYYY-MM-DD. */
 export const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

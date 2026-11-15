@@ -13,9 +13,13 @@ test.afterAll(() => fs.rmSync(path.join(os.homedir(), '.wc-qa-handoffs'), { recu
 const ask = async (page: import('@playwright/test').Page) => {
   await page.goto(WEB);
   await stream(page, /contractor access/i).click();
+  const offers = page.locator('.bubble.handoff-offer');
+  await expect(page.getByRole('textbox', { name: /message claude/i })).toBeVisible();
+  const before = await offers.count(); // an earlier test's (answered) offer may still be in this stream
   await page.getByRole('textbox', { name: /message claude/i }).fill('HANDOFF-OFFER-TEST please');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const bubble = page.locator('.bubble.handoff-offer');
+  await expect(offers).toHaveCount(before + 1);
+  const bubble = offers.last();
   await expect(bubble).toBeVisible();
   return bubble;
 };

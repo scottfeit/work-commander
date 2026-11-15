@@ -81,7 +81,7 @@ export async function providerEnv(s: Settings, cfg: AppConfig, secrets: SecretSt
 
 /** The model a background call runs on: its own setting, or the main model. New-stream overviews follow triage. */
 export function modelFor(s: Settings, kind: UsageTag['kind']): string | undefined {
-  const task: BackgroundTask | null = kind === 'newStream' ? 'triage' : BACKGROUND_TASKS.some((t) => t.id === kind) ? (kind as BackgroundTask) : null;
+  const task: BackgroundTask | null = kind === 'newStream' || kind === 'overview' ? 'triage' : BACKGROUND_TASKS.some((t) => t.id === kind) ? (kind as BackgroundTask) : null;
   const choice = task ? s.claude.taskModels?.[task] : undefined;
   return (!choice || choice === 'main' ? s.claude.model : choice) || undefined;
 }

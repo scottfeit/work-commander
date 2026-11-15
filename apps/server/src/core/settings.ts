@@ -12,7 +12,7 @@ export function defaultSettings(): Settings {
       model: 'sonnet',
       vertex: { projectId: '', region: 'global' },
       allowWebResearch: false,
-      autoDraft: true,
+      autoDraft: false,
       splitSlackByTopic: true,
       reopenClosedWithinDays: 14,
       maxTurns: 30,

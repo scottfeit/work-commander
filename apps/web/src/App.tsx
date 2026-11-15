@@ -166,6 +166,11 @@ export function App() {
             return [e.stream, ...without].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
           });
           break;
+        case 'stream.deleted':
+          setStreams((xs) => xs.filter((x) => x.id !== e.streamId));
+          // You emptied the stream you were looking at: follow the item to where it went.
+          if (cur === e.streamId) setSelected(e.movedTo ?? GENERAL_STREAM);
+          break;
         case 'item.updated':
           if (e.item.streamId === null) setPeek((p) => (p && p.id === e.item.id ? e.item : p));
           if (e.item.streamId !== cur) setItems((xs) => xs.filter((x) => x.id !== e.item.id));

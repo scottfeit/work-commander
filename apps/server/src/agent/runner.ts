@@ -9,7 +9,7 @@ import type { SecretStore } from '../secrets/store.js';
 import { bus } from '../core/bus.js';
 import { isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
 import type { AgentBackend, ExternalMcp } from './backend.js';
-import { buildTools, type ToolDeps } from './tools.js';
+import { OFFER_ONLY_REFUSAL, buildTools, type ToolDeps } from './tools.js';
 import { STREAM_AGENT_RULES, itemsBlock, playbookBlock, puBlock, streamsBlock } from './prompts.js';
 
 export interface TurnRequest {
@@ -79,11 +79,12 @@ export class StreamAgentRunner {
    * every write becomes a proposal and the agent is told it was queued (the server executes it
    * with the approved arguments later).
    */
-  externalGate(streamId: string | null, runId: string) {
+  externalGate(streamId: string | null, runId: string, offerOnly = false) {
     return async (server: ExternalMcp, tool: string, input: Record<string, unknown>): Promise<PermissionResult> => {
       const s = await this.settings();
       const pol = s[server.system].policy;
       const readOnly = isReadOnlyTool(tool, server.settings);
+      if (!readOnly && offerOnly) return { behavior: 'deny', message: OFFER_ONLY_REFUSAL };
       if (readOnly && pol.read === 'auto') return { behavior: 'allow', updatedInput: input };
       if (!readOnly && pol.write === 'auto') {
         await this.repo.audit('policy', 'mcp.write.auto', { server: server.name, tool, input });
@@ -159,10 +160,14 @@ export class StreamAgentRunner {
     let text = '';
     const toolCalls: { name: string; input: unknown }[] = [];
     try {
-      const tools = await buildTools({ streamId, runId }, this.toolDeps);
+      // Auto drafts off: a turn the PU didn't start (new activity, a hand-off coming back) may only offer drafts.
+      const offerOnly = req.origin === 'system' && !(await this.settings()).claude.autoDraft;
+      const tools = await buildTools({ streamId, runId, offerOnly }, this.toolDeps);
       const external = await this.externalServers();
       const systemPrompt = await this.systemPrompt(streamId, req.selectedItemId);
-      const prefix = req.origin === 'user' && req.selectedItemId ? `[PU is viewing item ${req.selectedItemId}]\n` : '';
+      const prefix =
+        (req.origin === 'user' && req.selectedItemId ? `[PU is viewing item ${req.selectedItemId}]\n` : '') +
+        (offerOnly ? '[Automatic drafts are off. Wherever the instructions below say to draft or prepare something, offer it with offer_draft instead and end your turn; you can still update the overview and ask questions.]\n' : '');
       const base = {
         systemPrompt,
         tools,
@@ -172,7 +177,7 @@ export class StreamAgentRunner {
           bus.publish({ type: 'chat.delta', streamId, runId, text: t });
         },
         onToolCall: (name: string, input: unknown) => toolCalls.push({ name: name.replace(/^mcp__wc__/, ''), input }),
-        canUseExternal: this.externalGate(streamId, runId),
+        canUseExternal: this.externalGate(streamId, runId, offerOnly),
         usage: { kind: 'agent' as const, streamId },
       };
       const sessionId = await this.sessionFor(streamId);
@@ -194,12 +199,17 @@ export class StreamAgentRunner {
     } finally {
       this.activeRuns.delete(runId);
       const pending = await this.repo.listProposals({ runId, status: ['pending'] });
-      this.repo.setRunState(streamId, pending.length ? 'waiting_approval' : 'idle');
-      if (streamId) await this.repo.updateStream(streamId, { touch: true });
-      // The PU may have decided drafts while the turn was still running.
-      const all = await this.repo.listProposals({ runId });
-      if (all.length && !all.some((p) => ['pending', 'approved', 'executing'].includes(p.status))) {
-        void this.onRunSettled(runId, streamId, all);
+      // The PU moved this stream's last item away while Claude was working, so the stream is gone: drop what this run made for it.
+      if (streamId && !(await this.repo.getStreamRow(streamId))) {
+        if (pending.length) await this.repo.withdrawProposals(pending.map((p) => p.id), 'its work stream was removed');
+      } else {
+        this.repo.setRunState(streamId, pending.length ? 'waiting_approval' : 'idle');
+        if (streamId) await this.repo.updateStream(streamId, { touch: true });
+        // The PU may have decided drafts while the turn was still running.
+        const all = await this.repo.listProposals({ runId });
+        if (all.length && !all.some((p) => ['pending', 'approved', 'executing'].includes(p.status))) {
+          void this.onRunSettled(runId, streamId, all);
+        }
       }
     }
   }

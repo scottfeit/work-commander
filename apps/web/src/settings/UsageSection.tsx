@@ -7,6 +7,7 @@ import { Row, Select, Toggle } from "./parts";
 const KIND_ORDER: UsageKind[] = [
   "triage",
   "newStream",
+  "overview",
   "topicSplit",
   "slackContext",
   "mcpIngest",

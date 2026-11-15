@@ -14,7 +14,14 @@ import type { AttachmentRef } from '@wc/shared';
 export interface ToolContext {
   streamId: string | null;
   runId: string;
+  /** Auto drafts are off and the PU didn't ask for this turn: Claude may offer a draft (offer_draft) but not make one. */
+  offerOnly?: boolean;
 }
+
+/** Proposal kinds that are drafts of something sent or changed elsewhere (what "Draft automatically" governs). */
+export const DRAFT_KINDS: ProposalKind[] = ['email_reply', 'email_send', 'slack_post', 'ticket_create', 'ticket_comment', 'ticket_transition', 'ticket_assign'];
+export const OFFER_ONLY_REFUSAL =
+  'Not drafted: the PU has turned off automatic drafts, and they did not ask for this one. Call offer_draft to offer it (one short label and the instruction for what to draft), then end your turn. The draft is made only if they accept.';
 
 export interface ToolDeps {
   repo: Repo;
@@ -109,6 +116,7 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
   const raw: RawTool[] = [];
   /** Every drafting tool also takes `replaces`: earlier pending drafts this one supersedes are withdrawn. */
   const add = (t: RawTool) => {
+    if (ctx.offerOnly && t.kind && DRAFT_KINDS.includes(t.kind)) return raw.push({ ...t, handler: async () => OFFER_ONLY_REFUSAL });
     if (!t.kind || t.kind === 'credential_request') return raw.push(t);
     const inner = t.handler;
     raw.push({
@@ -317,6 +325,23 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
       return 'Offer posted with one-click buttons. End your turn now; do not draft the acknowledgement.';
     },
   });
+  if (ctx.offerOnly)
+    add({
+      name: 'offer_draft',
+      description:
+        'Automatic drafts are off: when something should be drafted (a reply, message or ticket change), offer it instead. Posts a one-click offer in the chat; the draft is made only if the PU accepts. Then end your turn.',
+      shape: {
+        label: z.string().describe('Short button-style offer for the PU, e.g. "Draft a reply to Dana confirming Friday".'),
+        instruction: z.string().describe('What to draft if they accept, written as a self-contained instruction (who to, which item, the gist).'),
+      },
+      access: 'internal',
+      system: 'internal',
+      handler: async (a) => {
+        const open = (await d.repo.listChat(ctx.streamId)).some((m) => m.role === 'suggestion' && !m.meta.handoffOffer && (m.meta.suggestion?.status ?? 'open') === 'open' && m.meta.suggestion?.instruction === a.instruction);
+        if (!open) await d.repo.addChat({ streamId: ctx.streamId, role: 'suggestion', content: a.label, meta: { suggestion: { instruction: a.instruction, status: 'open' }, runId: ctx.runId } });
+        return 'Offer posted. End your turn now; do not draft it.';
+      },
+    });
   add({
     name: 'propose_close_stream',
     description: 'Propose closing this work stream once all its work is done (tickets resolved, replies sent).',

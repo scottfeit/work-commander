@@ -336,7 +336,7 @@ export type ModelChoice = 'main' | 'haiku' | 'sonnet' | 'opus';
 export type TaskModels = Record<BackgroundTask, ModelChoice>;
 
 /** Every kind of call usage is recorded for. */
-export type UsageKind = BackgroundTask | 'agent' | 'newStream' | 'test' | 'laya';
+export type UsageKind = BackgroundTask | 'agent' | 'newStream' | 'overview' | 'test' | 'laya';
 export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   triage: 'Triage',
   topicSplit: 'Slack topic splitting',
@@ -344,6 +344,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   mcpIngest: 'MCP items',
   agent: 'Agent (chat and drafts)',
   newStream: 'New stream overviews',
+  overview: 'Overview refreshes',
   test: 'Connection tests',
   laya: 'Laya (local)',
 };
@@ -545,6 +546,8 @@ export interface EnvironmentInfo {
 
 export type ServerEvent =
   | { type: 'stream.updated'; stream: WorkStream }
+  /** The PU moved the last work item out of this stream, so it was removed. `movedTo` is where that item went (null: out of every stream). */
+  | { type: 'stream.deleted'; streamId: string; movedTo: string | null }
   | { type: 'item.updated'; item: StreamItem }
   | { type: 'proposal.updated'; proposal: Proposal }
   | { type: 'chat.message'; message: ChatMessage }

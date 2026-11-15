@@ -311,6 +311,32 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
   );
 }
 
+/** Rewrite the overview from the stream's items now, with the triage model (Settings → Claude). The old one stays under Previous overviews. */
+function RefreshOverview({ streamId, disabled }: { streamId: string; disabled: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => setErr(null), [streamId]);
+  const go = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await post(`/api/streams/${streamId}/refresh-overview`);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="refresh-overview">
+      <button type="button" className="btn small ghost" disabled={busy || disabled} title={disabled ? 'Nothing linked to summarise yet' : 'Have Claude rewrite this overview from the linked items (uses the triage model). The current one is kept under Previous overviews.'} onClick={() => void go()}>
+        {busy ? 'Refreshing…' : 'Refresh overview'}
+      </button>
+      {err && <span className="small error"> {err}</span>}
+    </span>
+  );
+}
+
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -368,8 +394,11 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
         )}
       </div>
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
-      <div className="muted small">
-        Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)}
+      <div className="overview-foot">
+        <div className="muted small">
+          Opened {ago(stream.createdAt)} · last activity {ago(stream.lastActivityAt)}
+        </div>
+        <RefreshOverview streamId={stream.id} disabled={items.length === 0} />
       </div>
       <StreamUsageLine streamId={stream.id} updatedAt={stream.updatedAt} />
 

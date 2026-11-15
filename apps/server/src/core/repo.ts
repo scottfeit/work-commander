@@ -758,10 +758,38 @@ export class Repo {
     await this.audit('pu', 'item.moved', { itemId, from: it.streamId, to: toStreamId });
     await this.addChat({ streamId: toStreamId, role: 'system', content: `"${it.title}" moved here${from ? ` from "${from.title}"` : ''}.` });
     await this.updateStream(toStreamId, { touch: true });
-    if (from) {
+    if (from && !(await this.removeIfEmpty(from.id, toStreamId))) {
       await this.addChat({ streamId: from.id, role: 'system', content: `"${it.title}" moved to "${to.title}".` });
       await this.emitStream(from.id);
     }
+  }
+
+  /**
+   * After the PU moves work items out: a work stream left with no items is removed. Its pending drafts are about what was moved,
+   * so they follow it to `movedTo` (or are withdrawn when it left every stream). A stream waiting on a Claude Code hand-off stays.
+   * Returns true if the stream was removed.
+   */
+  async removeIfEmpty(streamId: string | null, movedTo: string | null) {
+    if (!streamId || streamId === movedTo) return false;
+    const st = await this.getStreamRow(streamId);
+    if (!st) return false;
+    const left = await this.db.selectFrom('items').select('id').where('stream_id', '=', streamId).limit(1).executeTakeFirst();
+    if (left) return false;
+    const waiting = await this.db.selectFrom('handoffs').select('id').where('stream_id', '=', streamId).where('returned_at', 'is', null).limit(1).executeTakeFirst();
+    if (waiting) return false;
+    const pending = await this.listProposals({ streamId, status: ['pending'] });
+    if (movedTo) {
+      await this.db.updateTable('proposals').set({ stream_id: movedTo }).where('stream_id', '=', streamId).where('status', '=', 'pending').execute();
+      for (const p of pending) bus.publish({ type: 'proposal.updated', proposal: { ...p, streamId: movedTo } });
+    } else if (pending.length) await this.withdrawProposals(pending.map((p) => p.id), 'its work stream was removed');
+    await this.db.deleteFrom('chat_messages').where('stream_id', '=', streamId).execute();
+    await this.db.deleteFrom('stream_summaries').where('stream_id', '=', streamId).execute();
+    await this.db.deleteFrom('handoffs').where('stream_id', '=', streamId).execute();
+    await this.db.deleteFrom('streams').where('id', '=', streamId).execute();
+    this.runStates.delete(streamId);
+    await this.audit('pu', 'stream.removed_empty', { streamId, title: st.title, movedTo });
+    bus.publish({ type: 'stream.deleted', streamId, movedTo });
+    return true;
   }
 
   /**

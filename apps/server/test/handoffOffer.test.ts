@@ -5,11 +5,11 @@ import { defaultSettings } from '../src/core/settings.js';
 import { TriagePipeline } from '../src/agent/triage.js';
 import { TRIAGE_RULES, STREAM_AGENT_RULES } from '../src/agent/prompts.js';
 
-const setup = async (type: 'handoff' | 'draft', canHandoff = true) => {
+const setup = async (type: 'handoff' | 'draft', canHandoff = true, autoDraft = true) => {
   const repo = new Repo((await openDatabase('sqlite::memory:')).db);
   const runs: any[] = [];
   const decision = { relevant: true, reason: 'Nicole asks for the Gong recording to be made viewable.', stream: { action: 'new', streamId: null, title: 'Make Gong recording viewable', summary: 's', labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type, instruction: 'Change the sharing on the Gong recording https://gong.example/x so the CAS team can view it.', offerLabel: 'Nicole wants a recording made viewable: work for Claude Code.' } };
-  const t = new TriagePipeline(repo, { structured: async () => decision } as any, { run: async (r: any) => void runs.push(r) } as any, async () => ({ ...defaultSettings(), pu: { ...defaultSettings().pu, name: 'Scott Feit', email: 's@x.com' } }), canHandoff);
+  const t = new TriagePipeline(repo, { structured: async () => decision } as any, { run: async (r: any) => void runs.push(r) } as any, async () => ({ ...defaultSettings(), claude: { ...defaultSettings().claude, autoDraft }, pu: { ...defaultSettings().pu, name: 'Scott Feit', email: 's@x.com' } }), canHandoff);
   await t.handle({ source: 'slack', kind: 'slack_thread', externalId: 'C1ABCDEF:1.1', title: 'Nicole', eventId: 'e1', data: { messages: [{ id: '1.1', author: { name: 'Nicole' }, text: 'can you make the quarterly CAS Gong recording viewable?', at: new Date().toISOString() }] } });
   const streamId = (await repo.listStreams(false))[0].id;
   return { repo, runs, chat: await repo.listChat(streamId) };
@@ -33,6 +33,12 @@ describe('work for Claude Code: ask instead of auto-drafting an acknowledgement'
   it('an ordinary "draft" still drafts automatically', async () => {
     const { runs } = await setup('draft');
     expect(runs).toHaveLength(1);
+  });
+  it('with automatic drafts off (the default), a "draft" becomes an offer', async () => {
+    expect(defaultSettings().claude.autoDraft).toBe(false);
+    const { runs, chat } = await setup('draft', true, false);
+    expect(runs).toHaveLength(0);
+    expect(chat.find((m) => m.role === 'suggestion')?.meta.suggestion?.instruction).toContain('Gong recording');
   });
   it('the rules tell the models to use it, and not to draft the acknowledgement themselves', () => {
     expect(TRIAGE_RULES).toMatch(/"handoff"/);

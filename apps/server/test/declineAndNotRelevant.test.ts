@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/db/index.js';
 import { Repo } from '../src/core/repo.js';
+import { bus } from '../src/core/bus.js';
 
 let repo: Repo;
 let streamId: string;
@@ -75,14 +76,39 @@ describe('linking and moving items', () => {
   it('moves an item between streams, or in from the skipped list', async () => {
     const other = (await repo.createStream({ title: 'other', summary: '' })).id;
     const { item } = await repo.upsertItem({ ...ticket('SEUS-1'), streamId });
+    await repo.upsertItem({ ...ticket('SEUS-3'), streamId }); // so the stream isn't emptied (and removed) by the move
     await repo.moveItem(item.id, other);
     expect((await repo.getItem(item.id))!.streamId).toBe(other);
-    expect(await repo.listItems(streamId)).toHaveLength(0);
+    expect(await repo.listItems(streamId)).toHaveLength(1);
     await repo.markItemNotRelevant(item.id, other);
     await repo.moveItem(item.id, streamId);
     expect((await repo.getItem(item.id))!.streamId).toBe(streamId);
     await repo.updateStream(other, { status: 'closed' });
     await expect(repo.moveItem(item.id, other)).rejects.toThrow(/Reopen/);
+  });
+});
+
+describe('moving the last item out of a work stream', () => {
+  const ticket = (key: string) => ({ source: 'jsm' as const, kind: 'ticket' as const, externalId: key, title: `${key} Thing`, data: { ticket: { key, summary: 's', status: 'Open', flavor: 'jsm' as const, comments: [] } } });
+  it('removes the emptied stream, and its pending drafts follow the item', async () => {
+    const to = (await repo.createStream({ title: 'Destination', summary: '' })).id;
+    const { item } = await repo.upsertItem({ ...ticket('SEUS-7'), streamId });
+    const draft = await repo.createProposal({ streamId, runId: 'r1', kind: 'ticket_comment', system: 'atlassian', title: 'Comment', rationale: '', payload: {}, editable: [] });
+    const events: any[] = [];
+    const off = bus.subscribe((e) => e.type === 'stream.deleted' && events.push(e));
+    await repo.moveItem(item.id, to);
+    off();
+    expect(await repo.getStream(streamId)).toBeNull();
+    expect(await repo.listChat(streamId)).toHaveLength(0);
+    expect(events).toEqual([{ type: 'stream.deleted', streamId, movedTo: to }]);
+    expect((await repo.getProposal(draft.id))!.streamId).toBe(to);
+  });
+  it('keeps a stream that still has items, or is waiting on a Claude Code hand-off', async () => {
+    const to = (await repo.createStream({ title: 'Destination', summary: '' })).id;
+    const { item } = await repo.upsertItem({ ...ticket('SEUS-8'), streamId });
+    await repo.createHandoff(streamId, '/tmp/x');
+    await repo.moveItem(item.id, to);
+    expect(await repo.getStream(streamId)).not.toBeNull();
   });
 });
 

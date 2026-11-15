@@ -241,6 +241,8 @@ export async function seedDemo(app: App) {
       pu: { ...s.pu, ...PU, aliases: ['Alex', 'arivera'], relevanceNotes: 'I own access requests and integrations for internal tools. Newsletters are noise.' },
       onepassword: { ...s.onepassword, enabled: true, accessVault: 'Agent Access', secretsVault: 'Work Commander' },
       atlassian: { ...s.atlassian, defaultTicketTarget: { flavor: 'jsm', projectKey: 'OPS', typeId: '10', serviceDeskId: '1' } },
+      // The demo shows the whole flow, drafts included, without stopping to ask first.
+      claude: { ...s.claude, autoDraft: true },
       setupComplete: true,
     });
     await app.repo.replacePeople('manual', PEOPLE);

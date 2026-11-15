@@ -96,7 +96,7 @@ Each integration section has:
 - **Pick up new activity**: real time, polling at an interval, or off.
 - **Approvals**: reads and writes each set to *Run automatically* or *Ask me first*.
 
-**Claude → Draft automatically** controls whether triage starts drafting immediately or posts an offer you accept first.
+**Claude → Draft automatically** (off by default) controls whether Claude drafts replies and ticket changes on its own when new activity arrives, or posts an offer and drafts only once you accept. Drafts you ask for in chat are always made.
 
 ## Deploying to GCP
 

@@ -146,7 +146,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               </Row>
             ))}
             <h3>Behaviour</h3>
-            <Row label="Draft automatically" hint="When triage spots something that needs a reply or a ticket, Claude prepares drafts right away. Nothing is sent without your approval unless a system's write policy is automatic.">
+            <Row label="Draft automatically" hint="On: when new activity needs a reply or a ticket, Claude prepares the draft right away. Off: Claude offers to draft it, and only drafts once you accept. Either way nothing is sent without your approval unless a system's write policy is automatic.">
               <Toggle checked={s.claude.autoDraft} onChange={(autoDraft) => up('claude', { autoDraft })} label="Prepare drafts without asking first" />
             </Row>
             <Row label="Slack topics" hint="A DM or group DM can run several topics. New messages go to the work stream whose topic they continue, or are triaged as a new topic. You can always move a message yourself.">

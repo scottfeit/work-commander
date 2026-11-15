@@ -284,12 +284,12 @@ export class LayaService {
    * The PU corrected triage. Corrections become training examples (they override Claude's), re-score shadow
    * comparisons against the PU's answer, and count against Laya if Laya made the decision.
    */
-  async correction(itemId: string, c: { kind: 'relevant' } | { kind: 'notInStream'; streamId: string } | { kind: 'moved'; toStreamId: string }) {
+  async correction(itemId: string, c: { kind: 'relevant' } | { kind: 'notInStream'; streamId: string } | { kind: 'moved'; toStreamId: string } | { kind: 'newStream' }) {
     try {
       const item = await this.repo.getItem(itemId);
       if (!item) return;
       const s = await this.settings();
-      if (c.kind === 'relevant' || c.kind === 'moved') {
+      if (c.kind === 'relevant' || c.kind === 'moved' || c.kind === 'newStream') {
         const state = (await this.exampleState('relevance', itemId)) ?? this.stateFromItem(s, item);
         await this.example('relevance', itemId, '', state, true, 'pu');
         await this.rescore('relevance', itemId, true);
@@ -306,6 +306,12 @@ export class LayaService {
         for (const r of rows) await this.example('stream', itemId, r.candidate, r.state, r.candidate === c.toStreamId, 'pu');
         if (to && !rows.some((r) => r.candidate === to.id)) await this.example('stream', itemId, to.id, candidateState(base, to), true, 'pu');
         await this.rescore('stream', itemId, c.toStreamId);
+      }
+      if (c.kind === 'newStream') {
+        // The PU put it in a stream of its own: it belongs to none of the streams it was compared with.
+        const rows = await this.db.selectFrom('laya_examples').select(['candidate', 'state']).where('part', '=', 'stream').where('item_id', '=', itemId).execute();
+        for (const r of rows) await this.example('stream', itemId, r.candidate, r.state, false, 'pu');
+        await this.rescore('stream', itemId, 'new');
       }
       for (const { id: p } of LAYA_PARTS) await this.evaluate(p);
       await this.nudge();
