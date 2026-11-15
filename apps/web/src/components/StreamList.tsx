@@ -29,9 +29,11 @@ interface Props {
   onCloseStream: (id: string) => void;
   /** Mark a work stream Pending (waiting on others) or put it back in Open. */
   onTogglePending: (id: string, pending: boolean) => void;
+  /** Closing takes two clicks (Settings → Display). */
+  confirmClose: boolean;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, confirmClose }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -165,7 +167,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
             Mark unread
           </button>
           {s.status === 'open' && (
-            <ConfirmButton onConfirm={() => onCloseStream(s.id)} armedChildren="Click again to close" title="Close this work stream (asks you to click twice)" armedTitle="Click again to close this work stream">
+            <ConfirmButton confirm={confirmClose} onConfirm={() => onCloseStream(s.id)} armedChildren="Click again to close" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
               Close stream
             </ConfirmButton>
           )}

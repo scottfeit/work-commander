@@ -36,6 +36,7 @@ export function App() {
   const [peek, setPeek] = useState<StreamItem | null>(null);
   const [skippedVersion, setSkippedVersion] = useState(0);
   const [recentTabFirst, setRecentTabFirst] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(true);
   const [focusDraft, setFocusDraft] = useState<string | null>(null);
   const openTabRef = useRef<'overview' | 'recent'>('overview');
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -83,6 +84,7 @@ export function App() {
     get('/api/settings')
       .then((s) => {
         setRecentTabFirst(!!s.ui?.recentTabFirst);
+        setConfirmClose(s.ui?.confirmClose !== false);
         openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
       })
       .catch(() => undefined);
@@ -274,6 +276,7 @@ export function App() {
         </div>
       )}
       <StreamList
+        confirmClose={confirmClose}
         streams={streams}
         selected={selected}
         onSelect={setSelected}
@@ -303,7 +306,7 @@ export function App() {
               </p>
             </div>
           ) : stream ? (
-            <StreamOverview stream={stream} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream.id)} onTogglePending={() => void patch(`/api/streams/${stream.id}`, { pending: !stream.pending })} />
+            <StreamOverview confirmClose={confirmClose} stream={stream} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream.id)} onTogglePending={() => void patch(`/api/streams/${stream.id}`, { pending: !stream.pending })} />
           ) : null}
         </section>
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />

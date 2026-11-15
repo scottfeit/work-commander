@@ -341,7 +341,7 @@ function RefreshOverview({ streamId, disabled }: { streamId: string; disabled: b
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePending }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onTogglePending?: () => void }) {
+export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePending, confirmClose = true }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onTogglePending?: () => void; confirmClose?: boolean }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -385,7 +385,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           </button>
         )}
         {stream.status === 'open' ? (
-          <ConfirmButton onConfirm={() => save({ status: 'closed' })} armedChildren="Click again to close" title="Close this work stream (asks you to click twice)" armedTitle="Click again to close this work stream">
+          <ConfirmButton confirm={confirmClose} onConfirm={() => save({ status: 'closed' })} armedChildren="Click again to close" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
             Close stream
           </ConfirmButton>
         ) : (

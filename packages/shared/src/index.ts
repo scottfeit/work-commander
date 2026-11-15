@@ -539,6 +539,8 @@ export interface Settings {
     openTab?: 'overview' | 'recent';
     /** How emails show by default: the plain-text copy, or the original HTML. Each message can still be flipped. */
     emailView?: 'text' | 'original';
+    /** Closing a work stream takes two clicks (the first arms the button). Default on. */
+    confirmClose?: boolean;
   };
   backup: BackupSettings;
   /** How silenced work items behave. */

@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
-/** A button that has to be clicked twice: the first click arms it (and says so), the second does it. It disarms itself after a few seconds. */
+/**
+ * A button that has to be clicked twice: the first click arms it (and says so), the second does it. It disarms itself after a few seconds.
+ * With `confirm` false it acts on the first click.
+ */
 export function ConfirmButton({
   onConfirm,
   children,
@@ -11,6 +14,7 @@ export function ConfirmButton({
   armedTitle,
   disabled,
   ariaLabel,
+  confirm = true,
 }: {
   onConfirm: () => void;
   children: ReactNode;
@@ -21,6 +25,7 @@ export function ConfirmButton({
   armedTitle?: string;
   disabled?: boolean;
   ariaLabel?: string;
+  confirm?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
@@ -37,7 +42,7 @@ export function ConfirmButton({
       disabled={disabled}
       onBlur={() => setArmed(false)}
       onClick={() => {
-        if (!armed) return setArmed(true);
+        if (confirm && !armed) return setArmed(true);
         setArmed(false);
         onConfirm();
       }}

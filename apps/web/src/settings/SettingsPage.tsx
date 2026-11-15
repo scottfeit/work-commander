@@ -416,6 +416,9 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
+            <Row label="Closing work streams" hint="Close stream asks for a second click, so a stray click doesn't close one. A closed stream can always be reopened.">
+              <Toggle checked={s.ui.confirmClose !== false} onChange={(confirmClose) => up('ui', { confirmClose })} label="Click twice to close a work stream" />
+            </Row>
             <Row label="Work item tabs">
               <Toggle
                 checked={!!s.ui.recentTabFirst}
