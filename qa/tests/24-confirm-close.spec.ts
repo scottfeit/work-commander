@@ -53,3 +53,19 @@ test("With the setting off, Claude's close suggestion in the drafts pane closes 
   await expect.poll(() => statusOf(id), { timeout: 15_000 }).toBe('closed');
   await setConfirm(true);
 });
+
+test('Settings → Display: the Drafts pane can stay open with no drafts', async ({ page }) => {
+  await api.post('/api/streams', { title: 'No drafts stream', summary: '' });
+  await page.goto(WEB);
+  await stream(page, /no drafts stream/i).click();
+  await expect(page.locator('.drafts')).toHaveCount(0); // default: only while drafts wait
+  await page.goto(`${WEB}/settings?section=display`);
+  await page.getByText('Keep the Drafts pane open, even with no drafts').click();
+  await page.getByRole('button', { name: /save changes/i }).click();
+  expect((await api.get('/api/settings')).json.ui.keepDraftsOpen).toBe(true);
+  await page.goto(WEB);
+  await stream(page, /no drafts stream/i).click();
+  await expect(page.locator('.drafts')).toContainText('No drafts waiting');
+  const s = (await api.get('/api/settings')).json;
+  await api.call('PUT', '/api/settings', { ...s, ui: { ...s.ui, keepDraftsOpen: false } });
+});

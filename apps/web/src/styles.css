@@ -200,6 +200,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 /* ---------- drafts ---------- */
 .drafts { display: flex; flex-direction: column; min-height: 0; background: var(--panel-2); }
 .drafts-scroll { overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.drafts-empty { padding: 14px 6px; }
 .draft { border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--panel); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .draft-head { display: flex; gap: 8px; align-items: center; }
 .sys { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }

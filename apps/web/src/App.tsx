@@ -37,6 +37,7 @@ export function App() {
   const [skippedVersion, setSkippedVersion] = useState(0);
   const [recentTabFirst, setRecentTabFirst] = useState(false);
   const [confirmClose, setConfirmClose] = useState(true);
+  const [keepDraftsOpen, setKeepDraftsOpen] = useState(false);
   const [focusDraft, setFocusDraft] = useState<string | null>(null);
   const openTabRef = useRef<'overview' | 'recent'>('overview');
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -90,6 +91,7 @@ export function App() {
       .then((s) => {
         setRecentTabFirst(!!s.ui?.recentTabFirst);
         setConfirmClose(s.ui?.confirmClose !== false);
+        setKeepDraftsOpen(!!s.ui?.keepDraftsOpen);
         openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
       })
       .catch(() => undefined);
@@ -350,7 +352,7 @@ export function App() {
           )}
         </div>
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />
-        <section className={`bottom ${drafts.length ? 'with-drafts' : ''}`}>
+        <section className={`bottom ${drafts.length || keepDraftsOpen ? 'with-drafts' : ''}`}>
           <ChatPane
             streamId={selected}
             streamTitle={stream?.title ?? 'All open work'}
@@ -359,7 +361,7 @@ export function App() {
             live={live?.text ?? null}
             running={running}
           />
-          {drafts.length > 0 && (
+          {(drafts.length > 0 || keepDraftsOpen) && (
             <DraftPane
               confirmClose={confirmClose}
               drafts={drafts}

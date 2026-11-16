@@ -63,7 +63,7 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, conf
   return (
     <div className="drafts">
       <div className="pane-head">
-        Drafts to review <span className="chip attention">{drafts.length}</span>
+        Drafts to review {drafts.length > 0 ? <span className="chip attention">{drafts.length}</span> : <span className="chip">0</span>}
         {drafts.length > 1 && (
           <button className="btn small primary right" title="Sends every draft except blank Quick Reply drafts and close-stream proposals" onClick={approveAll}>
             Approve all
@@ -72,6 +72,7 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, conf
       </div>
       {allErr && <div className="error small" style={{ padding: '6px 12px' }}>{allErr}</div>}
       <div className="drafts-scroll">
+        {drafts.length === 0 && <div className="muted small drafts-empty">No drafts waiting. Drafts Claude prepares, and your Quick Replies, show up here.</div>}
         {drafts.map((d) => (
           <DraftCard key={d.id} confirmClose={confirmClose} p={d} focus={focusId === d.id} onFocused={onFocused} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
         ))}
