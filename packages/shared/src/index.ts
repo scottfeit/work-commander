@@ -213,6 +213,8 @@ export interface ChatMessage {
     question?: { options?: string[]; answered?: boolean };
     /** Claude asks whether to send an "I'm looking into it" reply or hand the work to Claude Code (one click each). */
     handoffOffer?: { task: string; done: ('reply' | 'handoff')[]; dismissed?: boolean };
+    /** A message said someone added the PU to a chat; WC found a conversation that looks like it and offers to add it to the work stream. */
+    chatOffer?: { channel: string; label: string; participants: string[]; reason: string; state: 'open' | 'added' | 'dismissed'; added?: number };
     selectedItemId?: string;
     toolCalls?: { name: string; input: unknown }[];
     runId?: string;

@@ -73,7 +73,15 @@ export interface SlackSearchHit {
   threadTs?: string;
   url?: string;
   fromUserId?: string;
+  /** Everyone in a group DM (its "Participants:" line). */
+  participants?: { name: string; id: string }[];
 }
+
+const participants = (block: string) => {
+  const line = /^Participants:\s*(.+)$/m.exec(block)?.[1];
+  if (!line) return undefined;
+  return [...line.matchAll(/\s*([^,(]+?)\s*\(ID:\s*([A-Z0-9]+)\)/g)].map((m) => ({ name: m[1].trim(), id: m[2] }));
+};
 
 /** Parse slack_search_public_and_private output. */
 export function parseSlackSearch(text: string): { hits: SlackSearchHit[]; cursor?: string } {
@@ -91,6 +99,7 @@ export function parseSlackSearch(text: string): { hits: SlackSearchHit[]; cursor
       threadTs: url ? /[?&]thread_ts=([\d.]+)/.exec(url)?.[1] : undefined,
       url,
       fromUserId: /^From:.*?\(ID:\s*([A-Z0-9]+)\)/m.exec(block)?.[1],
+      participants: participants(block),
     });
   }
   return { hits, cursor };

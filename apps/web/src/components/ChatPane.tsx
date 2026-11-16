@@ -91,6 +91,7 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
 
 function ChatBubble({ m, onAnswer }: { m: ChatMessage; onAnswer: (a: string) => void }) {
   if (m.role === 'suggestion' && m.meta.handoffOffer) return <HandoffOfferBubble m={m} />;
+  if (m.role === 'suggestion' && m.meta.chatOffer) return <ChatOfferBubble m={m} />;
   if (m.role === 'suggestion') {
     const st = m.meta.suggestion?.status ?? 'open';
     return (
@@ -149,6 +150,44 @@ function ChatBubble({ m, onAnswer }: { m: ChatMessage; onAnswer: (a: string) => 
           </details>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** Someone said they added the PU to a chat; WC found one that looks like it. */
+function ChatOfferBubble({ m }: { m: ChatMessage }) {
+  const offer = m.meta.chatOffer!;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const choose = async (choice: 'add' | 'dismiss') => {
+    setBusy(choice);
+    setErr(null);
+    try {
+      await post(`/api/chat/${m.id}/chat-offer`, { choice });
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className={`bubble suggestion chat-offer ${offer.state === 'dismissed' ? 'dismissed' : ''}`}>
+      <div className="small muted">Found a chat</div>
+      <div className="body">{m.content}</div>
+      {offer.reason && <div className="small muted">{offer.reason}</div>}
+      {offer.state === 'open' && (
+        <div className="actions">
+          <button className="btn small primary" disabled={!!busy} onClick={() => choose('add')}>
+            {busy === 'add' ? 'Adding…' : 'Add this chat'}
+          </button>
+          <button className="btn small ghost" disabled={!!busy} onClick={() => choose('dismiss')}>
+            Not this one
+          </button>
+        </div>
+      )}
+      {offer.state === 'added' && <div className="small muted">{offer.added ? `Added ${offer.added} message${offer.added === 1 ? '' : 's'}.` : 'Nothing in it looked related, so nothing was added.'}</div>}
+      {offer.state === 'dismissed' && <div className="small muted">Not added.</div>}
+      {err && <div className="error small">{err}</div>}
     </div>
   );
 }

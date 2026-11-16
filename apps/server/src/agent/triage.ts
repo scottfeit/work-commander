@@ -8,6 +8,7 @@ import type { AgentBackend } from './backend.js';
 import type { StreamAgentRunner } from './runner.js';
 import { TOPIC_SPLIT_RULES, TRIAGE_RULES, playbookBlock, puBlock, streamsBlock } from './prompts.js';
 import { referencesPU } from '../core/mentions.js';
+import { mentionsAddedToChat } from '../core/chatHint.js';
 import { timeAgo } from '../core/time.js';
 import type { UsageEntry, UsageLog } from '../core/usage.js';
 import type { LayaService } from '../laya/service.js';
@@ -81,6 +82,9 @@ export class TriagePipeline {
     const streamId = (await this.repo.getItem(itemId).catch(() => null))?.streamId ?? null;
     for (const e of held.splice(0)) await this.usage.record({ ...e, streamId }).catch((err) => console.error('[usage]', err.message));
   }
+
+  /** Called when a message in a work stream says someone added the PU to a chat (set by the app; looks for that chat and offers it). */
+  onAddedToChat?: (a: { streamId: string; item: StreamItem; message: ThreadMessage }) => Promise<unknown>;
 
   /** InboundSink. Serialized so two messages in the same thread can't create two streams. */
   sink = (item: InboundItem) => {
@@ -277,6 +281,17 @@ export class TriagePipeline {
       await this.settleUsage(held, item.id);
     }
     await this.flagUnread(item.id, fresh, brokeThrough);
+    await this.followChatHint(item.id, fresh);
+  }
+
+  /** "I added you to the chat about this": look for that chat (in the background) and offer it for the stream. */
+  private async followChatHint(itemId: string, fresh: ThreadMessage[]) {
+    if (!this.onAddedToChat) return;
+    const hints = fresh.filter((m) => !m.isFromPU && mentionsAddedToChat(m.text));
+    if (!hints.length) return;
+    const item = await this.repo.getItem(itemId);
+    if (!item?.streamId || item.source !== 'slack') return;
+    for (const message of hints.slice(0, 2)) void Promise.resolve(this.onAddedToChat({ streamId: item.streamId, item, message })).catch((e) => console.error('[chat hint]', e.message));
   }
 
   /**

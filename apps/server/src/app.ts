@@ -2,6 +2,7 @@ import type { AppConfig } from './config.js';
 import { openDatabase, type Database } from './db/index.js';
 import { SettingsStore } from './core/settings.js';
 import { Repo } from './core/repo.js';
+import { offerAddedChat } from './core/chatHint.js';
 import { SecretStore } from './secrets/store.js';
 import { IntegrationHub, type WorldOverride } from './integrations/hub.js';
 import { GrantService } from './onepassword/grants.js';
@@ -83,6 +84,7 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   const layaManager = new LayaManager(cfg.dataDir, () => laya?.notify());
   laya = new LayaService(db, repo, layaManager, get, cfg.hosting === 'local');
   const triage = new TriagePipeline(repo, backend, runner, get, cfg.hosting === 'local', usage, laya);
+  triage.onAddedToChat = (a) => offerAddedChat({ repo, settings: get, secret: (id) => secrets.get(id), structured: (i) => backend.structured(i) }, a);
   hub.mcpIngestorFactory = (system, sink, report) => new McpPollIngestor(system, backend, get, secrets, repo, sink, report);
   await executor.recoverInterrupted();
   return { ...partial, backend, runner, triage, laya };
