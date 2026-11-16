@@ -31,7 +31,7 @@ test('A pending stream untouched for 3 days comes back at the top as a Reminder,
   await api.call('PATCH', `/api/streams/${s.id}`, { pending: true, unread: false });
   backdate(s.id, 4);
   await page.goto(WEB);
-  await expect(page.getByRole('button', { name: /^Pending · 1/ })).toBeVisible();
+  await expect(page.locator('.section-label', { hasText: /^Pending · 1/ })).toBeVisible();
 
   expect((await api.post('/api/reminders/check')).json.surfaced).toEqual([s.id]);
   const after = await find(/waiting on vendor/i);
@@ -41,14 +41,14 @@ test('A pending stream untouched for 3 days comes back at the top as a Reminder,
 
   const tile = page.locator('.stream', { hasText: /waiting on vendor/i });
   await expect(tile.locator('.chip.reminder')).toHaveText('Reminder');
-  await expect(page.getByRole('button', { name: /^Pending ·/ })).toHaveCount(0);
+  await expect(page.locator('.section-label', { hasText: /^Pending ·/ })).toHaveCount(0);
   const [a, b] = await Promise.all([tile.boundingBox(), page.locator('.stream', { hasText: /busy stream/i }).boundingBox()]);
   expect(a!.y).toBeLessThan(b!.y); // above the other open stream
 
   // snoozing it again clears the Reminder
   await stream(page, /waiting on vendor/i).click();
   await page.locator('.stream.active .stream-actions').getByRole('button', { name: 'Mark pending' }).click();
-  await expect(page.getByRole('button', { name: /^Pending · 1/ })).toBeVisible();
+  await expect(page.locator('.section-label', { hasText: /^Pending · 1/ })).toBeVisible();
   await expect(page.locator('.chip.reminder')).toHaveCount(0);
 });
 

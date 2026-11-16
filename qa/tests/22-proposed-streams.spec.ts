@@ -70,13 +70,13 @@ test('Decline removes it from the list without creating a stream', async ({ page
   expect((await api.streams()).some((s) => s.title === 'Offsite catering order')).toBe(false);
 });
 
-test('Decline & mute hides it for good; Show dismissed lists it as muted', async ({ page }) => {
+test('Decline & mute hides it for good; Show declined lists it as muted', async ({ page }) => {
   await page.goto(WEB);
   await tile(page, /Parking permit renewal/).getByRole('button', { name: 'Decline & mute' }).click();
   await expect(tile(page, /Parking permit renewal/)).toHaveCount(0);
   const item = (await api.get('/api/items/skipped?dismissed=1')).json.find((i: any) => i.id === 'propC');
   expect(item).toMatchObject({ dismissed: true, muted: true });
-  await page.getByRole('checkbox', { name: 'Show dismissed' }).check();
+  await page.getByRole('checkbox', { name: 'Show declined' }).check();
   await expect(tile(page, /Parking permit renewal/).getByText('declined · muted')).toBeVisible();
 });
 

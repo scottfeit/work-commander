@@ -38,27 +38,12 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
-  const [pendingCollapsed, setPendingCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem('wc.pendingCollapsed') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const togglePendingSection = () =>
-    setPendingCollapsed((c) => {
-      try {
-        localStorage.setItem('wc.pendingCollapsed', c ? '0' : '1');
-      } catch {
-        /* private window */
-      }
-      return !c;
-    });
   const [moved, setMoved] = useState(0);
   const [moveErr, setMoveErr] = useState<string | null>(null);
   const [showDismissed, setShowDismissed] = useState(false);
-  // Unchecking Show open hides Open and Pending, e.g. to look only at Closed or Dismissed.
+  // What the list shows (the checkboxes at the bottom): Open and Pending are on by default; uncheck to look only at Closed or Declined.
   const [showOpen, setShowOpen] = useState(true);
+  const [showPending, setShowPending] = useState(true);
   const [skipped, setSkipped] = useState<SkippedItem[]>([]);
   const loadSkipped = () => get<SkippedItem[]>('/api/items/skipped?dismissed=1').then(setSkipped).catch(() => undefined);
   useEffect(() => void loadSkipped(), [streams.length, moved, skippedVersion]);
@@ -197,6 +182,9 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <span className="logo" />
         <span>Work Commander</span>
         {demo && <span className="chip demo">demo</span>}
+        <button type="button" className="icon-btn gear-btn" aria-label="Settings" title="Settings" onClick={onSettings}>
+          <GearIcon />
+        </button>
       </div>
       <button className={`stream general ${selected === GENERAL_STREAM ? 'active' : ''}`} onClick={() => onSelect(GENERAL_STREAM)}>
         <span className="stream-title">All open work</span>
@@ -229,44 +217,36 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         </div>
       )}
       <div className="stream-scroll">
-        {showOpen && (
-          <>
-            <div className="section-label">Open · {openEntries.length}</div>
-          {openEntries.length === 0 && <div className="muted small pad">No open work streams. New ones appear here as Claude triages incoming messages.</div>}
-          {openEntries.map(entry)}
-          {pendingEntries.length > 0 && (
-            <>
-              <button type="button" className="section-label section-toggle" aria-expanded={!pendingCollapsed} onClick={togglePendingSection}>
-                <span className="chev" aria-hidden>{pendingCollapsed ? '▸' : '▾'}</span> Pending · {pendingEntries.length}
-              </button>
-              {!pendingCollapsed && pendingEntries.map(entry)}
-            </>
-          )}
-          </>
-        )}
+        {showOpen && <div className="section-label">Open · {openEntries.length}</div>}
+        {showOpen && openEntries.length === 0 && <div className="muted small pad">No open work streams. New ones appear here as Claude triages incoming messages.</div>}
+        {showOpen && openEntries.map(entry)}
+        {showPending && (pendingEntries.length > 0 || !showOpen) && <div className="section-label">Pending · {pendingEntries.length}</div>}
+        {showPending && !showOpen && pendingEntries.length === 0 && <div className="muted small pad">Nothing pending.</div>}
+        {showPending && pendingEntries.map(entry)}
         {showClosed && (closedEntries.length > 0 || !showOpen) && <div className="section-label">Closed · {closedEntries.length}</div>}
         {showClosed && !showOpen && closedEntries.length === 0 && <div className="muted small pad">No closed work streams.</div>}
         {showClosed && closedEntries.map(entry)}
-        {showDismissed && <div className="section-label">Dismissed · {dismissedEntries.length}</div>}
-        {showDismissed && dismissedEntries.length === 0 && <div className="muted small pad">Nothing dismissed in the last 14 days.</div>}
+        {showDismissed && <div className="section-label">Declined · {dismissedEntries.length}</div>}
+        {showDismissed && dismissedEntries.length === 0 && <div className="muted small pad">Nothing declined in the last 14 days.</div>}
         {showDismissed && dismissedEntries.map(entry)}
         {moveErr && <div className="small error pad">{moveErr}</div>}
       </div>
       <div className="sidebar-foot">
+        {/* Two columns: Open, Pending | Closed, Declined */}
         <div className="foot-toggles">
           <label className="toggle">
             <input type="checkbox" checked={showOpen} onChange={(e) => setShowOpen(e.target.checked)} /> Show open
           </label>
           <label className="toggle">
+            <input type="checkbox" checked={showPending} onChange={(e) => setShowPending(e.target.checked)} /> Show pending
+          </label>
+          <label className="toggle">
             <input type="checkbox" checked={showClosed} onChange={onToggleClosed} /> Show closed
           </label>
           <label className="toggle">
-            <input type="checkbox" checked={showDismissed} onChange={(e) => setShowDismissed(e.target.checked)} /> Show dismissed
+            <input type="checkbox" checked={showDismissed} onChange={(e) => setShowDismissed(e.target.checked)} /> Show declined
           </label>
         </div>
-        <button className="btn ghost small" onClick={onSettings}>
-          Settings
-        </button>
       </div>
     </aside>
   );
@@ -481,5 +461,15 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
       </div>
       {err && <div className="small error">{err}</div>}
     </div>
+  );
+}
+
+/** The Settings button in the sidebar header. */
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </svg>
   );
 }

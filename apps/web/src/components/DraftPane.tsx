@@ -200,11 +200,12 @@ function DraftCard({
               Save edits
             </button>
           )}
-          {/* One Reject button: the first click opens the "why?" box below; the second sends the rejection. */}
+          {/* One Reject button: the first click opens the "why?" box below; the second sends the rejection. Your own Quick Reply has no "why?": it goes at once. */}
           <button
             className={`btn small ${rejecting ? 'danger' : 'ghost'}`}
             disabled={busy}
-            onClick={() => (rejecting ? act(async () => (await post(`/api/proposals/${p.id}/reject`, { reason }), onDecided({ ...p, status: 'rejected' }))) : setRejecting(true))}
+            title={quick ? 'Discard this quick reply' : undefined}
+            onClick={() => (rejecting || quick ? act(async () => (await post(`/api/proposals/${p.id}/reject`, { reason }), onDecided({ ...p, status: 'rejected' }))) : setRejecting(true))}
           >
             Reject
           </button>

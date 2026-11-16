@@ -52,3 +52,23 @@ test('Show open (on by default) hides the Open and Pending work streams when unc
   await showOpen.check();
   await expect(stream(page, /show open still open/i)).toBeVisible();
 });
+
+test('Settings is a gear at the top right of the sidebar; the four list checkboxes sit in two columns', async ({ page }) => {
+  await page.goto(WEB);
+  const gear = page.locator('.brand').getByRole('button', { name: 'Settings' });
+  const count = page.locator('.stream.general .muted');
+  const [g, c] = await Promise.all([gear.boundingBox(), count.boundingBox()]);
+  expect(g!.y + g!.height).toBeLessThanOrEqual(c!.y); // above the open count
+  expect(Math.abs(g!.x + g!.width - (c!.x + c!.width))).toBeLessThan(24); // right-aligned with it
+  expect(await gear.textContent()).toBe(''); // an icon, not the word
+  const box = async (name: string) => (await page.getByRole('checkbox', { name }).boundingBox())!;
+  const [o, p, cl, d] = await Promise.all(['Show open', 'Show pending', 'Show closed', 'Show declined'].map(box));
+  expect(Math.abs(o.x - p.x)).toBeLessThan(2); // column 1
+  expect(Math.abs(cl.x - d.x)).toBeLessThan(2); // column 2
+  expect(cl.x).toBeGreaterThan(o.x + 40);
+  expect(Math.abs(o.y - cl.y)).toBeLessThan(2) // rows line up
+  expect(p.y).toBeGreaterThan(o.y);
+  await page.locator('.sidebar').screenshot({ path: 'qa/results/sidebar.png' });
+  await gear.click();
+  await expect(page).toHaveURL(/\/settings/);
+});

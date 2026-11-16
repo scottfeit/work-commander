@@ -17,8 +17,7 @@ test('closing a Quick Reply does not wake Claude', async ({ page }) => {
 
   const chat = async () => (await api.get(`/api/streams/${s.id}/chat`)).json as { role: string; content: string }[];
   const before = (await chat()).length;
-  await quick.getByRole('button', { name: /^reject$/i }).click(); // opens the reason box
-  await quick.getByRole('button', { name: /^reject$/i }).click(); // closes the draft
+  await quick.getByRole('button', { name: /^reject$/i }).click(); // your own Quick Reply closes at once (no reason box)
   await expect(quick).toHaveCount(0);
   await page.waitForTimeout(3500); // the demo agent answers within about a second if it were woken
   const after = await chat();

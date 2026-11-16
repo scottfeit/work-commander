@@ -50,3 +50,20 @@ test('Quick reply opens a blank pre-addressed draft that stays open across tabs;
   await stream(page, /contractor access/i).click();
   await expect(page.locator('.draft', { hasText: /Quick reply/ }).getByLabel('Message')).toHaveValue('Quick note from me');
 });
+
+test("Rejecting your own Quick Reply discards it at once (no \"why?\" box); Claude's drafts still ask why", async ({ page }) => {
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  await page.locator('.tabbar').getByRole('img', { name: 'Gmail' }).click();
+  await page.getByRole('button', { name: 'Quick reply' }).click();
+  const quick = page.locator('.draft', { hasText: /Quick reply/ });
+  await expect(quick).toBeVisible();
+  await quick.getByRole('button', { name: 'Reject' }).click();
+  await expect(quick).toHaveCount(0);
+  await expect(page.getByLabel('Why reject this draft?')).toHaveCount(0);
+
+  const claudes = page.locator('.draft').first();
+  await claudes.getByRole('button', { name: 'Reject' }).click();
+  await expect(claudes.getByLabel('Why reject this draft?')).toBeVisible();
+  await claudes.getByRole('button', { name: 'Cancel' }).click();
+});
