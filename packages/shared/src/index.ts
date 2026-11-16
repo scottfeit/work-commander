@@ -114,7 +114,7 @@ export interface ItemData {
   mergedExternalIds?: string[];
   /** Triage wants this to be a new work stream and is waiting for the PU to accept or decline (Settings → Triage, "Ask me first"). */
   proposedStream?: { title: string; summary: string; labels: string[]; reason: string; at: string; decision: unknown };
-  /** The PU dismissed a proposed work stream with "Dismiss and mute": later updates to this item are stored but never triaged again (so it is not re-proposed). Ends once it is in a work stream. */
+  /** The PU used "Dismiss and mute" on a skipped item or a proposed work stream: later updates to this item are stored but never triaged again (so it does not come back or get re-proposed). Ends once it is in a work stream. */
   proposalsMuted?: boolean;
   /** The PU silenced this item: updates are still pulled in, but they don't notify, mark the stream unread or reopen it. */
   muted?: boolean;

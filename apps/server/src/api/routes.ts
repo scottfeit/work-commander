@@ -284,7 +284,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     return { ok: true };
   });
   f.post('/api/items/:id/dismiss', async (req) => {
-    await repo.dismissSkipped((req.params as any).id);
+    const b = z.object({ mute: z.boolean().optional() }).parse(req.body ?? {});
+    await repo.dismissSkipped((req.params as any).id, !!b.mute);
     return { ok: true };
   });
   // "Accept": make a skipped item a work stream (or file it into the existing stream it belongs to).

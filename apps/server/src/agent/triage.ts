@@ -120,7 +120,7 @@ export class TriagePipeline {
     if (!item.streamId) {
       const linked = await this.autoLink(item);
       if (linked) return this.repo.markInbound(ev.source, ev.external_id, true, { recovered: true, linked: linked.streamId, reason: 'References a ticket an open work stream already tracks' });
-      if (item.data.proposalsMuted) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'you dismissed and muted the work stream proposed for it' });
+      if (item.data.proposalsMuted) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'you dismissed and muted it' });
     }
     const all = item.data.messages ?? item.data.ticket?.comments ?? [];
     const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
@@ -247,7 +247,7 @@ export class TriagePipeline {
     }
     if (!item.streamId) item = (await this.autoLink(item)) ?? item;
     if (!item.streamId && item.data.proposalsMuted) {
-      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'you dismissed and muted the work stream proposed for it' });
+      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'you dismissed and muted it' });
       return;
     }
     // A ticket moved to Resolved/Closed as the result of work WC did, with nothing new said on it, is not new activity: it must not

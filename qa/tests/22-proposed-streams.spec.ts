@@ -79,3 +79,17 @@ test('Dismiss and mute hides it for good; Show dismissed lists it as muted', asy
   await page.getByRole('checkbox', { name: 'Show dismissed' }).check();
   await expect(tile(page, /Parking permit renewal/).getByText('dismissed · muted')).toBeVisible();
 });
+
+test('Skipped ("?") items have Dismiss and mute too', async ({ page }) => {
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const now = new Date().toISOString();
+  db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run('skipQ', null, 'gmail', 'email_thread', 'ext-skipQ', 'Your trial has started', null, JSON.stringify({ messages: [{ id: 'm-skipQ', author: { name: 'Vendor' }, text: 'Welcome!', at: now }] }), now);
+  db.close();
+  await page.goto(WEB);
+  const t = page.locator('.skipped-tile:not(.proposed-tile)', { hasText: /Your trial has started/ });
+  await expect(t.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
+  await t.getByRole('button', { name: 'Dismiss and mute' }).click();
+  await expect(t).toHaveCount(0);
+  expect((await api.get('/api/items/skipped?dismissed=1')).json.find((i: any) => i.id === 'skipQ')).toMatchObject({ dismissed: true, muted: true });
+});

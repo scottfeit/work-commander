@@ -396,8 +396,8 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
       setBusy(false);
     }
   };
-  const dismiss = async () => {
-    await post(`/api/items/${i.id}/dismiss`).catch(() => undefined);
+  const dismiss = async (mute = false) => {
+    await post(`/api/items/${i.id}/dismiss`, { mute }).catch(() => undefined);
     onDismissed();
   };
   const decline = async (mute: boolean) => {
@@ -465,11 +465,18 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
           {busy ? 'Accepting…' : 'Accept'}
         </button>
         {i.dismissed ? (
-          <span className="chip">dismissed</span>
+          <span className="chip" title={i.muted ? 'Dismissed and muted: new activity on it will not bring it back' : undefined}>
+            {i.muted ? 'dismissed · muted' : 'dismissed'}
+          </span>
         ) : (
-          <button className="btn small" title="Hide this until it has new activity" onClick={() => void dismiss()}>
-            Dismiss
-          </button>
+          <>
+            <button className="btn small" title="Hide this until it has new activity" onClick={() => void dismiss()}>
+              Dismiss
+            </button>
+            <button className="btn small" title="Hide this, and don't bring it back when there is new activity on this message or thread" onClick={() => void dismiss(true)}>
+              Dismiss and mute
+            </button>
+          </>
         )}
       </div>
       {err && <div className="small error">{err}</div>}

@@ -105,6 +105,21 @@ describe('triage: new work streams need the PU to accept them ("Ask me first")',
     expect(await t.acceptProposed(id)).not.toBeNull();
   });
 
+  it('"Dismiss and mute" on an ordinary skipped item: new activity does not bring it back', async () => {
+    answer = { ...decision({ action: 'none', streamId: null, title: null, summary: null, labels: null }), relevant: false };
+    const t = pipeline();
+    const m = message();
+    await t.handle(m);
+    const id = (await repo.findItem('gmail', m.externalId))!.id;
+    await repo.dismissSkipped(id, true);
+    const before = calls;
+    await new Promise((r) => setTimeout(r, 5));
+    await t.handle({ ...m, eventId: 'later', data: { messages: [...m.data.messages, { id: 'm-later', author: { name: 'Dana', email: 'dana@x.com' }, text: 'Any update?', at: new Date().toISOString() }] } });
+    expect(calls).toBe(before);
+    expect(await repo.listSkipped()).toHaveLength(0);
+    expect((await repo.listSkipped(14, true))[0]).toMatchObject({ id, dismissed: true, muted: true });
+  });
+
   it('dragging a proposed item onto a work stream settles the proposal', async () => {
     const home = await repo.createStream({ title: 'Budget', summary: 'b' });
     const m = message();
