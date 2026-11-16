@@ -361,6 +361,7 @@ export function App() {
           />
           {drafts.length > 0 && (
             <DraftPane
+              confirmClose={confirmClose}
               drafts={drafts}
               focusId={focusDraft}
               onFocused={() => setFocusDraft(null)}

@@ -57,30 +57,30 @@ test('A proposed work stream shows in the list; Accept creates it', async ({ pag
   expect((await api.streams()).some((s) => s.title === 'Vendor security questionnaire')).toBe(true);
 });
 
-test('Dismiss removes it from the list without creating a stream', async ({ page }) => {
+test('Decline removes it from the list without creating a stream', async ({ page }) => {
   await page.goto(WEB);
   const t = tile(page, /Offsite catering order/);
-  // Dismiss and Dismiss and mute are outlined buttons, like Allow
-  for (const name of ['Dismiss', 'Dismiss and mute']) {
+  // Decline and Decline & mute are outlined buttons, like Allow
+  for (const name of ['Decline', 'Decline & mute']) {
     const border = await t.getByRole('button', { name, exact: true }).evaluate((el) => getComputedStyle(el).borderTopColor);
     expect(border).not.toBe('rgba(0, 0, 0, 0)');
   }
-  await t.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await t.getByRole('button', { name: 'Decline', exact: true }).click();
   await expect(tile(page, /Offsite catering order/)).toHaveCount(0);
   expect((await api.streams()).some((s) => s.title === 'Offsite catering order')).toBe(false);
 });
 
-test('Dismiss and mute hides it for good; Show dismissed lists it as muted', async ({ page }) => {
+test('Decline & mute hides it for good; Show dismissed lists it as muted', async ({ page }) => {
   await page.goto(WEB);
-  await tile(page, /Parking permit renewal/).getByRole('button', { name: 'Dismiss and mute' }).click();
+  await tile(page, /Parking permit renewal/).getByRole('button', { name: 'Decline & mute' }).click();
   await expect(tile(page, /Parking permit renewal/)).toHaveCount(0);
   const item = (await api.get('/api/items/skipped?dismissed=1')).json.find((i: any) => i.id === 'propC');
   expect(item).toMatchObject({ dismissed: true, muted: true });
   await page.getByRole('checkbox', { name: 'Show dismissed' }).check();
-  await expect(tile(page, /Parking permit renewal/).getByText('dismissed · muted')).toBeVisible();
+  await expect(tile(page, /Parking permit renewal/).getByText('declined · muted')).toBeVisible();
 });
 
-test('Skipped ("?") items have Dismiss and mute too', async ({ page }) => {
+test('Skipped ("?") items have Decline & mute too', async ({ page }) => {
   const { default: SQLite } = await import('better-sqlite3');
   const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
   const now = new Date().toISOString();
@@ -88,8 +88,13 @@ test('Skipped ("?") items have Dismiss and mute too', async ({ page }) => {
   db.close();
   await page.goto(WEB);
   const t = page.locator('.skipped-tile:not(.proposed-tile)', { hasText: /Your trial has started/ });
-  await expect(t.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
-  await t.getByRole('button', { name: 'Dismiss and mute' }).click();
+  await expect(t.getByRole('button', { name: 'Decline', exact: true })).toBeVisible();
+  // Accept, Decline and Decline & mute sit on one line
+  const ys = await t.locator('.stream-meta .btn').evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().top)));
+  expect(ys).toHaveLength(3);
+  expect(new Set(ys).size).toBe(1);
+  await t.screenshot({ path: 'qa/results/skipped-tile.png' });
+  await t.getByRole('button', { name: 'Decline & mute' }).click();
   await expect(t).toHaveCount(0);
   expect((await api.get('/api/items/skipped?dismissed=1')).json.find((i: any) => i.id === 'skipQ')).toMatchObject({ dismissed: true, muted: true });
 });

@@ -29,7 +29,7 @@ function setPath(o: any, path: string, v: unknown) {
  * `onDecided` reports the server's answer to an approve/reject so the pane updates at once, without waiting for
  * the live event stream (which may have dropped). `onStale` reloads the list when a draft was already handled.
  */
-export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused }: { drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void; focusId?: string | null; onFocused?: () => void }) {
+export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, confirmClose = true }: { confirmClose?: boolean; drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void; focusId?: string | null; onFocused?: () => void }) {
   // Unsaved PU edits, keyed by proposal id. Kept here so "Approve all" sends the edited text.
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
   const titles = new Map(drafts.map((d) => [d.id, d.title]));
@@ -73,7 +73,7 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused }: { 
       {allErr && <div className="error small" style={{ padding: '6px 12px' }}>{allErr}</div>}
       <div className="drafts-scroll">
         {drafts.map((d) => (
-          <DraftCard key={d.id} p={d} focus={focusId === d.id} onFocused={onFocused} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
+          <DraftCard key={d.id} confirmClose={confirmClose} p={d} focus={focusId === d.id} onFocused={onFocused} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
         ))}
       </div>
     </div>
@@ -89,7 +89,9 @@ function DraftCard({
   onEdit,
   onDecided,
   onStale,
+  confirmClose = true,
 }: {
+  confirmClose?: boolean;
   p: Proposal;
   focus?: boolean;
   onFocused?: () => void;
@@ -180,7 +182,8 @@ function DraftCard({
               className="btn small primary"
               armedClassName="btn small danger"
               disabled={busy}
-              title="Close this work stream (asks you to click twice)"
+              confirm={confirmClose}
+              title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'}
               armedTitle="Click again to close this work stream"
               armedChildren="Click again to close"
               onConfirm={() => void act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}

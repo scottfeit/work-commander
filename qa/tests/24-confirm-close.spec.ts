@@ -33,3 +33,23 @@ test('With the setting off, one click closes it (in the list and on the Overview
   await expect.poll(() => statusOf(b)).toBe('closed');
   await setConfirm(true);
 });
+
+test("With the setting off, Claude's close suggestion in the drafts pane closes in one click too", async ({ page }) => {
+  await setConfirm(false);
+  const id = (await api.post('/api/streams', { title: 'Close once suggestion', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const path = await import('node:path');
+  const { demoDataDir } = await import('./helpers');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const now = new Date().toISOString();
+  const payload = JSON.stringify({ reason: 'All done.' });
+  db.prepare("insert into proposals (id, stream_id, run_id, kind, system, title, rationale, payload, original_payload, editable, depends_on, status, created_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+    'closeOnce', id, 'run-closeOnce', 'stream_close', 'internal', 'Close this work stream', 'All done.', payload, payload, JSON.stringify([{ key: 'reason', label: 'Reason', type: 'readonly' }]), '[]', 'pending', now,
+  );
+  db.close();
+  await page.goto(WEB);
+  await stream(page, /close once suggestion/i).click();
+  await page.locator('.draft.kind-stream_close').getByRole('button', { name: 'Close stream' }).click();
+  await expect.poll(() => statusOf(id), { timeout: 15_000 }).toBe('closed');
+  await setConfirm(true);
+});

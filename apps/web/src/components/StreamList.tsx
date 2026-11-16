@@ -427,16 +427,16 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
             {busy ? 'Creating…' : 'Accept'}
           </button>
           {i.dismissed ? (
-            <span className="chip" title={i.muted ? 'Dismissed and muted: new activity on it will not propose this work stream again' : undefined}>
-              {i.muted ? 'dismissed · muted' : 'dismissed'}
+            <span className="chip" title={i.muted ? 'Declined and muted: new activity on it will not propose this work stream again' : undefined}>
+              {i.muted ? 'declined · muted' : 'declined'}
             </span>
           ) : (
             <>
               <button className="btn small" title="Don't make this a work stream. It comes back if there is new activity." onClick={() => void decline(false)}>
-                Dismiss
+                Decline
               </button>
               <button className="btn small" title="Don't make this a work stream, and don't propose it again when there is new activity on this message or thread" onClick={() => void decline(true)}>
-                Dismiss and mute
+                Decline &amp; mute
               </button>
             </>
           )}
@@ -465,16 +465,16 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
           {busy ? 'Accepting…' : 'Accept'}
         </button>
         {i.dismissed ? (
-          <span className="chip" title={i.muted ? 'Dismissed and muted: new activity on it will not bring it back' : undefined}>
-            {i.muted ? 'dismissed · muted' : 'dismissed'}
+          <span className="chip" title={i.muted ? 'Declined and muted: new activity on it will not bring it back' : undefined}>
+            {i.muted ? 'declined · muted' : 'declined'}
           </span>
         ) : (
           <>
             <button className="btn small" title="Hide this until it has new activity" onClick={() => void dismiss()}>
-              Dismiss
+              Decline
             </button>
             <button className="btn small" title="Hide this, and don't bring it back when there is new activity on this message or thread" onClick={() => void dismiss(true)}>
-              Dismiss and mute
+              Decline &amp; mute
             </button>
           </>
         )}

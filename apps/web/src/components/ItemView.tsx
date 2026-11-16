@@ -164,7 +164,7 @@ export function ItemView({
         )}
         {peek ? (
           <button className="btn ghost small" title={item.data.proposedStream ? "Don't make this a work stream. It comes back if there is new activity." : 'Hide this from the Skipped list until it has new activity'} onClick={onDismiss}>
-            {item.data.proposedStream ? 'Decline' : 'Dismiss'}
+            Decline
           </button>
         ) : (
           <button
