@@ -53,6 +53,11 @@ export function App() {
     void post('/api/usage/dismiss').catch(() => undefined);
   };
   const [split, setSplit] = useState(() => Number(localStorage.getItem('wc.split') ?? 0.52));
+  // Share of the top area's width the Overview pane takes (drag the line between it and the item to change it).
+  const [ovSplit, setOvSplit] = useState(() => {
+    const v = Number(localStorage.getItem('wc.ovSplit'));
+    return v >= 0.15 && v <= 0.75 ? v : 1 / 3;
+  });
   const selRef = useRef(selected);
   selRef.current = selected;
   const sidOf = (streamId: string | null) => streamId ?? GENERAL_STREAM;
@@ -101,7 +106,7 @@ export function App() {
       /* gone */
     }
   }, []);
-  // Mark a work stream unread. If it is the one open, step back to the overview so its dot is visible.
+  // Mark a work stream unread. If it is the one open, step back to All open work so its dot is visible.
   const markUnread = useCallback(async (id: string) => {
     await patch(`/api/streams/${id}`, { unread: true }).catch(() => undefined);
     if (id === selRef.current) setSelected(GENERAL_STREAM);
@@ -120,7 +125,7 @@ export function App() {
     setLive(null);
     setTab(OVERVIEW_TAB);
     void loadSelected(selected).then((it) => {
-      // Setting: open a work stream on its most recently updated item tab instead of the Overview.
+      // Setting: open a work stream on its most recently updated item tab instead of the first one.
       if (!it?.length || selRef.current !== selected || selected === GENERAL_STREAM || openTabRef.current !== 'recent') return;
       setTab(it.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).id);
     });
@@ -219,7 +224,8 @@ export function App() {
 
   const stream = useMemo(() => streams.find((s) => s.id === selected) ?? null, [streams, selected]);
   const tabItems = useMemo(() => orderTabs(items, recentTabFirst), [items, recentTabFirst]);
-  const selectedItem = items.find((i) => i.id === tab) ?? (peek && tab === peek.id ? peek : null);
+  // With no tab picked (or the picked one gone), the item side shows the first tab.
+  const selectedItem = items.find((i) => i.id === tab) ?? (peek && tab === peek.id ? peek : null) ?? (stream ? (tabItems[0] ?? null) : null);
   const selectedIsPeek = !!selectedItem && !items.some((i) => i.id === selectedItem.id);
   // Opening a tab (or new activity arriving on the open one) clears its dot.
   const viewedUnread = !selectedIsPeek && selectedItem?.data.unread ? selectedItem.id : null;
@@ -259,6 +265,26 @@ export function App() {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
+  // Drag the line between the work item and the Overview pane.
+  const workRef = useRef<HTMLDivElement>(null);
+  const startOvDrag = (ev: React.MouseEvent) => {
+    ev.preventDefault();
+    document.body.classList.add('col-resizing');
+    const move = (m: MouseEvent) => {
+      const r = workRef.current!.getBoundingClientRect();
+      const v = Math.min(0.75, Math.max(0.15, (r.right - m.clientX) / r.width));
+      setOvSplit(v);
+      localStorage.setItem('wc.ovSplit', String(v));
+    };
+    const up = () => {
+      document.body.classList.remove('col-resizing');
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+  const showOverview = !!stream && selected !== GENERAL_STREAM;
 
   if (path.startsWith('/settings')) return <SettingsPage env={env} onBack={() => nav('/')} />;
 
@@ -292,23 +318,37 @@ export function App() {
         onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
         onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
       />
-      <main className="main" ref={mainRef} style={{ gridTemplateRows: `auto ${split}fr 6px ${1 - split}fr` }}>
-        <TabBar stream={stream} items={tabItems} tab={tab} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
-        <section className="top-pane">
-          {selectedItem ? (
-            <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} />
-          ) : selected === GENERAL_STREAM ? (
-            <div className="empty-state">
-              <h2>All open work</h2>
-              <p>
-                {streams.filter((s) => s.status === 'open').length} open work streams,{' '}
-                {streams.reduce((n, s) => n + s.pendingProposals, 0)} drafts waiting for you. Pick a stream on the left, or ask Claude below about anything across them.
-              </p>
-            </div>
-          ) : stream ? (
-            <StreamOverview confirmClose={confirmClose} stream={stream} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream.id)} onTogglePending={() => void patch(`/api/streams/${stream.id}`, { pending: !stream.pending })} />
-          ) : null}
-        </section>
+      <main className="main" ref={mainRef} style={{ gridTemplateRows: `${split}fr 6px ${1 - split}fr` }}>
+        <div className={`work-area${showOverview ? ' with-overview' : ''}`} ref={workRef} style={showOverview ? { gridTemplateColumns: `minmax(0, ${1 - ovSplit}fr) 6px minmax(0, ${ovSplit}fr)` } : undefined}>
+          <div className="item-side">
+            <TabBar stream={stream} items={tabItems} tab={selectedItem?.id ?? ''} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
+            <section className="top-pane">
+              {selectedItem ? (
+                <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} />
+              ) : selected === GENERAL_STREAM ? (
+                <div className="empty-state">
+                  <h2>All open work</h2>
+                  <p>
+                    {streams.filter((s) => s.status === 'open').length} open work streams,{' '}
+                    {streams.reduce((n, s) => n + s.pendingProposals, 0)} drafts waiting for you. Pick a stream on the left, or ask Claude below about anything across them.
+                  </p>
+                </div>
+              ) : stream ? (
+                <div className="empty-state">
+                  <p className="muted">No work items in this stream yet. Add one by link with the + above, or drag a tab here from another work stream.</p>
+                </div>
+              ) : null}
+            </section>
+          </div>
+          {showOverview && (
+            <>
+              <div className="divider-v" role="separator" aria-orientation="vertical" aria-label="Resize the Overview pane" onMouseDown={startOvDrag} onDoubleClick={() => { setOvSplit(1 / 3); localStorage.removeItem('wc.ovSplit'); }} title="Drag to resize the Overview (double-click to reset)" />
+              <aside className="overview-pane" aria-label="Overview">
+                <StreamOverview confirmClose={confirmClose} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
+              </aside>
+            </>
+          )}
+        </div>
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />
         <section className={`bottom ${drafts.length ? 'with-drafts' : ''}`}>
           <ChatPane

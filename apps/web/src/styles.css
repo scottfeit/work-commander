@@ -120,7 +120,17 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .src { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
 .src-gmail { color: #c5221f; } .src-slack { color: #7c3aed; } .src-jira, .src-jsm { color: #1d64d8; } .src-grant { color: var(--ok); }
-.top-pane { overflow: auto; background: var(--panel); min-height: 0; }
+.work-area { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; }
+.item-side { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.top-pane { overflow: auto; background: var(--panel); min-height: 0; flex: 1; }
+.overview-pane { overflow: auto; background: var(--panel); min-height: 0; min-width: 0; }
+.overview-pane .item-view { padding: 0 16px 24px; }
+/* Narrow pane: the title gets its own line, the buttons go under it. */
+.overview-pane .item-head { flex-wrap: wrap; row-gap: 8px; }
+.overview-pane .title-input { flex-basis: 100%; }
+.divider-v { cursor: col-resize; background: var(--line); }
+.divider-v:hover { background: var(--accent); }
+body.col-resizing { cursor: col-resize; user-select: none; }
 .divider { cursor: row-resize; background: var(--line); }
 .divider:hover { background: var(--accent); }
 .bottom { display: grid; grid-template-columns: 1fr; min-height: 0; background: var(--bg); }

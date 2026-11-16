@@ -3,6 +3,7 @@ import type { StreamItem, WorkStream } from '@wc/shared';
 export { orderTabs } from '@wc/shared';
 import { BRAND_PATHS } from './brandIcons';
 
+/** No tab picked yet: the item side shows the first tab. (The Overview is its own pane beside the tabs.) */
 export const OVERVIEW_TAB = '__overview__';
 
 /** Drag payload for moving an item to another work stream (drop it on a stream in the sidebar). */
@@ -83,7 +84,7 @@ export function TabBar({
   onTab: (id: string) => void;
   peek?: StreamItem | null;
   onClosePeek?: () => void;
-  /** Drop `id` before or after `targetId`. Overview never moves. */
+  /** Drop `id` before or after `targetId`. */
   onReorder?: (id: string, targetId: string, after: boolean) => void;
   /** Add a work item from a pasted link (the + at the right of the bar). Rejects with a message the popover shows. */
   onAddUrl?: (url: string) => Promise<void>;
@@ -101,40 +102,11 @@ export function TabBar({
       </button>
     </span>
   );
-  if (!stream)
-    return (
-      <div className="tabbar">
-        <div className={`tab ${tab === OVERVIEW_TAB ? 'active' : ''}`} onClick={() => onTab(OVERVIEW_TAB)}>
-          Overview
-        </div>
-        {peekTab}
-      </div>
-    );
+  if (!stream) return <div className="tabbar">{peekTab}</div>;
   const droppable = (id: string) => !!draggingItem && draggingItem !== id && items.some((i) => i.id === draggingItem);
   return (
     <div className="tabbar" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(null)}>
       <div className="tablist" role="tablist">
-      <button
-        role="tab"
-        className={`tab ${tab === OVERVIEW_TAB ? 'active' : ''} ${over?.id === OVERVIEW_TAB ? 'drop-after' : ''}`}
-        onClick={() => onTab(OVERVIEW_TAB)}
-        onDragOver={(e) => {
-          // Overview never moves, but dropping on it puts the tab first (right after Overview).
-          if (!items.length || !draggingItem || !items.some((x) => x.id === draggingItem)) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          setOver({ id: OVERVIEW_TAB, after: true });
-        }}
-        onDrop={(e) => {
-          const dragged = e.dataTransfer.getData(ITEM_DRAG) || draggingItem;
-          if (!dragged || dragged === items[0]?.id || !items.some((x) => x.id === dragged)) return; // already first
-          e.preventDefault();
-          setOver(null);
-          onReorder?.(dragged, items[0].id, false);
-        }}
-      >
-        Overview
-      </button>
       {items.map((i) => (
         <button
           key={i.id}

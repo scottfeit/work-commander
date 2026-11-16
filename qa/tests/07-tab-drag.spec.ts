@@ -27,7 +27,7 @@ test.beforeAll(async () => {
 
 const order = (page: import('@playwright/test').Page) => page.locator('.tabbar [role=tab] .tab-title').allTextContents();
 
-test('tabs can be rearranged by dragging, including into the first position, and Overview stays put', async ({ page }) => {
+test('tabs can be rearranged by dragging, including into the first position', async ({ page }) => {
   await page.goto(WEB);
   await stream(page, /tab drag test/i).click();
   const tab = (name: string) => page.locator('.tabbar [role=tab]', { hasText: name });
@@ -38,10 +38,9 @@ test('tabs can be rearranged by dragging, including into the first position, and
   await tab('Gamma').dragTo(tab('Alpha'), { targetPosition: { x: 6, y: 10 } });
   await expect.poll(() => order(page)).toEqual(['Gamma thread', 'Alpha thread', 'Beta thread']);
 
-  // Beta onto the Overview tab also means "first".
-  await tab('Beta').dragTo(page.locator('.tabbar [role=tab]', { hasText: 'Overview' }));
+  // Beta onto the left half of Gamma: first again.
+  await tab('Beta').dragTo(tab('Gamma'), { targetPosition: { x: 6, y: 10 } });
   await expect.poll(() => order(page)).toEqual(['Beta thread', 'Gamma thread', 'Alpha thread']);
-  await expect(page.locator('.tabbar [role=tab]').first()).toHaveText('Overview');
 
   // Remembered by the server.
   await page.reload();
@@ -56,7 +55,7 @@ test('with "most recent tab first" on, a tab you drag to the first position stay
   await stream(page, /recent-first/i).click();
   const tab = (name: string) => page.locator('.tabbar [role=tab]', { hasText: name });
   await expect(tab('Gamma')).toBeVisible();
-  // newest activity (Gamma) is hoisted next to Overview
+  // newest activity (Gamma) is hoisted to the front
   await expect.poll(() => order(page)).toEqual(['Gamma thread', 'Alpha thread', 'Beta thread']);
   // dragging Alpha into the first position must win over the hoist
   await tab('Alpha').dragTo(tab('Gamma'), { targetPosition: { x: 6, y: 10 } });
@@ -71,14 +70,14 @@ test('"Opening a work stream" can land on the most recently updated item tab', a
   await api.call('PUT', '/api/settings', { ...settings, ui: { ...settings.ui, recentTabFirst: false, openTab: 'overview' } });
   await page.goto(WEB);
   await stream(page, /tab drag test/i).click();
-  await expect(page.locator('.tabbar [role=tab].active')).toHaveText('Overview');
+  await expect(page.locator('.tabbar [role=tab].active')).toHaveText(/Beta/); // the first tab (the order set above)
 
   await api.call('PUT', '/api/settings', { ...settings, ui: { ...settings.ui, recentTabFirst: false, openTab: 'recent' } });
   await page.goto(WEB); // settings are read at load
   await page.getByRole('button', { name: /all open work/i }).click();
   await stream(page, /tab drag test/i).click();
   await expect(page.locator('.tabbar [role=tab].active')).toContainText('Gamma'); // the newest item
-  // and switching back to Overview or another stream still behaves normally
-  await page.locator('.tabbar [role=tab]', { hasText: 'Overview' }).click();
-  await expect(page.locator('.tabbar [role=tab].active')).toHaveText('Overview');
+  // and picking another tab still behaves normally
+  await page.locator('.tabbar [role=tab]', { hasText: 'Alpha' }).click();
+  await expect(page.locator('.tabbar [role=tab].active')).toContainText('Alpha');
 });

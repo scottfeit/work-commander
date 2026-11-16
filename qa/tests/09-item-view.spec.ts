@@ -63,7 +63,7 @@ test('the work item header stays put while the content scrolls', async ({ page }
   await page.goto(WEB);
   await stream(page, /item view test/i).click();
   await page.locator('.tabbar [role=tab]', { hasText: 'Automation' }).click();
-  const head = page.locator('.item-view .item-head');
+  const head = page.locator('.top-pane .item-view .item-head');
   const top = (await head.boundingBox())!.y;
   await page.locator('.top-pane').evaluate((el) => el.scrollTo(0, 600));
   await expect.poll(async () => page.locator('.top-pane').evaluate((el) => el.scrollTop)).toBeGreaterThan(300);
@@ -78,7 +78,7 @@ test('the selected work stream tile (not the work item) carries Mark unread and 
   await stream(page, /item view test/i).click();
   await expect(page.getByRole('button', { name: 'Close work stream' })).toHaveCount(0); // no close icon in the tab bar
   await page.locator('.tabbar [role=tab]', { hasText: 'Automation' }).click();
-  await expect(page.locator('.item-view .item-foot')).toHaveCount(0); // and nothing at the bottom of the work item
+  await expect(page.locator('.top-pane .item-view .item-foot')).toHaveCount(0); // and nothing at the bottom of the work item
 
   const tile = page.locator('.stream', { hasText: /item view test/i });
   const actions = tile.locator('.stream-actions');
@@ -110,7 +110,6 @@ test('the Overview "Close stream" button also needs two clicks', async ({ page }
   const id = (await api.post('/api/streams', { title: 'Overview close test', summary: '' })).json.id;
   await page.goto(WEB);
   await stream(page, /overview close test/i).click();
-  await page.locator('.tabbar [role=tab]', { hasText: 'Overview' }).click();
   const btn = page.locator('.item-view.overview').getByRole('button', { name: /close stream/i });
   await btn.click();
   await expect(page.locator('.item-view.overview').getByRole('button', { name: /click again/i })).toBeVisible();

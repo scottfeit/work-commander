@@ -54,10 +54,10 @@ test('Dismiss removes the buttons', async ({ page }) => {
 test('Work items are centered in their pane', async ({ page }) => {
   await page.goto(WEB);
   await stream(page, /contractor access/i).click();
-  await page.locator('.tabbar [role=tab]').nth(1).click();
-  const view = page.locator('.item-view').first();
+  await page.locator('.tabbar [role=tab]').first().click();
+  const view = page.locator('.top-pane .item-view');
   await expect(view).toBeVisible();
-  const [box, pane] = await Promise.all([view.boundingBox(), page.locator('.main').boundingBox()]);
+  const [box, pane] = await Promise.all([view.boundingBox(), page.locator('.top-pane').boundingBox()]);
   const left = box!.x - pane!.x;
   const right = pane!.x + pane!.width - (box!.x + box!.width);
   expect(Math.abs(left - right)).toBeLessThan(4);

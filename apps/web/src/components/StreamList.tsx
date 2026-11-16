@@ -57,6 +57,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   const [moved, setMoved] = useState(0);
   const [moveErr, setMoveErr] = useState<string | null>(null);
   const [showDismissed, setShowDismissed] = useState(false);
+  // Unchecking Show open hides Open and Pending, e.g. to look only at Closed or Dismissed.
+  const [showOpen, setShowOpen] = useState(true);
   const [skipped, setSkipped] = useState<SkippedItem[]>([]);
   const loadSkipped = () => get<SkippedItem[]>('/api/items/skipped?dismissed=1').then(setSkipped).catch(() => undefined);
   useEffect(() => void loadSkipped(), [streams.length, moved, skippedVersion]);
@@ -227,18 +229,23 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         </div>
       )}
       <div className="stream-scroll">
-        <div className="section-label">Open · {openEntries.length}</div>
-        {openEntries.length === 0 && <div className="muted small pad">No open work streams. New ones appear here as Claude triages incoming messages.</div>}
-        {openEntries.map(entry)}
-        {pendingEntries.length > 0 && (
+        {showOpen && (
           <>
-            <button type="button" className="section-label section-toggle" aria-expanded={!pendingCollapsed} onClick={togglePendingSection}>
-              <span className="chev" aria-hidden>{pendingCollapsed ? '▸' : '▾'}</span> Pending · {pendingEntries.length}
-            </button>
-            {!pendingCollapsed && pendingEntries.map(entry)}
+            <div className="section-label">Open · {openEntries.length}</div>
+          {openEntries.length === 0 && <div className="muted small pad">No open work streams. New ones appear here as Claude triages incoming messages.</div>}
+          {openEntries.map(entry)}
+          {pendingEntries.length > 0 && (
+            <>
+              <button type="button" className="section-label section-toggle" aria-expanded={!pendingCollapsed} onClick={togglePendingSection}>
+                <span className="chev" aria-hidden>{pendingCollapsed ? '▸' : '▾'}</span> Pending · {pendingEntries.length}
+              </button>
+              {!pendingCollapsed && pendingEntries.map(entry)}
+            </>
+          )}
           </>
         )}
-        {showClosed && closedEntries.length > 0 && <div className="section-label">Closed · {closedEntries.length}</div>}
+        {showClosed && (closedEntries.length > 0 || !showOpen) && <div className="section-label">Closed · {closedEntries.length}</div>}
+        {showClosed && !showOpen && closedEntries.length === 0 && <div className="muted small pad">No closed work streams.</div>}
         {showClosed && closedEntries.map(entry)}
         {showDismissed && <div className="section-label">Dismissed · {dismissedEntries.length}</div>}
         {showDismissed && dismissedEntries.length === 0 && <div className="muted small pad">Nothing dismissed in the last 14 days.</div>}
@@ -247,6 +254,9 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       </div>
       <div className="sidebar-foot">
         <div className="foot-toggles">
+          <label className="toggle">
+            <input type="checkbox" checked={showOpen} onChange={(e) => setShowOpen(e.target.checked)} /> Show open
+          </label>
           <label className="toggle">
             <input type="checkbox" checked={showClosed} onChange={onToggleClosed} /> Show closed
           </label>

@@ -32,7 +32,7 @@ test('incoming email becomes an AI-labelled work stream; the newsletter does not
 test('opening the stream shows email tab and two linked drafts', async ({ page }) => {
   await page.goto(WEB);
   await stream(page, /contractor access/i).click();
-  await expect(page.locator('.tabbar')).toContainText('Overview');
+  await expect(page.locator('.overview-pane .title-input')).toHaveValue(/contractor access/i); // the Overview sits beside the item
   await expect(page.locator('.tabbar').getByRole('img', { name: 'Gmail' })).toBeVisible();
   await api.waitPending(['ticket_create', 'email_reply']);
   await expect(kind(page, 'ticket_create')).toBeVisible();

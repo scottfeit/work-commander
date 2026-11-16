@@ -31,10 +31,10 @@ test('Quick reply opens a blank pre-addressed draft that stays open across tabs;
   await expect(quick.locator('.draft-head .src-icon')).toBeVisible();
   await expect(quick.locator('.draft-head .sys')).toHaveCount(0);
 
-  // typing enables sending; switching tabs keeps the draft and the text
+  // typing enables sending; working in the Overview keeps the draft and the text
   await quick.getByLabel('Message').fill('Quick note from me');
   await expect(quick.getByRole('button', { name: /approve & send/i })).toBeEnabled();
-  await page.locator('.tabbar [role=tab]', { hasText: 'Overview' }).click();
+  await page.locator('.overview-pane .summary-input').click();
   await expect(quick).toBeVisible();
   await expect(quick.getByLabel('Message')).toHaveValue('Quick note from me');
 

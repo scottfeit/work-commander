@@ -46,7 +46,6 @@ test('Pending: the alarm clock on the selected tile and on the Overview, a colla
   expect(yb!.y).toBeLessThan(ya!.y); // Beta was created later, so it is more recent
 
   // the Overview has the same check, to the left of Mark unread; pressing it puts the stream back in Open
-  await page.locator('.tabbar [role=tab]', { hasText: 'Overview' }).click();
   const ov = page.locator('.item-view.overview');
   const ovCheck = ov.getByRole('button', { name: /pending: put back in open/i });
   await expect(ovCheck).toBeVisible();

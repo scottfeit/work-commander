@@ -14,7 +14,6 @@ test('the hand-off panel has a task box whose text goes at the top of BRIEF.md',
   try {
     await page.goto(WEB);
     await stream(page, /contractor access/i).click();
-    await page.locator('.tabbar [role=tab]', { hasText: 'Overview' }).click();
     await page.getByRole('button', { name: 'Hand off to Claude Code' }).click();
     await expect(page.locator('.handoff-form')).toContainText(/editing a Google Sheet/i);
     await page.getByLabel('Project folder').fill(folder);

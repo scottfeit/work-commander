@@ -396,12 +396,12 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
         {section === 'display' && (
           <section>
             <h2>Display</h2>
-            <Row label="Opening a work stream" hint="Which tab you land on when you click a work stream">
+            <Row label="Opening a work stream" hint="Which work item tab you land on when you click a work stream (the Overview is always shown beside it)">
               <Select
                 value={s.ui.openTab ?? 'overview'}
                 onChange={(openTab) => up('ui', { openTab })}
                 options={[
-                  { value: 'overview', label: 'Overview' },
+                  { value: 'overview', label: 'The first work item tab' },
                   { value: 'recent', label: 'Most recently updated work item tab' },
                 ]}
               />
@@ -423,11 +423,11 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               <Toggle
                 checked={!!s.ui.recentTabFirst}
                 onChange={(recentTabFirst) => up('ui', { recentTabFirst })}
-                label="Show the most recently active tab right after Overview"
+                label="Show the most recently active tab first"
               />
             </Row>
             <p className="muted small">
-              You can also drag tabs into any order within a work stream; Overview always stays first. With this on, the tab with the newest activity jumps to the front of the others.
+              You can also drag tabs into any order within a work stream. With this on, the tab with the newest activity jumps to the front of the others. The Overview sits in its own pane to the right of the tabs; drag the line between them to resize it.
             </p>
             <h3>Pending reminders</h3>
             <Row label="Remind me after" hint="A Pending work stream that nothing has touched for this long returns to the top of Open, marked Reminder and unread, with a follow-up drafted for whoever replied last. 0 = never.">
