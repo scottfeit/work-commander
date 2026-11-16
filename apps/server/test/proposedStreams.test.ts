@@ -87,6 +87,24 @@ describe('triage: new work streams need the PU to accept them ("Ask me first")',
     expect(await repo.listStreams(false)).toHaveLength(0);
   });
 
+  it('"Dismiss and mute": new activity on the item is stored but never triaged, so the stream is not proposed again', async () => {
+    const t = pipeline();
+    const m = message();
+    await t.handle(m);
+    const id = (await repo.findItem('gmail', m.externalId))!.id;
+    await t.declineProposed(id, true);
+    const before = calls;
+    await new Promise((r) => setTimeout(r, 5));
+    await t.handle({ ...m, eventId: 'later', data: { messages: [...m.data.messages, { id: 'm-later', author: { name: 'Dana', email: 'dana@x.com' }, text: 'Any update?', at: new Date().toISOString() }] } });
+    expect(calls).toBe(before); // no triage call at all
+    expect((await repo.getItem(id))!.data.messages).toHaveLength(2); // the update itself is kept
+    expect(await repo.listSkipped()).toHaveLength(0);
+    expect((await repo.listSkipped(14, true))[0]).toMatchObject({ id, dismissed: true, muted: true });
+    expect(await repo.listStreams(false)).toHaveLength(0);
+    // Accepting it later still works.
+    expect(await t.acceptProposed(id)).not.toBeNull();
+  });
+
   it('dragging a proposed item onto a work stream settles the proposal', async () => {
     const home = await repo.createStream({ title: 'Budget', summary: 'b' });
     const m = message();

@@ -1125,11 +1125,11 @@ export class Repo {
   }
 
   /** Hide a skipped item from the Skipped list until it has new activity. */
-  async dismissSkipped(itemId: string) {
+  async dismissSkipped(itemId: string, mute = false) {
     const it = await this.getItem(itemId);
     if (!it || it.streamId) throw new Error('Not a skipped item');
-    await this.db.updateTable('items').set({ data: j({ ...it.data, dismissedAt: now() }) }).where('id', '=', itemId).execute();
-    await this.audit('pu', 'item.skipped_dismissed', { itemId });
+    await this.db.updateTable('items').set({ data: j({ ...it.data, dismissedAt: now(), ...(mute ? { proposalsMuted: true } : {}) }) }).where('id', '=', itemId).execute();
+    await this.audit('pu', mute ? 'item.skipped_dismissed_muted' : 'item.skipped_dismissed', { itemId });
   }
 
   /** Recent items triage passed over (in no stream), with the reason from their latest triage decision. */
@@ -1141,7 +1141,8 @@ export class Repo {
       const ev = await this.db.selectFrom('inbound_events').select(['decision', 'processed_at']).where('item_id', '=', r.id).where('processed_at', 'is not', null).orderBy('processed_at', 'desc').limit(1).executeTakeFirst();
       const d = pj<{ reason?: string; skipped?: string }>(ev?.decision, {});
       const it = this.toItem(r);
-      const dismissed = !!it.data.dismissedAt && it.updatedAt <= it.data.dismissedAt;
+      // Dismissed until new activity, or for good when muted ("Dismiss and mute").
+      const dismissed = !!it.data.proposalsMuted || (!!it.data.dismissedAt && it.updatedAt <= it.data.dismissedAt);
       if (dismissed && !includeDismissed) continue;
       const last = (it.data.messages ?? it.data.ticket?.comments ?? []).slice(-1)[0];
       const prop = it.data.proposedStream;
@@ -1153,6 +1154,7 @@ export class Repo {
         from: last?.author.name ?? last?.author.email ?? '',
         reason: prop ? prop.reason : it.data.notRelevantTo?.length ? 'You marked it not relevant to a work stream' : (d.reason ?? d.skipped ?? ''),
         dismissed,
+        muted: !!it.data.proposalsMuted,
         ...(prop ? { proposed: { title: prop.title, summary: prop.summary } } : {}),
       });
     }

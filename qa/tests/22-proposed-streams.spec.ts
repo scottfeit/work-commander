@@ -21,6 +21,7 @@ test.beforeAll(async () => {
   for (const [id, title] of [
     ['propA', 'Vendor security questionnaire'],
     ['propB', 'Offsite catering order'],
+    ['propC', 'Parking permit renewal'],
   ])
     db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run(
       id,
@@ -56,10 +57,25 @@ test('A proposed work stream shows in the list; Accept creates it', async ({ pag
   expect((await api.streams()).some((s) => s.title === 'Vendor security questionnaire')).toBe(true);
 });
 
-test('Decline removes it from the list without creating a stream', async ({ page }) => {
+test('Dismiss removes it from the list without creating a stream', async ({ page }) => {
   await page.goto(WEB);
   const t = tile(page, /Offsite catering order/);
-  await t.getByRole('button', { name: 'Decline' }).click();
+  // Dismiss and Dismiss and mute are outlined buttons, like Allow
+  for (const name of ['Dismiss', 'Dismiss and mute']) {
+    const border = await t.getByRole('button', { name, exact: true }).evaluate((el) => getComputedStyle(el).borderTopColor);
+    expect(border).not.toBe('rgba(0, 0, 0, 0)');
+  }
+  await t.getByRole('button', { name: 'Dismiss', exact: true }).click();
   await expect(tile(page, /Offsite catering order/)).toHaveCount(0);
   expect((await api.streams()).some((s) => s.title === 'Offsite catering order')).toBe(false);
+});
+
+test('Dismiss and mute hides it for good; Show dismissed lists it as muted', async ({ page }) => {
+  await page.goto(WEB);
+  await tile(page, /Parking permit renewal/).getByRole('button', { name: 'Dismiss and mute' }).click();
+  await expect(tile(page, /Parking permit renewal/)).toHaveCount(0);
+  const item = (await api.get('/api/items/skipped?dismissed=1')).json.find((i: any) => i.id === 'propC');
+  expect(item).toMatchObject({ dismissed: true, muted: true });
+  await page.getByRole('checkbox', { name: 'Show dismissed' }).check();
+  await expect(tile(page, /Parking permit renewal/).getByText('dismissed · muted')).toBeVisible();
 });

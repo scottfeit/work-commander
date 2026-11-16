@@ -279,7 +279,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   });
   f.get('/api/items/skipped', async (req) => repo.listSkipped(14, (req.query as any).dismissed === '1'));
   f.post('/api/items/:id/decline', async (req) => {
-    await app.triage.declineProposed((req.params as any).id);
+    const b = z.object({ mute: z.boolean().optional() }).parse(req.body ?? {});
+    await app.triage.declineProposed((req.params as any).id, !!b.mute);
     return { ok: true };
   });
   f.post('/api/items/:id/dismiss', async (req) => {

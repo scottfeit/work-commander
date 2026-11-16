@@ -374,7 +374,7 @@ function SwipeRow({ children, onSwipe, label }: { children: ReactNode; onSwipe: 
   );
 }
 
-type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string; dismissed: boolean; proposed?: { title: string; summary: string } };
+type SkippedItem = { id: string; source: string; title: string; updatedAt: string; from: string; reason: string; dismissed: boolean; muted?: boolean; proposed?: { title: string; summary: string } };
 
 /**
  * A message triage didn't think was work, shown among the work streams with a "?". Accept makes it a work stream (or files it into the
@@ -400,6 +400,10 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
     await post(`/api/items/${i.id}/dismiss`).catch(() => undefined);
     onDismissed();
   };
+  const decline = async (mute: boolean) => {
+    await post(`/api/items/${i.id}/decline`, { mute }).catch(() => undefined);
+    onDismissed();
+  };
   const p = i.proposed;
   if (p)
     // Triage proposes a new work stream (Settings → Triage, "Ask me first"): accept to create it, or decline.
@@ -423,11 +427,18 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
             {busy ? 'Creating…' : 'Accept'}
           </button>
           {i.dismissed ? (
-            <span className="chip">declined</span>
+            <span className="chip" title={i.muted ? 'Dismissed and muted: new activity on it will not propose this work stream again' : undefined}>
+              {i.muted ? 'dismissed · muted' : 'dismissed'}
+            </span>
           ) : (
-            <button className="btn small ghost" title="Don't make this a work stream. It comes back if there is new activity." onClick={() => void post(`/api/items/${i.id}/decline`).catch(() => undefined).then(onDismissed)}>
-              Decline
-            </button>
+            <>
+              <button className="btn small" title="Don't make this a work stream. It comes back if there is new activity." onClick={() => void decline(false)}>
+                Dismiss
+              </button>
+              <button className="btn small" title="Don't make this a work stream, and don't propose it again when there is new activity on this message or thread" onClick={() => void decline(true)}>
+                Dismiss and mute
+              </button>
+            </>
           )}
         </div>
         {err && <div className="small error">{err}</div>}
@@ -456,7 +467,7 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
         {i.dismissed ? (
           <span className="chip">dismissed</span>
         ) : (
-          <button className="btn small ghost" title="Hide this until it has new activity" onClick={() => void dismiss()}>
+          <button className="btn small" title="Hide this until it has new activity" onClick={() => void dismiss()}>
             Dismiss
           </button>
         )}

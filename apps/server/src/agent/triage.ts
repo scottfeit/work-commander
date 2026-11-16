@@ -120,6 +120,7 @@ export class TriagePipeline {
     if (!item.streamId) {
       const linked = await this.autoLink(item);
       if (linked) return this.repo.markInbound(ev.source, ev.external_id, true, { recovered: true, linked: linked.streamId, reason: 'References a ticket an open work stream already tracks' });
+      if (item.data.proposalsMuted) return this.repo.markInbound(ev.source, ev.external_id, false, { skipped: 'you dismissed and muted the work stream proposed for it' });
     }
     const all = item.data.messages ?? item.data.ticket?.comments ?? [];
     const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
@@ -245,6 +246,10 @@ export class TriagePipeline {
       }
     }
     if (!item.streamId) item = (await this.autoLink(item)) ?? item;
+    if (!item.streamId && item.data.proposalsMuted) {
+      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'you dismissed and muted the work stream proposed for it' });
+      return;
+    }
     // A ticket moved to Resolved/Closed as the result of work WC did, with nothing new said on it, is not new activity: it must not
     // trigger triage or withdraw a pending "close this stream" proposal. (An assignment to the PU, a reopen etc. still are.)
     if (item.streamId && up.ticketMeta && newMessages.length === 0 && isOutcomeChange(up.ticketMeta, item.data.wcTransitionAt)) {
@@ -378,12 +383,15 @@ export class TriagePipeline {
     return (await this.repo.getItem(itemId))?.streamId ?? null;
   }
 
-  /** The PU declined a proposed new work stream: it goes where dismissed skipped items go, until new activity brings it back. */
-  async declineProposed(itemId: string) {
+  /**
+   * The PU declined a proposed new work stream: it goes where dismissed skipped items go, until new activity brings it back.
+   * With `mute` ("Dismiss and mute"), new activity on the item is never triaged again, so it is not proposed again.
+   */
+  async declineProposed(itemId: string, mute = false) {
     const item = await this.repo.getItem(itemId);
     if (!item?.data.proposedStream) throw new Error('Nothing is proposed for this item');
-    await this.repo.audit('pu', 'stream.proposal_declined', { itemId, title: item.data.proposedStream.title });
-    await this.repo.dismissSkipped(itemId);
+    await this.repo.audit('pu', mute ? 'stream.proposal_declined_muted' : 'stream.proposal_declined', { itemId, title: item.data.proposedStream.title });
+    await this.repo.dismissSkipped(itemId, mute);
   }
 
   /** Steps after the decision: pick or create the stream, then draft or offer. */
