@@ -60,7 +60,7 @@ In **MCP mode**, *Read Slack without Claude* (on by default) checks for new acti
 
 ## 5. Atlassian
 
-**API mode**: site URL, your account email, and an API token from https://id.atlassian.com/manage-profile/security/api-tokens. Press **Test**. Then set the default ticket target: **Load from Jira** lists service desks and request types for JSM, or enter a project key and issue type for Jira. Each stream can override the target from its Overview tab.
+**API mode**: site URL, your account email, and an API token from https://id.atlassian.com/manage-profile/security/api-tokens. Press **Test**. Then set the default ticket target: **Load from Jira** lists service desks and request types for JSM, or enter a project key and issue type for Jira. Each stream can override the target from its Overview pane.
 
 Real time: store a webhook shared secret, then in Jira → Settings → System → WebHooks add the URL shown, with events *issue created, issue updated, comment created*. Locally this needs a tunnel. On GCP, use the relay URL from the Terraform outputs and the generated secret (`terraform output jira_webhook_secret_command`).
 

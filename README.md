@@ -31,7 +31,7 @@ One dashboard for all of a person's work streams, with Claude in the middle. Cla
 ## Layout
 
 - **Left:** work streams, labelled by Claude, Open/Closed (closed hidden by default), with drafts-to-review counts.
-- **Top tab bar and pane:** everything attached to the selected stream (email threads, Slack threads, tickets), plus an Overview tab.
+- **Top tab bar and pane:** everything attached to the selected stream (email threads, Slack threads, tickets), with the Overview in a resizable pane to their right.
 - **Bottom left:** Claude chat. It knows the selected stream and tab, and is aware of all open streams.
 - **Bottom right:** the draft pane, shown only when something is waiting for approval.
 - **Settings:** PU identity, org chart import (Workday REST, Workday RaaS, CSV/XLSX upload, Jira Assets), the Claude provider, each integration (API or MCP), ingestion mode and approval policy per system, and secret storage per credential.
