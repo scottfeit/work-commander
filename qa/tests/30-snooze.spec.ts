@@ -22,6 +22,22 @@ test('Pending ▾: snooze to a preset or a typed time (read back to confirm); th
   expect(Math.abs((await tile.locator('.pending-btn').boundingBox())!.y - closeY)).toBeLessThan(2);
   expect(Math.abs((await tile.getByRole('button', { name: 'Confirm close' }).boundingBox())!.y - closeY)).toBeLessThan(2);
   await page.locator('.sidebar').screenshot({ path: 'qa/results/snooze-split.png' });
+  // a much narrower sidebar (bigger text, smaller window): still one line, at rest and armed
+  await page.addStyleTag({ content: '.app { grid-template-columns: 230px minmax(0, 1fr) !important; } .sidebar { font-size: 15px; }' });
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar .brand').click();
+  const oneLine = async () => {
+    const ys = await tile.locator('.stream-actions > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(ys).size).toBe(1);
+  };
+  await oneLine();
+  await tile.getByRole('button', { name: 'Close stream' }).click();
+  await oneLine();
+  await joined(tile);
+  await page.locator('.sidebar').screenshot({ path: 'qa/results/snooze-split-narrow.png' });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.reload();
+  await stream(page, /snooze me stream/i).click();
   await page.keyboard.press('Escape');
   await page.locator('.sidebar .brand').click();
   await tile.getByRole('button', { name: 'Snooze until…' }).click();

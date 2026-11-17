@@ -167,12 +167,12 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       {s.id === selected && (
         // Like Accept / Dismiss on a skipped item: the open work stream's own actions sit at the bottom of its tile.
         <div className="stream-meta stream-actions">
-          <button type="button" className="btn small" title="Mark this work stream unread and go back to the list" onClick={() => onMarkUnread(s.id)}>
-            Mark unread
+          <button type="button" className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={() => onMarkUnread(s.id)}>
+            Unread
           </button>
           {s.status === 'open' && (
-            <ConfirmButton confirm={confirmClose} onConfirm={() => onCloseStream(s.id)} armedChildren="Confirm close" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
-              Close stream
+            <ConfirmButton confirm={confirmClose} onConfirm={() => onCloseStream(s.id)} ariaLabel="Close stream" armedAriaLabel="Confirm close" armedChildren="Confirm" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
+              Close
             </ConfirmButton>
           )}
           {s.status === 'open' && (

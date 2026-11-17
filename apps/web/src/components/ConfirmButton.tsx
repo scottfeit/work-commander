@@ -14,6 +14,7 @@ export function ConfirmButton({
   armedTitle,
   disabled,
   ariaLabel,
+  armedAriaLabel,
   confirm = true,
 }: {
   onConfirm: () => void;
@@ -25,6 +26,8 @@ export function ConfirmButton({
   armedTitle?: string;
   disabled?: boolean;
   ariaLabel?: string;
+  /** The accessible name while armed (when the armed text is short). */
+  armedAriaLabel?: string;
   confirm?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
@@ -38,7 +41,7 @@ export function ConfirmButton({
       type="button"
       className={armed ? armedClassName : className}
       title={armed ? armedTitle : title}
-      aria-label={ariaLabel}
+      aria-label={armed ? (armedAriaLabel ?? ariaLabel) : ariaLabel}
       disabled={disabled}
       onBlur={() => setArmed(false)}
       onClick={() => {

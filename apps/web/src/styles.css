@@ -373,7 +373,9 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .add-url-pop .row-form input { flex: 1; min-width: 0; }
 
 
-.stream-actions { margin-top: 8px; }
+.stream-actions { margin-top: 8px; flex-wrap: nowrap; }
+/* One line at any sidebar width: text buttons give way (with …) before anything wraps; Pending ▾ never shrinks. */
+.stream-actions > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Pending: waiting on others */
 .stream.pending .stream-title, .stream.pending .stream-summary, .stream.pending .stream-open { color: var(--muted); }
