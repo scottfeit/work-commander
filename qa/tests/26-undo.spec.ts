@@ -14,16 +14,22 @@ test('Email items have Mark read, Archive and Delete for the Gmail thread; each 
   await stream(page, /contractor access/i).click();
   await page.locator('.tabbar').getByRole('img', { name: 'Gmail' }).click();
   const g = page.locator('.top-pane .gmail-actions');
-  await expect(g.getByRole('button')).toHaveText(['Mark read', 'Archive', 'Delete']);
+  await expect(g.locator('button > span:first-child')).toHaveText(['Mark read', 'Archive', 'Delete']);
   // outlined, like Allow
   expect(await g.getByRole('button', { name: 'Delete' }).evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe('rgba(0, 0, 0, 0)');
 
+  // clicking doesn't resize anything: each button keeps its width, so the toolbar doesn't shift
+  const widths = () => g.getByRole('button').evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().width)));
+  const w0 = await widths();
   await g.getByRole('button', { name: 'Mark read' }).click();
   await expect(g.getByRole('button', { name: 'Mark unread' })).toBeVisible();
+  expect(await widths()).toEqual(w0);
   await g.getByRole('button', { name: 'Archive' }).click();
   await expect(g.getByRole('button', { name: 'Unarchive' })).toBeVisible();
   await g.getByRole('button', { name: 'Delete' }).click();
   await expect(g.getByRole('button', { name: 'Undelete' })).toBeVisible();
+  expect(await widths()).toEqual(w0);
+  await expect(g.getByRole('button', { name: /archive/i })).toBeDisabled(); // stays in place while in Trash
   await expect(page.locator('.top-pane .item-head')).toContainText(/contractor/i); // still in the stream
   await expect(page.locator('.tabbar').getByRole('img', { name: 'Gmail' })).toBeVisible();
 
@@ -44,7 +50,7 @@ test('Email items have Mark read, Archive and Delete for the Gmail thread; each 
   // Undelete with the button directly, then put things back for the other tests
   await g.getByRole('button', { name: 'Unarchive' }).click();
   await g.getByRole('button', { name: 'Mark unread' }).click();
-  await expect(g.getByRole('button')).toHaveText(['Mark read', 'Archive', 'Delete']);
+  await expect(g.locator('button > span:first-child')).toHaveText(['Mark read', 'Archive', 'Delete']);
 });
 
 test('Undo puts a moved work item back, bringing back the stream it emptied; ⌘Z works too; up to three steps', async ({ page }) => {

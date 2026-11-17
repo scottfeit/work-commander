@@ -545,15 +545,22 @@ function GmailButtons({ item }: { item: StreamItem }) {
       setBusy(null);
     }
   };
-  const btn = (action: GmailAction, label: string, title: string) => (
-    <button type="button" className="btn small" disabled={!!busy} title={title} onClick={() => void act(action)}>
-      {busy === action ? '…' : label}
+  // Each button keeps one width whichever of its two labels it shows (both are laid out; the other is invisible), and keeps its
+  // label while working, so nothing in the toolbar shifts when you click.
+  const PAIR: Record<GmailAction, string> = { read: 'Mark unread', unread: 'Mark read', archive: 'Unarchive', unarchive: 'Archive', trash: 'Undelete', untrash: 'Delete' };
+  const btn = (action: GmailAction, label: string, title: string, off = false) => (
+    <button type="button" className={`btn small gmail-btn${busy === action ? ' busy' : ''}`} disabled={!!busy || off} aria-busy={busy === action} title={title} onClick={() => void act(action)}>
+      <span>{label}</span>
+      <span aria-hidden="true" className="gmail-btn-alt">
+        {PAIR[action]}
+      </span>
     </button>
   );
   return (
     <span className="gmail-actions" role="group" aria-label="Gmail">
       {state.unread ? btn('read', 'Mark read', 'Mark the whole thread read in Gmail') : btn('unread', 'Mark unread', 'Mark the thread unread in Gmail again')}
-      {!state.trash && (state.inbox ? btn('archive', 'Archive', 'Archive the thread in Gmail (out of the Inbox). It stays in this work stream.') : btn('unarchive', 'Unarchive', 'Move the thread back to the Gmail Inbox'))}
+      {/* While the thread is in Trash, Archive stays in place (disabled) so the buttons don't move. */}
+      {state.inbox || state.trash ? btn('archive', 'Archive', state.trash ? 'The thread is in Trash: Undelete it first' : 'Archive the thread in Gmail (out of the Inbox). It stays in this work stream.', state.trash) : btn('unarchive', 'Unarchive', 'Move the thread back to the Gmail Inbox')}
       {state.trash ? btn('untrash', 'Undelete', 'Take the thread out of Gmail Trash, back to the Inbox') : btn('trash', 'Delete', 'Move the thread to Gmail Trash (recoverable for 30 days). It stays in this work stream.')}
       {err && <span className="small error">{err}</span>}
     </span>

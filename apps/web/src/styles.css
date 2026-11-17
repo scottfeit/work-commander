@@ -149,6 +149,10 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .item-head h2 { margin: 0; flex: 1; font-size: 17px; min-width: 14ch; }
 /* Gmail: Mark read / Archive / Delete (or their undo), kept together. */
 .gmail-actions { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.gmail-btn { display: inline-grid; justify-items: center; }
+.gmail-btn > span { grid-area: 1 / 1; }
+.gmail-btn-alt { visibility: hidden; }
+.gmail-btn.busy { cursor: progress; }
 .title-input { font-size: 17px; font-weight: 600; border-color: transparent; background: transparent; flex: 1; padding: 4px 6px; margin-left: -6px; }
 .title-input:hover { border-color: var(--line); }
 .summary-input { border-color: transparent; background: transparent; padding: 4px 6px; margin-left: -6px; color: var(--muted); }
