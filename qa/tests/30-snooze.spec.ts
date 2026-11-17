@@ -7,6 +7,23 @@ test('Pending ▾: snooze to a preset or a typed time (read back to confirm); th
   await page.goto(WEB);
   await stream(page, /snooze me stream/i).click();
   const tile = page.locator('.sidebar .stream.active');
+  // Pending and ▾ are one split button: side by side on one line, on the tile and in the Overview, even with Close armed
+  const joined = async (root: import('@playwright/test').Locator) => {
+    const [a, c] = await Promise.all([root.locator('.pending-btn').boundingBox(), root.getByRole('button', { name: 'Snooze until…' }).boundingBox()]);
+    expect(Math.abs(a!.y - c!.y)).toBeLessThan(2);
+    expect(Math.abs(a!.x + a!.width - c!.x)).toBeLessThan(2);
+  };
+  await joined(tile);
+  await joined(page.locator('.overview-pane'));
+  const closeY = (await tile.getByRole('button', { name: 'Close stream' }).boundingBox())!.y;
+  await tile.getByRole('button', { name: 'Close stream' }).click();
+  await joined(tile);
+  // ...and the row stays on one line
+  expect(Math.abs((await tile.locator('.pending-btn').boundingBox())!.y - closeY)).toBeLessThan(2);
+  expect(Math.abs((await tile.getByRole('button', { name: 'Confirm close' }).boundingBox())!.y - closeY)).toBeLessThan(2);
+  await page.locator('.sidebar').screenshot({ path: 'qa/results/snooze-split.png' });
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar .brand').click();
   await tile.getByRole('button', { name: 'Snooze until…' }).click();
   const menu = page.getByRole('menu', { name: 'Snooze until' });
   await expect(menu.getByRole('menuitem')).toContainText(['Pending', 'Later today', 'Tomorrow']);

@@ -525,3 +525,11 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 @media (prefers-color-scheme: dark) { .search-hit mark { background: #5a4a10; } }
 .search-foot { padding: 6px 16px; border-top: 1px solid var(--line); }
 .search-all { display: block; margin: -4px 14px 6px; text-align: left; }
+
+/* Pending + ▾ are one split button: they never wrap apart, and share a border. */
+.pending-split { display: inline-flex; flex: 0 0 auto; white-space: nowrap; align-items: stretch; }
+.pending-split > .pending-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.pending-split .snooze { display: inline-flex; }
+.pending-split .pending-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; border-color: #e8710a; color: #e8710a; padding: 0 5px; }
+.pending-split > .pending-btn.on + .snooze .pending-caret { background: #e8710a; color: #fff; border-left-color: rgba(255, 255, 255, .55); }
+@media (prefers-color-scheme: dark) { .pending-split .pending-caret { border-color: #c96a1a; color: #ffa24d; } .pending-split > .pending-btn.on + .snooze .pending-caret { background: #d9731a; color: #fff; } }

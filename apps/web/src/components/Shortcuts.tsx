@@ -91,7 +91,7 @@ function run(key: string): boolean {
     case 'p':
       return click(tile?.querySelector<HTMLButtonElement>('.pending-btn') ?? null);
     case 'c':
-      return click(button(tile, /^(Close stream|Click again to close)$/));
+      return click(button(tile, /^(Close stream|Click again to close|Confirm close)$/));
     case 'u':
       return click(button(tile, /^Mark unread$/));
     case 'a':

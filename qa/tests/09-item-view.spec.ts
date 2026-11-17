@@ -99,10 +99,10 @@ test('the selected work stream tile (not the work item) carries Mark unread and 
   await stream(page, /item view test/i).click();
   const close = page.locator('.stream', { hasText: /item view test/i }).locator('.stream-actions').getByRole('button', { name: 'Close stream' });
   await close.click();
-  await expect(page.getByRole('button', { name: /click again/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm close' })).toBeVisible(); // short, so the tile's buttons stay on one line
   await page.waitForTimeout(300);
   expect((await api.get('/api/streams')).json.some((x: any) => /item view test/i.test(x.title))).toBe(true); // still open after one click
-  await page.getByRole('button', { name: /click again/i }).click();
+  await page.getByRole('button', { name: 'Confirm close' }).click();
   await expect.poll(async () => (await api.get('/api/streams')).json.some((x: any) => /item view test/i.test(x.title))).toBe(false);
 });
 

@@ -171,11 +171,13 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
             Mark unread
           </button>
           {s.status === 'open' && (
-            <ConfirmButton confirm={confirmClose} onConfirm={() => onCloseStream(s.id)} armedChildren="Click again to close" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
+            <ConfirmButton confirm={confirmClose} onConfirm={() => onCloseStream(s.id)} armedChildren="Confirm close" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
               Close stream
             </ConfirmButton>
           )}
           {s.status === 'open' && (
+            // One split button: the alarm does the default (Pending, or back to Open); only the ▾ opens the snooze menu.
+            <span className="pending-split">
             <button
               type="button"
               className={`btn small pending-btn ${s.pending ? 'on' : ''}`}
@@ -186,8 +188,9 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
             >
               <AlarmIcon />
             </button>
+            <SnoozeMenu onPending={() => onTogglePending(s.id, true)} onSnooze={(at) => onSnooze(s.id, at)} extra={promisedOption(s)} />
+            </span>
           )}
-          {s.status === 'open' && <SnoozeMenu onPending={() => onTogglePending(s.id, true)} onSnooze={(at) => onSnooze(s.id, at)} extra={promisedOption(s)} />}
         </div>
       )}
     </div>

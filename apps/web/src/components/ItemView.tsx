@@ -401,6 +401,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
       <div className="item-head">
         <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
         {onTogglePending && stream.status === 'open' && (
+          <span className="pending-split">
           <button
             type="button"
             className={`btn small pending-btn ${stream.pending ? 'on' : ''}`}
@@ -411,8 +412,9 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           >
             <AlarmIcon />
           </button>
+          <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} extra={promisedOption(stream)} />
+          </span>
         )}
-        {onTogglePending && stream.status === 'open' && <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} extra={promisedOption(stream)} />}
         {onMarkUnread && (
           <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
             Mark unread
