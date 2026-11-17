@@ -44,8 +44,26 @@ export class DemoWorld {
   constructor(private repo: Repo) {}
 
   // ----- email -----
+  /** Where each demo thread is "in Gmail" (unread and in the Inbox until changed). */
+  gmailState = new Map<string, { unread: boolean; inbox: boolean; trash: boolean }>();
   email = {
-    getThread: async (id: string) => structuredClone(this.threads.get(id)!),
+    getThread: async (id: string) => {
+      const t = structuredClone(this.threads.get(id)!);
+      if (t.data.gmail) t.data.gmail.state = await this.email.threadState(id);
+      return t;
+    },
+    threadState: async (id: string) => ({ ...(this.gmailState.get(id) ?? { unread: true, inbox: true, trash: false }) }),
+    modifyThread: async (id: string, action: 'read' | 'unread' | 'archive' | 'unarchive' | 'trash' | 'untrash', opts: { toInbox?: boolean } = {}) => {
+      const s = await this.email.threadState(id);
+      if (action === 'read' || action === 'unread') s.unread = action === 'unread';
+      if (action === 'archive' || action === 'unarchive') s.inbox = action === 'unarchive';
+      if (action === 'trash') s.trash = true;
+      if (action === 'untrash') {
+        s.trash = false;
+        if (opts.toInbox) s.inbox = true;
+      }
+      this.gmailState.set(id, s);
+    },
     search: async (q: string) =>
       [...this.threads.values()]
         .filter((t) => t.title.toLowerCase().includes(q.toLowerCase()) || q === 'in:inbox')

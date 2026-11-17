@@ -520,6 +520,12 @@ export class LayaService {
     };
   }
 
+  /** Training examples were put back by Undo: re-check every part. */
+  async examplesRestored() {
+    for (const { id: p } of LAYA_PARTS) await this.evaluate(p);
+    this.changed();
+  }
+
   private changed() {
     void this.status()
       .then((status) => bus.publish({ type: 'laya.status', status }))

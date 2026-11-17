@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
+import type { GmailAction, GmailThreadState, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { fmtTime, get, patch, post, timeAgo } from '../api';
 import { UsagePie } from './usageViz';
@@ -152,6 +152,7 @@ export function ItemView({
             Quick reply
           </button>
         )}
+        {item.source === 'gmail' && <GmailButtons item={item} />}
         {!peek && (
           <button
             className={`btn small ${item.data.muted ? '' : 'ghost'}`}
@@ -505,5 +506,56 @@ function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt:
       <p className="muted small">Estimated at API prices{u.unit === 'tokens' ? ` · ${formatUsage(u.total, 'tokens')}` : ''}. Background checks for new activity aren't tied to one work stream; they're in Settings → Usage.</p>
       <UsagePie parts={parts} />
     </section>
+  );
+}
+
+/**
+ * Mark read, Archive and Delete for an email work item, acting on the whole thread in Gmail. Each shows where the thread is
+ * in Gmail now (re-checked when you open the item), so after a click it becomes its undo: Mark unread, Unarchive, Undelete.
+ * The item stays in its work stream either way. Hidden when Gmail isn't reachable this way (e.g. connected over MCP).
+ */
+function GmailButtons({ item }: { item: StreamItem }) {
+  const [state, setState] = useState<GmailThreadState | null>(item.data.gmail?.state ?? null);
+  const [busy, setBusy] = useState<GmailAction | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [usable, setUsable] = useState(true);
+  useEffect(() => {
+    setErr(null);
+    get<GmailThreadState>(`/api/items/${item.id}/gmail`)
+      .then((s) => {
+        setState(s);
+        setUsable(true);
+      })
+      .catch(() => setUsable(!!item.data.gmail?.state));
+    // only on opening the item; later changes arrive with the item
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+  useEffect(() => {
+    if (item.data.gmail?.state) setState(item.data.gmail.state);
+  }, [item.data.gmail?.state]);
+  if (!usable || !state) return null;
+  const act = async (action: GmailAction) => {
+    setBusy(action);
+    setErr(null);
+    try {
+      setState(await post<GmailThreadState>(`/api/items/${item.id}/gmail`, { action }));
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const btn = (action: GmailAction, label: string, title: string) => (
+    <button type="button" className="btn small" disabled={!!busy} title={title} onClick={() => void act(action)}>
+      {busy === action ? '…' : label}
+    </button>
+  );
+  return (
+    <span className="gmail-actions" role="group" aria-label="Gmail">
+      {state.unread ? btn('read', 'Mark read', 'Mark the whole thread read in Gmail') : btn('unread', 'Mark unread', 'Mark the thread unread in Gmail again')}
+      {!state.trash && (state.inbox ? btn('archive', 'Archive', 'Archive the thread in Gmail (out of the Inbox). It stays in this work stream.') : btn('unarchive', 'Unarchive', 'Move the thread back to the Gmail Inbox'))}
+      {state.trash ? btn('untrash', 'Undelete', 'Take the thread out of Gmail Trash, back to the Inbox') : btn('trash', 'Delete', 'Move the thread to Gmail Trash (recoverable for 30 days). It stays in this work stream.')}
+      {err && <span className="small error">{err}</span>}
+    </span>
   );
 }

@@ -31,9 +31,12 @@ interface Props {
   onTogglePending: (id: string, pending: boolean) => void;
   /** Closing takes two clicks (Settings → Display). */
   confirmClose: boolean;
+  /** What the system-wide Undo would reverse next (null: nothing). */
+  undoNext: string | null;
+  onUndo: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, confirmClose }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, confirmClose, undoNext, onUndo }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -182,6 +185,16 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <span className="logo" />
         <span>Work Commander</span>
         {demo && <span className="chip demo">demo</span>}
+        <button
+          type="button"
+          className="icon-btn undo-btn"
+          aria-label={undoNext ? `Undo: ${undoNext}` : 'Undo'}
+          title={undoNext ? `Undo: ${undoNext} (⌘Z)` : 'Nothing to undo'}
+          disabled={!undoNext}
+          onClick={onUndo}
+        >
+          <UndoIcon />
+        </button>
         <button type="button" className="icon-btn gear-btn" aria-label="Settings" title="Settings" onClick={onSettings}>
           <GearIcon />
         </button>
@@ -461,6 +474,16 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
       </div>
       {err && <div className="small error">{err}</div>}
     </div>
+  );
+}
+
+/** The system-wide Undo button in the sidebar header. */
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </svg>
   );
 }
 

@@ -133,7 +133,7 @@ export interface ItemData {
   /** Slack-specific */
   slack?: { channel: string; channelName?: string; threadTs: string };
   /** Gmail-specific */
-  gmail?: { threadId: string; lastMessageIdHeader?: string; references?: string };
+  gmail?: { threadId: string; lastMessageIdHeader?: string; references?: string; state?: GmailThreadState };
   /** Generic body for docs/other */
   body?: string;
   raw?: unknown;
@@ -547,6 +547,8 @@ export interface Settings {
     confirmClose?: boolean;
     /** Keep the Drafts pane open even when nothing is waiting for review. Default off (it appears only when there are drafts). */
     keepDraftsOpen?: boolean;
+    /** After Undo, show a short message saying what was undone. Default on. */
+    undoToast?: boolean;
   };
   backup: BackupSettings;
   /** How silenced work items behave. */
@@ -582,6 +584,20 @@ export interface EnvironmentInfo {
 
 // ---------- Server-sent events ----------
 
+/** Where an email thread is in Gmail: unread (any message), in the Inbox (not archived), in Trash. */
+export interface GmailThreadState {
+  unread: boolean;
+  inbox: boolean;
+  trash: boolean;
+}
+export type GmailAction = 'read' | 'unread' | 'archive' | 'unarchive' | 'trash' | 'untrash';
+
+/** The system-wide Undo: what the next undo would reverse (null: nothing), and how many steps are kept (at most 3). */
+export interface UndoInfo {
+  next: string | null;
+  count: number;
+}
+
 export type ServerEvent =
   | { type: 'stream.updated'; stream: WorkStream }
   /** The PU moved the last work item out of this stream, so it was removed. `movedTo` is where that item went (null: out of every stream). */
@@ -595,6 +611,7 @@ export type ServerEvent =
   /** Today's usage passed the budget. `desktop`: also show a desktop notification; `banner`: show the in-app banner. */
   | { type: 'usage.alert'; day: string; message: string; desktop: boolean; banner: boolean }
   | { type: 'laya.status'; status: LayaStatus }
+  | { type: 'undo.changed'; undo: UndoInfo }
   | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string };
 
 export const GENERAL_STREAM = '__general__';

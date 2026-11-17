@@ -1,5 +1,5 @@
 import type { OutFile } from '../core/attachments.js';
-import type { ItemData, ItemSource, StreamItem, ThreadMessage } from '@wc/shared';
+import type { GmailAction, GmailThreadState, ItemData, ItemSource, StreamItem, ThreadMessage } from '@wc/shared';
 
 /** What every ingestion source hands to the triage pipeline. */
 export interface InboundItem {
@@ -28,6 +28,10 @@ export interface EmailApi {
   search(query: string, max?: number): Promise<{ threadId: string; subject: string; from: string; snippet: string; at: string }[]>;
   reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
   send(input: { to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
+  /** Mark read/unread, archive/unarchive, or trash/untrash a whole thread. `toInbox` with untrash: put it back in the Inbox too. */
+  modifyThread?(threadId: string, action: GmailAction, opts?: { toInbox?: boolean }): Promise<void>;
+  /** Where the thread is now (read, archived, in Trash). */
+  threadState?(threadId: string): Promise<GmailThreadState>;
 }
 
 export interface DocsApi {

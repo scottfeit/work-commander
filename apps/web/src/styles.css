@@ -86,7 +86,10 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel-2); min-height: 0; }
 .brand { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; font-weight: 650; letter-spacing: -.01em; }
 /* Settings: top right of the sidebar, above the All open work count. */
-.brand .gear-btn { margin-left: auto; color: var(--muted); display: inline-grid; place-items: center; }
+.brand .undo-btn { margin-left: auto; color: var(--muted); display: inline-grid; place-items: center; }
+.brand .undo-btn:disabled { opacity: .4; cursor: default; }
+.brand .undo-btn:not(:disabled):hover { color: var(--text); }
+.brand .gear-btn { color: var(--muted); display: inline-grid; place-items: center; }
 .brand .gear-btn:hover { color: var(--text); }
 .logo { width: 18px; height: 18px; border-radius: 5px; background: var(--accent); position: relative; }
 .logo::after { content: ''; position: absolute; inset: 5px 4px; border-top: 2px solid #fff; border-bottom: 2px solid #fff; }
@@ -142,8 +145,10 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .empty-state { padding: 40px; max-width: 620px; }
 .item-view { padding: 0 22px 30px; max-width: 980px; margin: 0 auto; }
 /* The header (title and buttons) stays put while the content scrolls. */
-.item-head { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 16px 0 10px; box-shadow: 0 1px 0 var(--line); margin-bottom: 12px; }
-.item-head h2 { margin: 0; flex: 1; font-size: 17px; }
+.item-head { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 16px 0 10px; box-shadow: 0 1px 0 var(--line); margin-bottom: 12px; }
+.item-head h2 { margin: 0; flex: 1; font-size: 17px; min-width: 14ch; }
+/* Gmail: Mark read / Archive / Delete (or their undo), kept together. */
+.gmail-actions { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .title-input { font-size: 17px; font-weight: 600; border-color: transparent; background: transparent; flex: 1; padding: 4px 6px; margin-left: -6px; }
 .title-input:hover { border-color: var(--line); }
 .summary-input { border-color: transparent; background: transparent; padding: 4px 6px; margin-left: -6px; color: var(--muted); }

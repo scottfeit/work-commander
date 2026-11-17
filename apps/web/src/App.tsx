@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, EnvironmentInfo, Proposal, ServerEvent, StreamItem, WorkStream } from '@wc/shared';
+import type { ChatMessage, EnvironmentInfo, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, patch, post, useServerEvents } from './api';
 import { StreamList } from './components/StreamList';
@@ -38,6 +38,9 @@ export function App() {
   const [recentTabFirst, setRecentTabFirst] = useState(false);
   const [confirmClose, setConfirmClose] = useState(true);
   const [keepDraftsOpen, setKeepDraftsOpen] = useState(false);
+  // System-wide Undo: what it would reverse next, and whether to say what it undid (Settings → Display).
+  const [undoInfo, setUndoInfo] = useState<UndoInfo>({ next: null, count: 0 });
+  const undoToastRef = useRef(true);
   const [focusDraft, setFocusDraft] = useState<string | null>(null);
   const openTabRef = useRef<'overview' | 'recent'>('overview');
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -92,6 +95,7 @@ export function App() {
         setRecentTabFirst(!!s.ui?.recentTabFirst);
         setConfirmClose(s.ui?.confirmClose !== false);
         setKeepDraftsOpen(!!s.ui?.keepDraftsOpen);
+        undoToastRef.current = s.ui?.undoToast !== false;
         openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
       })
       .catch(() => undefined);
@@ -209,6 +213,9 @@ export function App() {
         case 'run.state':
           if (sidOf(e.streamId) === cur && e.state !== 'running') setLive(null);
           break;
+        case 'undo.changed':
+          setUndoInfo(e.undo);
+          break;
         case 'usage.alert':
           if (e.banner) setUsageAlert({ day: e.day, message: e.message });
           if (e.desktop && 'Notification' in window && Notification.permission === 'granted') new Notification('Work Commander: usage budget passed', { body: e.message });
@@ -223,6 +230,32 @@ export function App() {
       void loadSelected(selRef.current);
     },
   );
+
+  useEffect(() => {
+    get<UndoInfo>('/api/undo').then(setUndoInfo, () => undefined);
+  }, []);
+  const doUndo = useCallback(async () => {
+    try {
+      const r = await post<UndoInfo & { undone: string | null }>('/api/undo');
+      setUndoInfo({ next: r.next, count: r.count });
+      if (r.undone && undoToastRef.current) toast({ title: 'Undone', body: r.undone.charAt(0).toUpperCase() + r.undone.slice(1), tone: 'ok' });
+    } catch (e: any) {
+      toast({ title: "Couldn't undo", body: e.message, tone: 'error' });
+    }
+  }, [toast]);
+  // ⌘Z / Ctrl+Z undoes the last action, except while typing (where it undoes the typing, as usual).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') || t.isContentEditable)) return;
+      if (location.pathname.startsWith('/settings')) return;
+      e.preventDefault();
+      void doUndo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doUndo]);
 
   const stream = useMemo(() => streams.find((s) => s.id === selected) ?? null, [streams, selected]);
   const tabItems = useMemo(() => orderTabs(items, recentTabFirst), [items, recentTabFirst]);
@@ -319,6 +352,8 @@ export function App() {
         onMarkUnread={(id) => void markUnread(id)}
         onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
         onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
+        undoNext={undoInfo.next}
+        onUndo={() => void doUndo()}
       />
       <main className="main" ref={mainRef} style={{ gridTemplateRows: `${split}fr 6px ${1 - split}fr` }}>
         <div className={`work-area${showOverview ? ' with-overview' : ''}`} ref={workRef} style={showOverview ? { gridTemplateColumns: `minmax(0, ${1 - ovSplit}fr) 6px minmax(0, ${ovSplit}fr)` } : undefined}>

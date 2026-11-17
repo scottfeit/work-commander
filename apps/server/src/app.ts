@@ -18,6 +18,8 @@ import { McpOAuth, setMcpOAuth } from './integrations/mcpOAuth.js';
 import { UsageLog } from './core/usage.js';
 import { LayaManager } from './laya/manager.js';
 import { LayaService } from './laya/service.js';
+import { UndoLog } from './core/undo.js';
+import { gmailThreadAction } from './core/gmailActions.js';
 
 export interface App {
   cfg: AppConfig;
@@ -35,10 +37,12 @@ export interface App {
   mcpOAuth: McpOAuth;
   usage: UsageLog;
   laya: LayaService;
+  /** System-wide Undo of the PU's last three actions. */
+  undo: UndoLog;
 }
 
 export interface AppOverrides {
-  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya'>) => AgentBackend;
+  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya' | 'undo'>) => AgentBackend;
   world?: (repo: Repo) => WorldOverride;
   onePassword?: () => Promise<OnePasswordClient>;
   grantFetch?: typeof fetch;
@@ -87,5 +91,6 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   triage.onAddedToChat = (a) => offerAddedChat({ repo, settings: get, secret: (id) => secrets.get(id), structured: (i) => backend.structured(i) }, a);
   hub.mcpIngestorFactory = (system, sink, report) => new McpPollIngestor(system, backend, get, secrets, repo, sink, report);
   await executor.recoverInterrupted();
-  return { ...partial, backend, runner, triage, laya };
+  const undo = new UndoLog({ repo, gmail: (itemId, action, opts) => gmailThreadAction({ repo, hub }, itemId, action, opts), layaChanged: () => laya.examplesRestored() });
+  return { ...partial, backend, runner, triage, laya, undo };
 }

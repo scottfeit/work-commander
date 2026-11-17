@@ -2,7 +2,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { gmail as gmailApi, type gmail_v1 } from '@googleapis/gmail';
 import { drive as driveApi } from '@googleapis/drive';
 import { calendar as calendarApi } from '@googleapis/calendar';
-import type { GoogleSettings, PrimaryUser, ThreadMessage } from '@wc/shared';
+import type { GmailAction, GmailThreadState, GoogleSettings, PrimaryUser, ThreadMessage } from '@wc/shared';
 import type { CalendarApi, DocsApi, EmailApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import { htmlToText } from './types.js';
 import type { Repo } from '../core/repo.js';
@@ -106,6 +106,12 @@ export function buildMime(input: {
   return lines.join('\r\n');
 }
 
+/** A thread is unread if any message is, in the Inbox if any message is, and in Trash when every message is. */
+export function threadStateOf(msgs: { labelIds?: string[] | null }[]): GmailThreadState {
+  const has = (l: string) => msgs.some((m) => (m.labelIds ?? []).includes(l));
+  return { unread: has('UNREAD'), inbox: has('INBOX'), trash: msgs.length > 0 && msgs.every((m) => (m.labelIds ?? []).includes('TRASH')) };
+}
+
 export class GoogleWorkspace implements EmailApi, CalendarApi {
   gmail: gmail_v1.Gmail;
   private driveC;
@@ -147,7 +153,7 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
       url: `https://mail.google.com/mail/u/0/#all/${thread.id}`,
       data: {
         messages,
-        gmail: { threadId: thread.id!, lastMessageIdHeader: last ? header(last, 'Message-ID') : undefined, references: last ? header(last, 'References') : undefined },
+        gmail: { threadId: thread.id!, lastMessageIdHeader: last ? header(last, 'Message-ID') : undefined, references: last ? header(last, 'References') : undefined, state: threadStateOf(msgs) },
       },
       eventId: triggerId ?? last?.id ?? thread.id!,
     };
@@ -156,6 +162,26 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
   async getThread(threadId: string, triggerId?: string) {
     const t = await this.gmail.users.threads.get({ userId: 'me', id: threadId, format: 'full' });
     return this.toInbound(t.data, (await this.pu()).email, triggerId);
+  }
+
+  /** Mark read/unread, archive/unarchive, or trash/untrash the whole thread (needs the gmail.modify scope, which sign-in asks for). */
+  async modifyThread(threadId: string, action: GmailAction, opts: { toInbox?: boolean } = {}) {
+    const t = this.gmail.users.threads;
+    const labels = (add: string[], remove: string[]) => t.modify({ userId: 'me', id: threadId, requestBody: { addLabelIds: add, removeLabelIds: remove } });
+    if (action === 'read') await labels([], ['UNREAD']);
+    else if (action === 'unread') await labels(['UNREAD'], []);
+    else if (action === 'archive') await labels([], ['INBOX']);
+    else if (action === 'unarchive') await labels(['INBOX'], []);
+    else if (action === 'trash') await t.trash({ userId: 'me', id: threadId });
+    else {
+      await t.untrash({ userId: 'me', id: threadId });
+      if (opts.toInbox) await labels(['INBOX'], []);
+    }
+  }
+
+  async threadState(threadId: string): Promise<GmailThreadState> {
+    const r = await this.gmail.users.threads.get({ userId: 'me', id: threadId, format: 'minimal' });
+    return threadStateOf(r.data.messages ?? []);
   }
 
   async search(query: string, max = 10) {
