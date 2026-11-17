@@ -68,6 +68,11 @@ export function App() {
     const v = Number(localStorage.getItem('wc.ovSplit'));
     return v >= 0.15 && v <= 0.75 ? v : 1 / 3;
   });
+  // Share of the bottom area's width the Drafts pane takes, beside the Claude chat (drag the line between them; double-click: 50/50).
+  const [draftSplit, setDraftSplit] = useState(() => {
+    const v = Number(localStorage.getItem('wc.draftSplit'));
+    return v >= 0.2 && v <= 0.8 ? v : 0.5;
+  });
   const selRef = useRef(selected);
   selRef.current = selected;
   const sidOf = (streamId: string | null) => streamId ?? GENERAL_STREAM;
@@ -369,6 +374,24 @@ export function App() {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
+  const bottomRef = useRef<HTMLElement>(null);
+  const startDraftDrag = (ev: React.MouseEvent) => {
+    ev.preventDefault();
+    document.body.classList.add('col-resizing');
+    const move = (m: MouseEvent) => {
+      const r = bottomRef.current!.getBoundingClientRect();
+      const v = Math.min(0.8, Math.max(0.2, (r.right - m.clientX) / r.width));
+      setDraftSplit(v);
+      localStorage.setItem('wc.draftSplit', String(v));
+    };
+    const up = () => {
+      document.body.classList.remove('col-resizing');
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
   const showOverview = !!stream && selected !== GENERAL_STREAM;
 
   if (path.startsWith('/settings')) return <SettingsPage env={env} onBack={() => nav('/')} />;
@@ -470,7 +493,11 @@ export function App() {
           )}
         </div>
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />
-        <section className={`bottom ${drafts.length || keepDraftsOpen ? 'with-drafts' : ''}`}>
+        <section
+          ref={bottomRef}
+          className={`bottom ${drafts.length || keepDraftsOpen ? 'with-drafts' : ''}`}
+          style={drafts.length || keepDraftsOpen ? { gridTemplateColumns: `minmax(0, ${1 - draftSplit}fr) 6px minmax(0, ${draftSplit}fr)` } : undefined}
+        >
           <ChatPane
             streamId={selected}
             streamTitle={stream?.title ?? 'All open work'}
@@ -479,6 +506,20 @@ export function App() {
             live={live?.text ?? null}
             running={running}
           />
+          {(drafts.length > 0 || keepDraftsOpen) && (
+            <div
+              className="divider-v"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the Drafts pane"
+              title="Drag to resize the Claude and Drafts panes (double-click for 50/50)"
+              onMouseDown={startDraftDrag}
+              onDoubleClick={() => {
+                setDraftSplit(0.5);
+                localStorage.removeItem('wc.draftSplit');
+              }}
+            />
+          )}
           {(drafts.length > 0 || keepDraftsOpen) && (
             <DraftPane
               confirmClose={confirmClose}

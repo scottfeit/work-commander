@@ -143,7 +143,8 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .divider { cursor: row-resize; background: var(--line); }
 .divider:hover { background: var(--accent); }
 .bottom { display: grid; grid-template-columns: 1fr; min-height: 0; background: var(--bg); }
-.bottom.with-drafts { grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.1fr); }
+.bottom.with-drafts { grid-template-columns: minmax(0, 1fr) 6px minmax(0, 1fr); }
+.bottom > * { min-width: 0; }
 
 .empty-state { padding: 40px; max-width: 620px; }
 .item-view { padding: 0 22px 30px; max-width: 980px; margin: 0 auto; }

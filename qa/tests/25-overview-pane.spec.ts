@@ -72,3 +72,45 @@ test('Settings is a gear at the top right of the sidebar; the four list checkbox
   await gear.click();
   await expect(page).toHaveURL(/\/settings/);
 });
+
+test('the Claude and Drafts panes resize into each other by dragging the line between them; double-click puts them back to 50/50', async ({ page }) => {
+  await api.waitPending(['ticket_create', 'email_reply']);
+  await page.goto(WEB);
+  await page.evaluate(() => localStorage.removeItem('wc.draftSplit'));
+  await page.reload();
+  await stream(page, /contractor access/i).click();
+  const chat = page.locator('.bottom > .chat, .bottom > :first-child').first();
+  const drafts = page.locator('.bottom .drafts');
+  const line = page.getByRole('separator', { name: 'Resize the Drafts pane' });
+  await expect(drafts).toBeVisible();
+  const widths = async () => [(await chat.boundingBox())!.width, (await drafts.boundingBox())!.width];
+  const [c0, d0] = await widths();
+  expect(Math.abs(c0 - d0)).toBeLessThan(4); // 50/50 to start
+
+  // drag left: Drafts grows into the chat; it stays after a reload
+  const b = (await line.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(b.x - 250, b.y + 60, { steps: 6 });
+  await page.mouse.up();
+  const [c1, d1] = await widths();
+  expect(d1).toBeGreaterThan(d0 + 200);
+  expect(c1).toBeLessThan(c0 - 200);
+  await page.reload();
+  await stream(page, /contractor access/i).click();
+  expect(Math.abs((await drafts.boundingBox())!.width - d1)).toBeLessThan(4);
+
+  // and the other way, into the drafts
+  const b2 = (await line.boundingBox())!;
+  await page.mouse.move(b2.x + b2.width / 2, b2.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(b2.x + 500, b2.y + 60, { steps: 6 });
+  await page.mouse.up();
+  expect((await widths())[0]).toBeGreaterThan(c0 + 150);
+  await page.locator('.bottom').screenshot({ path: 'qa/results/drafts-resize.png' });
+
+  // double-click: back to 50/50
+  await line.dblclick();
+  const [c2, d2] = await widths();
+  expect(Math.abs(c2 - d2)).toBeLessThan(4);
+});
