@@ -1,5 +1,6 @@
+import { describeRule, matchRule } from '../core/rules.js';
 import { z } from 'zod';
-import type { StreamItem, Settings, ThreadMessage } from '@wc/shared';
+import type { StreamItem, Settings, ThreadMessage, TriageRule } from '@wc/shared';
 import { Repo } from '../core/repo.js';
 import { bus } from '../core/bus.js';
 import type { InboundItem } from '../integrations/types.js';
@@ -272,6 +273,11 @@ export class TriagePipeline {
     }
 
     const s = await this.settings();
+    // The PU's rules come first: a match is ignored or filed without asking Claude (or Laya).
+    if (!item.streamId) {
+      const rule = matchRule(s.rules ?? [], item, fromOthers);
+      if (rule && (await this.applyRule(rule, inbound, item, fresh))) return;
+    }
     const held: UsageEntry[] = [];
     try {
       const decision = await this.judge(item.id, inbound, item.streamId, fresh, s, held);
@@ -282,6 +288,24 @@ export class TriagePipeline {
     }
     await this.flagUnread(item.id, fresh, brokeThrough);
     await this.followChatHint(item.id, fresh);
+  }
+
+  /** One of the PU's rules matched: ignore the update, or file it into the rule's work stream (reopening it if closed). */
+  private async applyRule(rule: TriageRule, inbound: InboundItem, item: StreamItem, fresh: ThreadMessage[]) {
+    const why = `your rule (${describeRule(rule)})`;
+    if (rule.action === 'ignore') {
+      await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: `ignored by ${why}`, rule: rule.id });
+      return true;
+    }
+    const st = rule.streamId ? await this.repo.getStream(rule.streamId) : null;
+    if (!st) return false; // the stream is gone: triage as usual
+    if (st.status === 'closed') await this.repo.updateStream(st.id, { status: 'open' });
+    await this.repo.attachItem(item.id, st.id);
+    await this.repo.updateStream(st.id, { touch: true, unread: true, pending: false });
+    await this.repo.addChat({ streamId: st.id, role: 'system', content: `"${item.title}" filed here by ${why}.` });
+    await this.repo.markInbound(inbound.source, inbound.eventId, true, { filed: st.id, reason: `filed by ${why}`, rule: rule.id });
+    await this.flagUnread(item.id, fresh);
+    return true;
   }
 
   /** "I added you to the chat about this": look for that chat (in the background) and offer it for the stream. */

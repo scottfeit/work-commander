@@ -3,6 +3,7 @@ import type { BackupStatus, CredentialInfo, EnvironmentInfo, FieldMapping, Model
 import { BACKGROUND_TASKS } from '@wc/shared';
 import { UsageSection } from './UsageSection';
 import { TriageSection } from './TriageSection';
+import { RulesSection } from './RulesSection';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
 
@@ -10,6 +11,7 @@ const SECTIONS = [
   ['pu', 'Primary user & org chart'],
   ['claude', 'Claude'],
   ['triage', 'Triage'],
+  ['rules', 'Rules'],
   ['usage', 'Usage'],
   ['google', 'Google Workspace'],
   ['slack', 'Slack'],
@@ -391,6 +393,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </section>
         )}
         {section === 'triage' && saved && <TriageSection s={s} saved={saved} up={up} env={env} />}
+        {section === 'rules' && <RulesSection s={s} setS={setS} />}
         {section === 'usage' && <UsageSection s={s} up={up} />}
 
         {section === 'display' && (

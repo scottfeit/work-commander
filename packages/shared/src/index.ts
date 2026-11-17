@@ -515,6 +515,26 @@ export interface FieldMapping {
   managerLink?: 'email' | 'employeeId';
 }
 
+/**
+ * A rule applied before triage to an update that isn't in a work stream yet: matching updates are ignored, or filed into a
+ * work stream, without asking Claude (or Laya). Every condition filled in must match (case-insensitive "contains").
+ */
+export interface TriageRule {
+  id: string;
+  source: 'any' | 'gmail' | 'slack' | 'jira';
+  /** The sender's name or address contains this (e.g. "@news.example.com"). */
+  from?: string;
+  /** The subject or title contains this. */
+  subject?: string;
+  /** A new message's text contains this. */
+  text?: string;
+  action: 'ignore' | 'stream';
+  /** For 'stream': where it goes. */
+  streamId?: string;
+  /** Off rules are kept but not applied. Default on. */
+  enabled?: boolean;
+}
+
 /** Whether polling and triage are paused (after a long gap, or by hand), and what is waiting for Resume. */
 export interface PollingState {
   paused: { since: string; reason: 'gap' | 'manual'; /** When polling last ran before the gap. */ gapFrom?: string } | null;
@@ -565,6 +585,8 @@ export interface Settings {
   /** When snoozed (Pending) work streams are surfaced again. */
   reminders: ReminderSettings;
   usage: UsageSettings;
+  /** Rules applied before triage (first match wins). */
+  rules?: TriageRule[];
   /** Polling pauses itself after a long gap (the computer slept, or the server was off) until the PU resumes it. */
   polling?: { pauseAfterGapHours: number };
   triage: TriageEngineSettings;
