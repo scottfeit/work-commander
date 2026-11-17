@@ -110,6 +110,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const email = await hub.api('email').catch(() => null);
     return learnStyle({ repo, backend: app.backend, email }, await settings.get());
   });
+  // Search across everything: streams (open and closed), the messages in work items, and chat.
+  f.get('/api/search', async (req) => repo.searchAll(String((req.query as any).q ?? '').slice(0, 200)));
   // A typed time ("the Thursday after next, 2pm") read by the cheap model: for snoozing to a date.
   f.post('/api/parse-time', async (req) => {
     const b = z.object({ text: z.string().min(1).max(200), tz: z.string().max(64).default('UTC') }).parse(req.body);

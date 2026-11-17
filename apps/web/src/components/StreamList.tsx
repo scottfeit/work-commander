@@ -38,10 +38,12 @@ interface Props {
   undoNext: string | null;
   onUndo: () => void;
   pollingPaused: boolean;
+  /** Search everything (streams open and closed, messages, chat) for what's typed in the filter. */
+  onSearchAll: (q: string) => void;
   onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -226,7 +228,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <span className="muted small">{streams.filter((s) => s.status === 'open').length}</span>
       </button>
       <div className="sidebar-tools">
-        <input className="search" placeholder="Filter streams" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="search" placeholder="Filter streams" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && q.trim().length >= 2 && onSearchAll(q.trim())} />
         <button
           className={`icon-btn ${dropOn === NEW_STREAM ? 'drop-target' : ''}`}
           title="New work stream (or drop a work item here to start one with it)"
@@ -243,6 +245,11 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           +
         </button>
       </div>
+      {q.trim().length >= 2 && (
+        <button type="button" className="link small search-all" onClick={() => onSearchAll(q.trim())} title="Search work streams (closed too), messages and chat (⌘K)">
+          Search everything for "{q.trim()}" ↵
+        </button>
+      )}
       {adding && (
         <div className="new-stream">
           <input autoFocus placeholder="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />

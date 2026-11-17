@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, EnvironmentInfo, PollingState, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
+import type { ChatMessage, EnvironmentInfo, PollingState, SearchHit, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, patch, post, useServerEvents } from './api';
 import { StreamList } from './components/StreamList';
@@ -9,6 +9,7 @@ import { ChatPane } from './components/ChatPane';
 import { DraftPane } from './components/DraftPane';
 import { Toasts, type Toast } from './components/Toasts';
 import { Shortcuts } from './components/Shortcuts';
+import { Search } from './components/Search';
 import { SettingsPage } from './settings/SettingsPage';
 
 function usePath() {
@@ -42,6 +43,9 @@ export function App() {
   // System-wide Undo: what it would reverse next, and whether to say what it undid (Settings → Display).
   const [undoInfo, setUndoInfo] = useState<UndoInfo>({ next: null, count: 0 });
   const [polling, setPolling] = useState<PollingState>({ paused: null, held: 0, catchingUp: false });
+  const [search, setSearch] = useState<{ open: boolean; q?: string }>({ open: false });
+  /** A tab to show once the work stream being opened has loaded (from a search result). */
+  const wantTabRef = useRef<string | null>(null);
   const undoToastRef = useRef(true);
   const [focusDraft, setFocusDraft] = useState<string | null>(null);
   const openTabRef = useRef<'overview' | 'recent'>('overview');
@@ -133,6 +137,9 @@ export function App() {
     setLive(null);
     setTab(OVERVIEW_TAB);
     void loadSelected(selected).then((it) => {
+      const want = wantTabRef.current;
+      wantTabRef.current = null;
+      if (want && selRef.current === selected && it?.some((x) => x.id === want)) return setTab(want);
       // Setting: open a work stream on its most recently updated item tab instead of the first one.
       if (!it?.length || selRef.current !== selected || selected === GENERAL_STREAM || openTabRef.current !== 'recent') return;
       setTab(it.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).id);
@@ -258,6 +265,34 @@ export function App() {
       toast({ title: "Couldn't undo", body: e.message, tone: 'error' });
     }
   }, [toast]);
+  // ⌘K / Ctrl+K: search everything (works from anywhere, even a text box).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'k' || location.pathname.startsWith('/settings')) return;
+      e.preventDefault();
+      setSearch({ open: true });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const openHit = useCallback(
+    (h: SearchHit) => {
+      if (!h.streamId) {
+        if (h.itemId) void openSkipped(h.itemId); // a message in no work stream: preview it
+        else setSelected(GENERAL_STREAM);
+        return;
+      }
+      if (peek) closePeek();
+      if (h.streamStatus === 'closed') setShowClosed(true);
+      if (h.streamId === selRef.current) {
+        if (h.itemId) setTab(h.itemId);
+      } else {
+        wantTabRef.current = h.itemId ?? null;
+        setSelected(h.streamId);
+      }
+    },
+    [openSkipped, peek, closePeek],
+  );
   // ⌘Z / Ctrl+Z undoes the last action, except while typing (where it undoes the typing, as usual).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -374,7 +409,8 @@ export function App() {
           )}
         </div>
       )}
-      <Shortcuts />
+      <Shortcuts onSearch={() => setSearch({ open: true })} />
+      <Search open={search.open} initial={search.q} onClose={() => setSearch({ open: false })} onOpen={openHit} />
       <StreamList
         confirmClose={confirmClose}
         streams={streams}
@@ -398,6 +434,7 @@ export function App() {
         onSnooze={(id, snoozeUntil) => void patch(`/api/streams/${id}`, { pending: true, snoozeUntil })}
         undoNext={undoInfo.next}
         onUndo={() => void doUndo()}
+        onSearchAll={(q) => setSearch({ open: true, q })}
         pollingPaused={!!polling.paused}
         onTogglePolling={() => void togglePolling(!!polling.paused)}
       />

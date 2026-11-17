@@ -8,6 +8,7 @@ export const SHORTCUTS: { keys: string[]; what: string; group: string }[] = [
   { group: 'Work streams', keys: ['c'], what: 'Close the stream (press twice if Settings asks for two clicks)' },
   { group: 'Work streams', keys: ['u'], what: 'Mark unread and go back to the list' },
   { group: 'Work streams', keys: ['/'], what: 'Filter work streams' },
+  { group: 'Anywhere', keys: ['s', '⌘K'], what: 'Search everything (closed work, messages, chat)' },
   { group: 'Proposals and ? items', keys: ['a'], what: 'Accept' },
   { group: 'Proposals and ? items', keys: ['d'], what: 'Decline' },
   { group: 'Proposals and ? items', keys: ['m'], what: 'Decline & mute' },
@@ -114,7 +115,7 @@ function run(key: string): boolean {
 }
 
 /** Single-key shortcuts on the main screen (not while typing), and the "?" list of them. */
-export function Shortcuts() {
+export function Shortcuts({ onSearch }: { onSearch?: () => void }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -134,11 +135,16 @@ export function Shortcuts() {
         return;
       }
       if (open) return;
+      if (e.key === 's' && onSearch) {
+        e.preventDefault();
+        onSearch();
+        return;
+      }
       if (run(e.key)) e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
+  }, [open, onSearch]);
   if (!open) return null;
   const groups = [...new Set(SHORTCUTS.map((s) => s.group))];
   return (

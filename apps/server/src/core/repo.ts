@@ -13,6 +13,9 @@ import type {
   TicketTarget,
   WorkStream,
   StreamDeadline,
+  SearchHit,
+  StreamStatus,
+  ItemSource,
 } from '@wc/shared';
 import type { Database, DB } from '../db/index.js';
 import { j, now, pj } from '../db/index.js';
@@ -1105,6 +1108,51 @@ export class Repo {
    * Find earlier work streams that look like a query (keywords against titles, summaries, item titles and what Claude said or did in
    * their chat). Plain keyword scoring, so it is explainable; `matched` is how many distinct words hit.
    */
+  /**
+   * Search across everything: work streams (open and closed: title, overview), the messages in work items (including ones not
+   * in any stream), and chat. Every word must appear; a "quoted phrase" must appear as written. Newest first.
+   */
+  async searchAll(query: string, limit = 25): Promise<SearchHit[]> {
+    const phrases = [...query.matchAll(/"([^"]+)"/g)].map((m) => m[1].toLowerCase().trim()).filter((x) => x.length >= 2);
+    const words = query.replace(/"[^"]*"/g, ' ').toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+    const terms = [...new Set([...phrases, ...words])].slice(0, 8);
+    if (!terms.length) return [];
+    // (the database narrows it down; every hit is then checked here, so % or _ typed in a search can't widen it)
+    const all = (cols: string[]) => (eb: any) => eb.and(terms.map((t) => eb.or(cols.map((c) => eb(eb.fn('lower', [c]), 'like', `%${t}%`)))));
+    const has = (text: string) => terms.every((t) => text.toLowerCase().includes(t));
+    const snip = (text: string) => {
+      const flat = text.replace(/\s+/g, ' ').trim();
+      const i = Math.max(0, ...terms.map((t) => flat.toLowerCase().indexOf(t)).filter((n) => n >= 0).slice(0, 1));
+      const from = Math.max(0, i - 60);
+      return `${from > 0 ? '…' : ''}${flat.slice(from, from + 220)}${from + 220 < flat.length ? '…' : ''}`;
+    };
+    const streams = new Map((await this.db.selectFrom('streams').select(['id', 'title', 'status']).execute()).map((s) => [s.id, s]));
+    const st = (id: string | null) => (id ? streams.get(id) : undefined);
+    const out: SearchHit[] = [];
+
+    for (const s of await this.db.selectFrom('streams').selectAll().where(all(['title', 'summary'])).orderBy('last_activity_at', 'desc').limit(limit).execute()) {
+      if (!has(`${s.title} ${s.summary}`)) continue;
+      out.push({ kind: 'stream', streamId: s.id, streamTitle: s.title, streamStatus: s.status as StreamStatus, snippet: snip(has(s.title) ? s.summary || s.title : s.summary), at: s.last_activity_at });
+    }
+    // Work items: the stored JSON narrows it down, then the actual title/messages are checked (so markup and ids don't match).
+    for (const r of await this.db.selectFrom('items').selectAll().where(all(['title', 'data'])).orderBy('updated_at', 'desc').limit(300).execute()) {
+      const data = pj<ItemData>(r.data, {});
+      const msgs = [...(data.messages ?? []), ...(data.ticket?.comments ?? [])];
+      const m = [...msgs].reverse().find((x) => has(`${r.title} ${x.text}`));
+      const body = data.ticket?.description ?? data.body;
+      if (!m && !(body && has(`${r.title} ${body}`)) && !has(r.title)) continue;
+      const s = st(r.stream_id);
+      out.push({ kind: 'message', streamId: r.stream_id, streamTitle: s?.title ?? null, streamStatus: (s?.status as StreamStatus) ?? null, itemId: r.id, itemTitle: r.title, source: r.source as ItemSource, who: m?.author.name ?? m?.author.email, snippet: snip(m?.text ?? body ?? r.title), at: m?.at ?? r.updated_at });
+      if (out.filter((x) => x.kind === 'message').length >= limit) break;
+    }
+    for (const c of await this.db.selectFrom('chat_messages').selectAll().where(all(['content'])).orderBy('created_at', 'desc').limit(limit).execute()) {
+      const s = st(c.stream_id);
+      if ((c.stream_id && !s) || !has(c.content)) continue;
+      out.push({ kind: 'chat', streamId: c.stream_id, streamTitle: s?.title ?? (c.stream_id ? null : 'All open work'), streamStatus: (s?.status as StreamStatus) ?? null, who: c.role === 'user' ? 'You' : c.role === 'assistant' ? 'Claude' : 'Note', snippet: snip(c.content), at: c.created_at });
+    }
+    return out;
+  }
+
   async searchPastWork(query: string, opts: { excludeStreamId?: string | null; closedOnly?: boolean; limit?: number; minMatched?: number } = {}) {
     const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'has', 'was', 'are', 'you', 'your', 'can', 'could', 'please', 'will', 'would', 'about', 'there', 'their', 'what', 'when', 'which', 'into', 'just', 'need', 'hello', 'thanks', 'thank', 'regards']);
     const tokens = [...new Set(query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{2,}/g) ?? [])].filter((t) => !STOP.has(t)).slice(0, 14);

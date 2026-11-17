@@ -567,6 +567,21 @@ export interface TriageRule {
   enabled?: boolean;
 }
 
+/** One result of a search across everything (Search, ⌘K). */
+export interface SearchHit {
+  kind: 'stream' | 'message' | 'chat';
+  streamId: string | null;
+  streamTitle: string | null;
+  streamStatus: StreamStatus | null;
+  itemId?: string;
+  itemTitle?: string;
+  source?: ItemSource;
+  /** Who wrote the message (messages and chat). */
+  who?: string;
+  snippet: string;
+  at: string;
+}
+
 /** Whether polling and triage are paused (after a long gap, or by hand), and what is waiting for Resume. */
 export interface PollingState {
   paused: { since: string; reason: 'gap' | 'manual'; /** When polling last ran before the gap. */ gapFrom?: string } | null;
