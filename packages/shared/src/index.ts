@@ -339,12 +339,13 @@ export interface OrgChartSyncStatus {
 }
 
 /** Background calls that can run on their own model. */
-export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse';
+export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse' | 'writingStyle';
 export const BACKGROUND_TASKS: { id: BackgroundTask; label: string; hint: string }[] = [
   { id: 'triage', label: 'Triage', hint: 'Whether a message needs you, which work stream it belongs to, and what to do next.' },
   { id: 'topicSplit', label: 'Slack topic splitting', hint: 'Sorting a Slack conversation that runs several topics into the right work streams.' },
   { id: 'slackContext', label: 'Slack context', hint: 'Picking the earlier Slack messages a linked message depends on.' },
   { id: 'mcpIngest', label: 'MCP items', hint: 'Pulling new items in from a system connected through an MCP server.' },
+  { id: 'writingStyle', label: 'Learning your writing style', hint: 'Describing how you write from your own sent messages (run when you ask, in Settings → Writing style).' },
   { id: 'dateParse', label: 'Reading dates', hint: 'Turning a time you type ("the Thursday after next, 2pm") into a date, e.g. for snoozing a work stream.' },
 ];
 /** 'main' = the main model; otherwise a Claude model alias. */
@@ -360,6 +361,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   slackContext: 'Slack context',
   mcpIngest: 'MCP items',
   dateParse: 'Reading dates',
+  writingStyle: 'Learning your writing style',
   agent: 'Agent (before categories)',
   agentChat: 'Chatting with you',
   agentDraft: 'Drafting messages',
@@ -381,7 +383,7 @@ export const USAGE_CATEGORIES: { id: UsageCategory; label: string; hint: string;
   { id: 'chat', label: 'Chatting with you', hint: 'Your messages to Claude and its answers (when it drafted something, that turn counts as drafting)', kinds: ['agentChat'] },
   { id: 'review', label: 'Keeping streams up to date', hint: 'Claude reviewing new items, your direct replies and finished drafts, and updating the work stream', kinds: ['agentReview'] },
   { id: 'overview', label: 'Overview refreshes', hint: 'Refresh overview, and overviews for streams you start by dropping an item on "+"', kinds: ['overview'] },
-  { id: 'other', label: 'Other', hint: 'Connection tests, and Claude stream work from before usage was split by category', kinds: ['agent', 'test', 'laya', 'dateParse'] },
+  { id: 'other', label: 'Other', hint: 'Connection tests, and Claude stream work from before usage was split by category', kinds: ['agent', 'test', 'laya', 'dateParse', 'writingStyle'] },
 ];
 export const usageCategoryOf = (k: UsageKind): UsageCategory => USAGE_CATEGORIES.find((c) => c.kinds.includes(k))?.id ?? 'other';
 
@@ -591,6 +593,8 @@ export interface Settings {
   /** When snoozed (Pending) work streams are surfaced again. */
   reminders: ReminderSettings;
   usage: UsageSettings;
+  /** Drafts written the way the PU writes: a guide learned from their sent messages, which they can edit. */
+  style?: { enabled: boolean; guide: string; learnedAt?: string };
   /** Rules applied before triage (first match wins). */
   rules?: TriageRule[];
   /** Polling pauses itself after a long gap (the computer slept, or the server was off) until the PU resumes it. */

@@ -1,3 +1,4 @@
+import { learnStyle } from '../core/writingStyle.js';
 import { parseTime } from '../core/parseTime.js';
 import type { FastifyInstance } from 'fastify';
 import os from 'node:os';
@@ -103,6 +104,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.post('/api/streams', async (req) => {
     const b = z.object({ title: z.string().min(1), summary: z.string().default('') }).parse(req.body);
     return repo.createStream(b, 'you');
+  });
+  // Learn the PU's writing style from their own sent messages; the guide comes back for them to review and save.
+  f.post('/api/style/learn', async () => {
+    const email = await hub.api('email').catch(() => null);
+    return learnStyle({ repo, backend: app.backend, email }, await settings.get());
   });
   // A typed time ("the Thursday after next, 2pm") read by the cheap model: for snoozing to a date.
   f.post('/api/parse-time', async (req) => {

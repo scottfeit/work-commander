@@ -38,6 +38,8 @@ One dashboard for all of a person's work streams, with Claude in the middle. Cla
 
 ![Settings](docs/screenshot-settings.png)
 
+Writing style (Settings → Writing style): Claude's drafts follow a guide learned from your own sent email and Slack messages (tone, length, greetings, sign-offs) plus counted reply-all and CC habits; the guide is editable.
+
 Rules (Settings → Rules) run before triage: an update matching a rule (by source, sender, subject or text) is ignored, or filed into a work stream, without a call to Claude.
 
 ## Quick start

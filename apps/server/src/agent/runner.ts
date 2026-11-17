@@ -1,3 +1,4 @@
+import { styleBlock } from '../core/writingStyle.js';
 import { isQuickRun } from '../core/quickReply.js';
 import { nanoid } from 'nanoid';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
@@ -142,7 +143,7 @@ export class StreamAgentRunner {
     const manager = self?.managerEmail ? people.find((p) => p.email === self.managerEmail) : null;
     const reports = self ? people.filter((p) => p.managerEmail === self.email) : [];
     const open = await this.repo.listStreams(false);
-    const parts = [STREAM_AGENT_RULES, puBlock(s.pu, { self, manager, reports }), playbookBlock(s.playbooks), streamsBlock(open), `Current time: ${new Date().toISOString()}`];
+    const parts = [STREAM_AGENT_RULES, puBlock(s.pu, { self, manager, reports }), playbookBlock(s.playbooks), styleBlock(s.style), streamsBlock(open), `Current time: ${new Date().toISOString()}`];
     if (streamId) {
       const st = await this.repo.getStream(streamId);
       const items = await this.repo.listItems(streamId);
@@ -163,7 +164,7 @@ export class StreamAgentRunner {
           'Answer their questions about it; use read_stream_item for its full content. Do not treat it as part of this stream unless they ask.',
       );
     }
-    return parts.join('\n\n');
+    return parts.filter(Boolean).join('\n\n');
   }
 
   private async recap(streamId: string | null) {

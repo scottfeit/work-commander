@@ -24,6 +24,7 @@ test('keyboard triage: j/k move through the list, p toggles Pending, tabs with ]
   const sid = (await api.streams()).find((s) => s.title === first)!.id;
   await page.keyboard.press('p');
   await expect.poll(async () => (await api.streams()).find((s) => s.id === sid)?.pending).toBe(true);
+  await expect(page.locator('.sidebar .stream.active .pending-btn')).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('p');
   await expect.poll(async () => (await api.streams()).find((s) => s.id === sid)?.pending).toBe(false);
 
