@@ -95,7 +95,11 @@ export class McpPollIngestor implements Ingestor {
   /** What to re-read for the Slack items in open work streams (see planTrackedSlackReads). */
   private async trackedSlackReads() {
     const items: StreamItem[] = [];
-    for (const st of await this.repo.listStreams(false)) items.push(...(await this.repo.listItems(st.id)));
+    const all = await this.repo.listStreams(true);
+    for (const st of all.filter((x) => x.status === 'open')) items.push(...(await this.repo.listItems(st.id)));
+    // A stream closed recently still reopens when the conversation picks up again, so its Slack conversations keep being read.
+    const days = (await this.settings()).claude.reopenClosedWithinDays ?? 14;
+    for (const st of all.filter((x) => x.status !== 'open' && x.closedAt && Date.now() - Date.parse(x.closedAt) <= days * 86_400_000)) items.push(...(await this.repo.listItems(st.id)));
     return planTrackedSlackReads(items, { skipMuted: !!(await this.settings()).silencing?.skipPolling });
   }
 

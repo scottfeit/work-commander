@@ -114,6 +114,14 @@ export class SlackWorkspace implements ChatApi {
     const me = await this.selfUserId();
     const h = await this.web.conversations.history({ channel, limit: 50 });
     const msgs = ((h.messages ?? []) as any[]).sort((a, b) => Number(a.ts) - Number(b.ts));
+    // Thread replies are not in channel history: read the recently active threads and fold their replies into the conversation.
+    const recent = Date.now() / 1000 - 7 * 86_400;
+    const threaded = msgs.filter((m) => m.reply_count > 0 && Number(m.latest_reply ?? m.ts) > recent).slice(-8);
+    for (const parent of threaded) {
+      const r = await this.web.conversations.replies({ channel, ts: parent.ts, limit: 100 });
+      for (const m of (r.messages ?? []) as any[]) if (m.ts !== parent.ts && !msgs.some((x) => x.ts === m.ts)) msgs.push(m);
+    }
+    msgs.sort((a, b) => Number(a.ts) - Number(b.ts));
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
@@ -257,17 +265,20 @@ export class SlackIngestor implements Ingestor {
       for (const m of await this.slack.search(`<@${me}>`, 20)) if (Number(m.ts) > since && m.channel) await emit(m.channel, m.threadTs ?? m.ts, m.ts);
       const ims = await this.slack.web.conversations.list({ types: 'im,mpim', exclude_archived: true, limit: 100 });
       for (const c of (ims.channels ?? []).slice(0, 60)) {
-        const h = await this.slack.web.conversations.history({ channel: c.id!, oldest: String(since), limit: 20 });
-        const msgs = (h.messages ?? []) as any[];
+        // Look back a week: a thread started earlier may have a new reply, which history shows only on its parent (reply_count, latest_reply).
+        const h = await this.slack.web.conversations.history({ channel: c.id!, oldest: String(since - 7 * 86_400), limit: 30 });
+        const all = (h.messages ?? []) as any[];
+        const activity = (m: any) => Math.max(Number(m.ts), Number(m.latest_reply ?? 0));
+        const msgs = all.filter((m) => activity(m) > since);
         if (c.is_im) {
           // A DM is one conversation item; new messages from either side (the PU's own replies too) update it.
           if (msgs.length && !seen.has(c.id!)) {
             seen.add(c.id!);
-            const newest = msgs.reduce((a, b) => (Number(b.ts) > Number(a.ts) ? b : a)).ts;
-            await this.sink(await this.slack.getDmConversation(c.id!, newest));
-            maxTs = Math.max(maxTs, Number(newest));
+            const newest = msgs.reduce((a, b) => (activity(b) > activity(a) ? b : a));
+            await this.sink(await this.slack.getDmConversation(c.id!, String(activity(newest))));
+            maxTs = Math.max(maxTs, activity(newest));
           }
-        } else for (const m of msgs) if (m.user !== me) await emit(c.id!, m.thread_ts ?? m.ts, m.ts);
+        } else for (const m of msgs) if (m.user !== me || Number(m.latest_reply ?? 0) > since) await emit(c.id!, m.thread_ts ?? m.ts, String(activity(m)));
       }
       // Watched channels: new messages there, even when they don't mention the PU.
       const watched = parseWatchedChannels(this.s.watchedChannels);

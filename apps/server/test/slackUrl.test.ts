@@ -52,3 +52,14 @@ describe('Open-in-Slack links for DM and group DM items', () => {
     expect(await repo.fillSlackUrls()).toBe(0);
   });
 });
+
+describe('the local copy of a message the PU sent gives way to the real one', () => {
+  it('even when the real message is worded differently, because the copy is named after it', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const base = { source: 'slack' as const, kind: 'slack_thread' as const, externalId: 'D0ONE00001:dm', title: 'DM' };
+    await repo.upsertItem({ ...base, data: { messages: [msg('1700000000.000100'), { ...msg('1700000100.000200', 'Hi Tina, 14 days.'), id: 'sent-1700000100.000200', isFromPU: true }] } });
+    const r = await repo.upsertItem({ ...base, data: { messages: [msg('1700000000.000100'), { ...msg('1700000100.000200', 'Hi Tina, 14 days.\n\n(rendered a little differently)\n*Sent using* Work Commander'), isFromPU: true }] } });
+    expect(r.item.data.messages!.map((m) => m.id)).toEqual(['1700000000.000100', '1700000100.000200']);
+    expect(r.newMessages).toHaveLength(0); // an echo of its own send is not news
+  });
+});

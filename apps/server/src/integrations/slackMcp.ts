@@ -33,6 +33,20 @@ const HEADER =
 export interface ParsedSlackMessage extends ThreadMessage {
   /** "Thread: 3 replies (latest: …)" under a channel-history message. */
   replies?: number;
+  /** When the newest of those replies was posted (unix seconds); undefined when the time can't be read. */
+  repliesLatest?: number;
+}
+
+const TZ_OFFSETS: Record<string, string> = { PST: '-08:00', PDT: '-07:00', MST: '-07:00', MDT: '-06:00', CST: '-06:00', CDT: '-05:00', EST: '-05:00', EDT: '-04:00', UTC: 'Z', GMT: 'Z', BST: '+01:00', CET: '+01:00', CEST: '+02:00', EET: '+02:00', EEST: '+03:00' };
+
+/** "2026-11-17 12:48:06 PST" -> unix seconds. Common US and European zone names are known; anything else is undefined. */
+export function parseSlackClock(s: string): number | undefined {
+  const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ?([A-Z]{2,5})?$/.exec(s.trim());
+  if (!m) return undefined;
+  const off = TZ_OFFSETS[m[3] ?? 'UTC'];
+  if (!off) return undefined;
+  const t = Date.parse(`${m[1]}T${m[2]}${off}`);
+  return Number.isNaN(t) ? undefined : t / 1000;
 }
 
 /** Parse Slack MCP read output (slack_read_channel / slack_read_thread) into messages, oldest first. */
@@ -44,7 +58,9 @@ export function parseSlackMessages(text: string, me: { userId?: string; email?: 
   heads.forEach((h, i) => {
     const end = i + 1 < heads.length ? heads[i + 1].index! : b.length;
     let t = b.slice(h.index! + h[0].length, end);
-    const replies = /\nThread: (\d+) repl(?:y|ies)[^\n]*/.exec(`\n${t}`)?.[1];
+    const rep = /\nThread: (\d+) repl(?:y|ies)(?: \(latest: ([^)\n]*)\))?[^\n]*/.exec(`\n${t}`);
+    const replies = rep?.[1];
+    const repliesLatest = rep?.[2] ? parseSlackClock(rep[2]) : undefined;
     t = t
       .replace(/\n(?:=== [^\n]*===|No thread messs?ages|Thread: \d+ repl(?:y|ies)[^\n]*)\s*(?=\n|$)/gi, '\n')
       .replace(/^\s*\n/, '')
@@ -59,7 +75,7 @@ export function parseSlackMessages(text: string, me: { userId?: string; email?: 
       text: t,
       at: iso(ts),
       isFromPU: (!!me.userId && uid === me.userId) || (!!me.email && !!email && email === me.email.toLowerCase()),
-      ...(replies ? { replies: Number(replies) } : {}),
+      ...(replies ? { replies: Number(replies), ...(repliesLatest !== undefined ? { repliesLatest } : {}) } : {}),
     });
   });
   return { messages: messages.sort((a, c) => a.at.localeCompare(c.at)), channelLabel, more };
@@ -125,10 +141,17 @@ export interface DirectPollInput {
  * One poll, the way Slack API mode polls: mentions of the PU and DM/group DM activity via search, watched channels via history,
  * and the conversations already in work streams read directly. Returns items in the shape ingestion takes.
  */
+/** How far before the last check a DM's history is read, to find older threads with new replies. */
+const THREAD_LOOKBACK_S = 7 * 86_400;
+const MAX_DM_THREADS = 10;
+/** Most thread reads in one poll across all conversations (Slack's MCP server rate-limits). */
+const MAX_THREAD_READS = 15;
+
 export async function pollSlackDirect(call: McpCall, p: DirectPollInput): Promise<{ items: InboundItem[]; reads: number }> {
   const me = { userId: p.me, email: p.puEmail };
   const items = new Map<string, InboundItem>();
   let reads = 0;
+  let threadReads = 0;
   const run = async (tool: string, args: Record<string, unknown>) => {
     reads++;
     return call(tool, args);
@@ -146,10 +169,29 @@ export async function pollSlackDirect(call: McpCall, p: DirectPollInput): Promis
     return out;
   };
 
-  const addDm = async (channel: string, after: number, label?: string, url?: string) => {
+  /**
+   * A DM or group DM as one item: its messages after `after`, and the replies in its threads. Slack keeps thread replies out of channel
+   * history (the parent only says "N replies, latest …"), so a recent thread with a newer reply is read separately and merged in.
+   */
+  const addDm = async (channel: string, after: number, label?: string, url?: string, threadTs?: string) => {
     if (items.has(`${channel}:dm`)) return;
-    const r = parseSlackMessages(await run('slack_read_channel', { channel_id: channel, oldest: String(after), limit: 100, response_format: 'detailed' }), me);
-    const messages = r.messages.filter((m) => Number(m.id) > after).map(({ replies: _r, ...m }) => m);
+    // Look back past `after` so a thread started earlier, with a reply since, is seen.
+    const r = parseSlackMessages(await run('slack_read_channel', { channel_id: channel, oldest: String(after - THREAD_LOOKBACK_S), limit: 100, response_format: 'detailed' }), me);
+    const found = new Map<string, ThreadMessage>();
+    for (const { replies: _r, repliesLatest: _l, ...m } of r.messages) if (Number(m.id) > after) found.set(m.id, m);
+    // A reply time that can't be read counts only for recent threads, so an unknown time zone can't mean re-reading every old thread.
+    const parents = r.messages
+      .filter((m) => m.replies && (m.repliesLatest !== undefined ? m.repliesLatest > after : Number(m.id) > after - 2 * 86_400))
+      .map((m) => m.id)
+      .reverse(); // newest threads first
+    if (threadTs && !parents.includes(threadTs)) parents.unshift(threadTs);
+    for (const ts of parents.slice(0, MAX_DM_THREADS)) {
+      if (threadReads >= MAX_THREAD_READS) break;
+      threadReads++;
+      const t = parseSlackMessages(await run('slack_read_thread', { channel_id: channel, message_ts: ts, limit: 200, response_format: 'detailed' }), me);
+      for (const { replies: _r, repliesLatest: _l, ...m } of t.messages) if (Number(m.id) > after && m.id !== ts) found.set(m.id, m);
+    }
+    const messages = [...found.values()].sort((a, c) => Number(a.id) - Number(c.id));
     if (!messages.length) return;
     const other = messages.find((m) => !m.isFromPU)?.author.name;
     const name = r.channelLabel && !/^DM$/i.test(r.channelLabel) ? r.channelLabel : other ? `DM with ${other}` : label && !/^DM$/i.test(label) ? label : 'Slack DM';
@@ -181,7 +223,7 @@ export async function pollSlackDirect(call: McpCall, p: DirectPollInput): Promis
       eventId: `${externalId}@${messages[messages.length - 1].id}`,
     });
   };
-  const fromHit = async (h: SlackSearchHit) => (isDm(h.channel, h.channelLabel) ? addDm(h.channel, p.since, h.channelLabel, h.url) : addThread(h.channel, h.threadTs ?? h.ts, h.channelLabel, h.url));
+  const fromHit = async (h: SlackSearchHit) => (isDm(h.channel, h.channelLabel) ? addDm(h.channel, p.since, h.channelLabel, h.url, h.threadTs) : addThread(h.channel, h.threadTs ?? h.ts, h.channelLabel, h.url));
 
   // 1. Mentions of the PU anywhere, and 2. anything in their DMs and group DMs (their own messages too).
   if (p.me) for (const h of await search({ keywords: [`<@${p.me}>`] })) await fromHit(h);

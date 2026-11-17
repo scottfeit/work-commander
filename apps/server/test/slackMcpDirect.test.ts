@@ -96,7 +96,7 @@ describe('a direct poll (no Claude)', () => {
     expect(calls.filter(([t, a]) => t === 'slack_read_channel' && a.channel_id === 'D1')).toHaveLength(1);
     expect(r.reads).toBe(calls.length);
   });
-  it('a tracked DM is read from the newest message already held', async () => {
+  it('a tracked DM is read from a week before the newest message already held (new messages are those after it)', async () => {
     const seen: any[] = [];
     await pollSlackDirect(
       async (tool, a) => {
@@ -105,7 +105,7 @@ describe('a direct poll (no Claude)', () => {
       },
       { since: NOW, puEmail: 'scott@x.com', me: 'UME', watched: [], conversations: [{ channel: 'D2', after: new Date((NOW - 3600) * 1000).toISOString() }], threads: [] },
     );
-    expect(seen.find(([t]) => t === 'slack_read_channel')[1]).toMatchObject({ channel_id: 'D2', oldest: String(NOW - 3600) });
+    expect(seen.find(([t]) => t === 'slack_read_channel')[1]).toMatchObject({ channel_id: 'D2', oldest: String(NOW - 3600 - 7 * 86_400) }); // a week earlier, to see older threads with new replies
   });
 });
 

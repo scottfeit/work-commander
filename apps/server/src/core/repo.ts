@@ -730,8 +730,10 @@ export class Repo {
     const echoes = new Set<string>(); // real messages that are just WC's own sends coming back
     if (prev.messages?.some((m) => m.id.startsWith('sent-'))) {
       const copies = prev.messages.filter((m) => m.id.startsWith('sent-'));
-      for (const x of incoming) if (x.isFromPU && copies.some((m) => same(x.text, m.text))) echoes.add(x.id);
-      prev.messages = prev.messages.filter((m) => !(m.id.startsWith('sent-') && incoming.some((x) => x.isFromPU && same(x.text, m.text))));
+      // The copy is named after the real message ("sent-<ts>"), which settles it however the text was rendered; the text match is the fallback.
+      const realIds = new Set([...incoming, ...(prev.messages ?? [])].filter((m) => !m.id.startsWith('sent-')).map((m) => m.id));
+      for (const x of incoming) if (x.isFromPU && (copies.some((m) => m.id === `sent-${x.id}`) || copies.some((m) => same(x.text, m.text)))) echoes.add(x.id);
+      prev.messages = prev.messages.filter((m) => !(m.id.startsWith('sent-') && (realIds.has(m.id.slice(5)) || incoming.some((x) => x.isFromPU && same(x.text, m.text)))));
     }
     const known = new Set((prev.messages ?? []).map((m) => m.id));
     const newMessages = incoming.filter((m) => !known.has(m.id));
