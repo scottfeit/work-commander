@@ -457,3 +457,15 @@ input.num.wide { width: 120px; }
 .rule-k { font-size: 12px; color: var(--muted); width: 34px; }
 .rule-then label { display: inline-flex; gap: 4px; align-items: center; }
 .rule-tools { margin-left: auto; display: inline-flex; gap: 4px; }
+
+/* ---------- Keyboard shortcuts ("?") ---------- */
+.shortcuts-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .28); display: grid; place-items: center; z-index: 60; padding: 16px; }
+.shortcuts { background: var(--panel, var(--bg)); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .2); padding: 16px 20px; width: min(760px, 100%); max-height: 90vh; overflow: auto; }
+.shortcuts-head { display: flex; align-items: center; justify-content: space-between; }
+.shortcuts-head h2 { margin: 0; font-size: 16px; }
+.shortcuts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 4px 24px; }
+.shortcuts h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+.shortcuts dl { margin: 0; display: grid; gap: 4px; }
+.shortcut { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: baseline; font-size: 13px; }
+.shortcut dd { margin: 0; }
+kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--bg); }

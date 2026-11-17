@@ -8,6 +8,7 @@ import { ItemView, StreamOverview } from './components/ItemView';
 import { ChatPane } from './components/ChatPane';
 import { DraftPane } from './components/DraftPane';
 import { Toasts, type Toast } from './components/Toasts';
+import { Shortcuts } from './components/Shortcuts';
 import { SettingsPage } from './settings/SettingsPage';
 
 function usePath() {
@@ -373,11 +374,16 @@ export function App() {
           )}
         </div>
       )}
+      <Shortcuts />
       <StreamList
         confirmClose={confirmClose}
         streams={streams}
         selected={selected}
-        onSelect={setSelected}
+        onSelect={(id) => {
+          // Picking a work stream (even the one already selected) leaves a ? item being viewed.
+          if (peek) closePeek();
+          setSelected(id);
+        }}
         showClosed={showClosed}
         onToggleClosed={() => setShowClosed((v) => !v)}
         onSettings={() => nav('/settings')}
