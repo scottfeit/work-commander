@@ -1,3 +1,4 @@
+import { MeetingWatcher } from './core/meetings.js';
 import fs from 'node:fs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -102,6 +103,12 @@ async function main() {
 
   // Scheduled database backups (local SQLite only), configured under Settings > Backup.
   new BackupScheduler({ repo: app.repo, settings: () => app.settings.get(), sqlite: cfg.databaseUrl.startsWith('sqlite:') }, (m) => f.log.warn(m)).start();
+
+  // Calendar meetings: linked to the work streams they're about, briefed before and followed up after (Settings → Meetings).
+  new MeetingWatcher(
+    { repo: app.repo, backend: app.backend, settings: () => app.settings.get(), calendar: () => app.hub.api('calendar').catch(() => null), paused: () => app.hub.isPaused, run: (r) => app.runner.run(r) },
+    (m) => f.log.warn(m),
+  ).start();
 
   // Pending streams untouched for the configured days come back to the top as a Reminder, with a nudge drafted by Claude.
   new ReminderScheduler({ repo: app.repo, settings: () => app.settings.get(), run: (r) => app.runner.run(r) }, (m) => f.log.warn(m)).start();

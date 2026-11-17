@@ -198,6 +198,8 @@ export function ItemView({
             <Message key={c.id} m={c} />
           ))}
         </>
+      ) : item.data.meeting ? (
+        <MeetingView m={item.data.meeting} />
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
           {item.data.messages.map((m) => (
@@ -207,6 +209,33 @@ export function ItemView({
       ) : (
         <pre className="body block">{item.data.body ?? JSON.stringify(item.data.raw ?? item.data, null, 2)}</pre>
       )}
+    </div>
+  );
+}
+
+/** A calendar meeting linked to the stream: when, who, and what Work Commander did around it. */
+function MeetingView({ m }: { m: NonNullable<StreamItem['data']['meeting']> }) {
+  const start = new Date(m.start);
+  const end = new Date(m.end);
+  const day = start.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+  const t = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const now = Date.now();
+  const state = now < start.getTime() ? 'Upcoming' : now < end.getTime() ? 'In progress' : 'Ended';
+  return (
+    <div className="meeting">
+      <div className="meeting-when">
+        <span className="chip">{state}</span> {day}, {t(start)} – {t(end)}
+      </div>
+      <h3>Attendees · {m.attendees.length}</h3>
+      <ul className="meeting-people">
+        {m.attendees.map((a) => (
+          <li key={a}>{a}</li>
+        ))}
+      </ul>
+      <p className="muted small">
+        {m.briefedAt ? `Brief posted in the chat ${new Date(m.briefedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. ` : 'A brief is posted in the chat before it starts (Settings → Meetings). '}
+        {m.followedUpAt ? 'Follow-up offered or drafted after it ended.' : ''}
+      </p>
     </div>
   );
 }

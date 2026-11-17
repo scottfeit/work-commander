@@ -5,6 +5,7 @@ import { UsageSection } from './UsageSection';
 import { TriageSection } from './TriageSection';
 import { RulesSection } from './RulesSection';
 import { StyleSection } from './StyleSection';
+import { MeetingsSection } from './MeetingsSection';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
 
@@ -20,6 +21,7 @@ const SECTIONS = [
   ['onepassword', '1Password'],
   ['playbooks', 'Playbooks'],
   ['style', 'Writing style'],
+  ['meetings', 'Meetings'],
   ['display', 'Display'],
   ['secrets', 'Secrets'],
   ['backup', 'Backup'],
@@ -44,7 +46,8 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
   const load = useCallback(async () => {
     const [st, cr] = await Promise.all([get<Settings>('/api/settings'), get<{ items: CredentialInfo[] }>('/api/credentials')]);
     setSaved(st);
-    setS(st);
+    // Only the first load fills the form: a late second one (React runs effects twice in development) mustn't wipe edits made meanwhile.
+    setS((cur) => cur ?? st);
     setCreds(cr.items);
   }, []);
   useEffect(() => void load(), [load]);
@@ -397,6 +400,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
         {section === 'triage' && saved && <TriageSection s={s} saved={saved} up={up} env={env} />}
         {section === 'rules' && <RulesSection s={s} setS={setS} />}
         {section === 'style' && <StyleSection s={s} setS={setS} />}
+        {section === 'meetings' && <MeetingsSection s={s} setS={setS} />}
         {section === 'usage' && <UsageSection s={s} up={up} />}
 
         {section === 'display' && (

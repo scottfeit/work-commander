@@ -484,3 +484,9 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 .snooze-read { padding: 2px 6px 6px; }
 .chip.snooze-chip { background: #fdeede; border-color: transparent; color: #b4540a; }
 @media (prefers-color-scheme: dark) { .chip.snooze-chip { background: #3a2a18; color: #ffa24d; } }
+
+/* ---------- Meeting tab ---------- */
+.meeting { display: grid; gap: 8px; padding: 4px 0; }
+.meeting-when { font-size: 14px; }
+.meeting h3 { margin: 6px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.meeting-people { margin: 0; padding-left: 18px; font-size: 13px; }

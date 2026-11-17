@@ -16,7 +16,7 @@ export function defaultSettings(): Settings {
       splitSlackByTopic: true,
       reopenClosedWithinDays: 14,
       maxTurns: 30,
-      taskModels: { triage: 'haiku', topicSplit: 'haiku', slackContext: 'haiku', mcpIngest: 'haiku', dateParse: 'haiku', writingStyle: 'sonnet' },
+      taskModels: { triage: 'haiku', topicSplit: 'haiku', slackContext: 'haiku', mcpIngest: 'haiku', dateParse: 'haiku', writingStyle: 'sonnet', meetingLink: 'haiku' },
     },
     secrets: { defaultBackend: 'keychain', gcpProjectId: '' },
     google: {
@@ -65,6 +65,7 @@ export function defaultSettings(): Settings {
     polling: { pauseAfterGapHours: 2 },
     rules: [],
     style: { enabled: true, guide: '' },
+    meetings: { enabled: true, briefMinutes: 30, followUp: 'offer' },
     triage: { engine: 'claude', newStreams: 'create', agreeThreshold: 0.95, minMessages: 200 },
     playbooks: '',
     setupComplete: false,

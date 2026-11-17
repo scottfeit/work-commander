@@ -138,6 +138,8 @@ export interface ItemData {
   slack?: { channel: string; channelName?: string; threadTs: string };
   /** Gmail-specific */
   gmail?: { threadId: string; lastMessageIdHeader?: string; references?: string; state?: GmailThreadState };
+  /** Calendar meeting linked to the stream: when, who, and whether it was briefed / followed up. */
+  meeting?: { start: string; end: string; attendees: string[]; briefedAt?: string; followedUpAt?: string };
   /** Generic body for docs/other */
   body?: string;
   raw?: unknown;
@@ -339,13 +341,14 @@ export interface OrgChartSyncStatus {
 }
 
 /** Background calls that can run on their own model. */
-export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse' | 'writingStyle';
+export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse' | 'writingStyle' | 'meetingLink';
 export const BACKGROUND_TASKS: { id: BackgroundTask; label: string; hint: string }[] = [
   { id: 'triage', label: 'Triage', hint: 'Whether a message needs you, which work stream it belongs to, and what to do next.' },
   { id: 'topicSplit', label: 'Slack topic splitting', hint: 'Sorting a Slack conversation that runs several topics into the right work streams.' },
   { id: 'slackContext', label: 'Slack context', hint: 'Picking the earlier Slack messages a linked message depends on.' },
   { id: 'mcpIngest', label: 'MCP items', hint: 'Pulling new items in from a system connected through an MCP server.' },
   { id: 'writingStyle', label: 'Learning your writing style', hint: 'Describing how you write from your own sent messages (run when you ask, in Settings → Writing style).' },
+  { id: 'meetingLink', label: 'Linking meetings', hint: 'Deciding which work stream a calendar meeting is about (only asked when a meeting shares people or words with a stream).' },
   { id: 'dateParse', label: 'Reading dates', hint: 'Turning a time you type ("the Thursday after next, 2pm") into a date, e.g. for snoozing a work stream.' },
 ];
 /** 'main' = the main model; otherwise a Claude model alias. */
@@ -362,6 +365,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   mcpIngest: 'MCP items',
   dateParse: 'Reading dates',
   writingStyle: 'Learning your writing style',
+  meetingLink: 'Linking meetings',
   agent: 'Agent (before categories)',
   agentChat: 'Chatting with you',
   agentDraft: 'Drafting messages',
@@ -377,7 +381,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
 export type UsageCategory = 'triage' | 'reading' | 'drafting' | 'handoff' | 'chat' | 'review' | 'overview' | 'other';
 export const USAGE_CATEGORIES: { id: UsageCategory; label: string; hint: string; kinds: UsageKind[] }[] = [
   { id: 'triage', label: 'Triage', hint: 'Deciding whether new activity needs you and which work stream it belongs to, naming new streams, sorting Slack conversations by topic', kinds: ['triage', 'newStream', 'topicSplit'] },
-  { id: 'reading', label: 'Reading Slack and other sources', hint: 'Checking for new activity through MCP servers, and finding the later Slack messages a linked one leads to', kinds: ['mcpIngest', 'slackContext'] },
+  { id: 'reading', label: 'Reading Slack and other sources', hint: 'Checking for new activity through MCP servers, and finding the later Slack messages a linked one leads to', kinds: ['mcpIngest', 'slackContext', 'meetingLink'] },
   { id: 'drafting', label: 'Drafting messages', hint: "Claude's turns that prepared replies, messages or ticket changes for you to approve", kinds: ['agentDraft'] },
   { id: 'handoff', label: 'Claude Code hand-offs', hint: 'Taking in what Claude Code reports back', kinds: ['agentHandoff'] },
   { id: 'chat', label: 'Chatting with you', hint: 'Your messages to Claude and its answers (when it drafted something, that turn counts as drafting)', kinds: ['agentChat'] },
@@ -593,6 +597,8 @@ export interface Settings {
   /** When snoozed (Pending) work streams are surfaced again. */
   reminders: ReminderSettings;
   usage: UsageSettings;
+  /** Calendar meetings linked to work streams: a brief before, a follow-up after. */
+  meetings?: { enabled: boolean; /** Minutes before the start to post the brief (0 = no brief). */ briefMinutes: number; followUp: 'offer' | 'draft' | 'off' };
   /** Drafts written the way the PU writes: a guide learned from their sent messages, which they can edit. */
   style?: { enabled: boolean; guide: string; learnedAt?: string };
   /** Rules applied before triage (first match wins). */

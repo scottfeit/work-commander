@@ -38,6 +38,8 @@ One dashboard for all of a person's work streams, with Claude in the middle. Cla
 
 ![Settings](docs/screenshot-settings.png)
 
+Meetings (Settings → Meetings): Google Calendar meetings that share people or topic with an open work stream are checked by a cheap model and, if they're about it, appear there as a tab; Claude posts a brief in the chat before each one and offers (or drafts) a follow-up after.
+
 Writing style (Settings → Writing style): Claude's drafts follow a guide learned from your own sent email and Slack messages (tone, length, greetings, sign-offs) plus counted reply-all and CC habits; the guide is editable.
 
 Rules (Settings → Rules) run before triage: an update matching a rule (by source, sender, subject or text) is ignored, or filed into a work stream, without a call to Claude.

@@ -272,6 +272,13 @@ export class Repo {
   }
 
   /** New activity on an item in a work stream: flag its tab until the PU opens it. */
+  /** Replace an item's data (e.g. a meeting's brief/follow-up marks) and tell the page. */
+  async setItemData(itemId: string, data: ItemData) {
+    await this.db.updateTable('items').set({ data: j(data) }).where('id', '=', itemId).execute();
+    const it = await this.getItem(itemId);
+    if (it) bus.publish({ type: 'item.updated', item: it });
+  }
+
   async markItemUnread(itemId: string, force = false) {
     const it = await this.getItem(itemId);
     if (!it?.streamId || it.data.unread || (it.data.muted && !force)) return; // a silenced item raises a dot only when something breaks through
