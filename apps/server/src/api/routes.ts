@@ -1,3 +1,4 @@
+import { parseTime } from '../core/parseTime.js';
 import type { FastifyInstance } from 'fastify';
 import os from 'node:os';
 import { z } from 'zod';
@@ -103,6 +104,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const b = z.object({ title: z.string().min(1), summary: z.string().default('') }).parse(req.body);
     return repo.createStream(b, 'you');
   });
+  // A typed time ("the Thursday after next, 2pm") read by the cheap model: for snoozing to a date.
+  f.post('/api/parse-time', async (req) => {
+    const b = z.object({ text: z.string().min(1).max(200), tz: z.string().max(64).default('UTC') }).parse(req.body);
+    return parseTime(app.backend, b.text, b.tz);
+  });
   f.patch('/api/streams/:id', async (req) => {
     const id = (req.params as any).id;
     const b = z
@@ -113,6 +119,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
         labels: z.array(z.string()).optional(),
         unread: z.boolean().optional(),
         pending: z.boolean().optional(),
+        /** With pending: true, snooze until this moment. */
+        snoozeUntil: z.string().datetime().nullable().optional(),
         ticketTarget: z.object({ flavor: z.enum(['jsm', 'jira']), projectKey: z.string(), typeId: z.string(), serviceDeskId: z.string().optional() }).nullable().optional(),
       })
       .parse(req.body);
@@ -125,7 +133,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     }
     const t = q(await streamTitle(id));
     const label =
-      b.status === 'closed' ? `close ${t}` : b.status === 'open' ? `reopen ${t}` : b.pending === true ? `mark ${t} pending` : b.pending === false ? `take ${t} out of Pending` : b.title !== undefined ? `rename ${t}` : b.summary !== undefined ? `edit the overview of ${t}` : unread ? `mark ${t} unread` : `change ${t}`;
+      b.status === 'closed' ? `close ${t}` : b.status === 'open' ? `reopen ${t}` : b.pending === true && b.snoozeUntil ? `snooze ${t}` : b.pending === true ? `mark ${t} pending` : b.pending === false ? `take ${t} out of Pending` : b.title !== undefined ? `rename ${t}` : b.summary !== undefined ? `edit the overview of ${t}` : unread ? `mark ${t} unread` : `change ${t}`;
     await undo.capture(label, { streams: [id] }, () => repo.updateStream(id, b, 'you'));
     return repo.getStream(id);
   });

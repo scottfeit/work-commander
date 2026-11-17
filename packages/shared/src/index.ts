@@ -58,6 +58,10 @@ export interface WorkStream {
   pending: boolean;
   /** Set while the stream is surfaced as a reminder: it sat in Pending untouched for the configured days. Cleared when it is snoozed again, closed, or others write. */
   reminderAt?: string | null;
+  /** Pending until this moment (snoozed to a date); then it comes back to the top of Open, unread, marked Back. Null for plain Pending. */
+  snoozeUntil?: string | null;
+  /** Set while the stream is back from a snooze that ran out. Cleared like reminderAt. */
+  backAt?: string | null;
   /** The tool the most recently updated item came from (shown as an icon on the stream). */
   lastSource?: ItemSource;
   runState: 'idle' | 'running' | 'waiting_approval';
@@ -335,12 +339,13 @@ export interface OrgChartSyncStatus {
 }
 
 /** Background calls that can run on their own model. */
-export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest';
+export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse';
 export const BACKGROUND_TASKS: { id: BackgroundTask; label: string; hint: string }[] = [
   { id: 'triage', label: 'Triage', hint: 'Whether a message needs you, which work stream it belongs to, and what to do next.' },
   { id: 'topicSplit', label: 'Slack topic splitting', hint: 'Sorting a Slack conversation that runs several topics into the right work streams.' },
   { id: 'slackContext', label: 'Slack context', hint: 'Picking the earlier Slack messages a linked message depends on.' },
   { id: 'mcpIngest', label: 'MCP items', hint: 'Pulling new items in from a system connected through an MCP server.' },
+  { id: 'dateParse', label: 'Reading dates', hint: 'Turning a time you type ("the Thursday after next, 2pm") into a date, e.g. for snoozing a work stream.' },
 ];
 /** 'main' = the main model; otherwise a Claude model alias. */
 export type ModelChoice = 'main' | 'haiku' | 'sonnet' | 'opus';
@@ -354,6 +359,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   topicSplit: 'Slack topic splitting',
   slackContext: 'Slack context',
   mcpIngest: 'MCP items',
+  dateParse: 'Reading dates',
   agent: 'Agent (before categories)',
   agentChat: 'Chatting with you',
   agentDraft: 'Drafting messages',
@@ -375,7 +381,7 @@ export const USAGE_CATEGORIES: { id: UsageCategory; label: string; hint: string;
   { id: 'chat', label: 'Chatting with you', hint: 'Your messages to Claude and its answers (when it drafted something, that turn counts as drafting)', kinds: ['agentChat'] },
   { id: 'review', label: 'Keeping streams up to date', hint: 'Claude reviewing new items, your direct replies and finished drafts, and updating the work stream', kinds: ['agentReview'] },
   { id: 'overview', label: 'Overview refreshes', hint: 'Refresh overview, and overviews for streams you start by dropping an item on "+"', kinds: ['overview'] },
-  { id: 'other', label: 'Other', hint: 'Connection tests, and Claude stream work from before usage was split by category', kinds: ['agent', 'test', 'laya'] },
+  { id: 'other', label: 'Other', hint: 'Connection tests, and Claude stream work from before usage was split by category', kinds: ['agent', 'test', 'laya', 'dateParse'] },
 ];
 export const usageCategoryOf = (k: UsageKind): UsageCategory => USAGE_CATEGORIES.find((c) => c.kinds.includes(k))?.id ?? 'other';
 

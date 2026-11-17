@@ -18,6 +18,13 @@ export class ScriptedBackend implements AgentBackend {
     // Match on the incoming message only, not on the list of recently skipped items.
     // Splitting a conversation by topic: the demo keeps every message where it is.
     if (/Answer with one assignment per NEW message id/.test(i.prompt)) return { assignments: [] } as T;
+    // Reading a typed time: the demo answers "three days from now, 2pm" for anything with a word in it, and nothing for "never".
+    const phrase = i.prompt.match(/^Phrase: <text>([\s\S]*)<\/text>$/m)?.[1];
+    if (phrase !== undefined) {
+      const day = i.prompt.match(/^Now: \w+ (\d{4})-(\d{2})-(\d{2})/m)!;
+      const d = new Date(Date.UTC(+day[1], +day[2] - 1, +day[3] + 3));
+      return (/never/i.test(phrase) ? { local: null, note: "That doesn't name a time" } : { local: `${d.toISOString().slice(0, 10)}T14:00`, note: null }) as T;
+    }
     // Refresh overview: a plain status from the item titles.
     if (/^Current overview: /m.test(i.prompt)) {
       const titles = [...i.prompt.matchAll(/<item>\n\[\w+\] (.+)/g)].map((m) => m[1].replace(/ \(ticket .*$/, ''));

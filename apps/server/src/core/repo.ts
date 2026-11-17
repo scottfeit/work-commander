@@ -77,6 +77,8 @@ export class Repo {
       unread: !!r.unread,
       pending: !!r.pending,
       reminderAt: r.reminder_at,
+      snoozeUntil: r.snooze_until ?? null,
+      backAt: r.back_at ?? null,
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
@@ -111,6 +113,8 @@ export class Repo {
       pending: 0,
       pending_at: null,
       reminder_at: null,
+      snooze_until: null,
+      back_at: null,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -125,7 +129,7 @@ export class Repo {
 
   async updateStream(
     id: string,
-    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; pending: boolean; agentSessionId: string | null; touch: boolean }>,
+    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; pending: boolean; snoozeUntil: string | null; agentSessionId: string | null; touch: boolean }>,
     by: SummaryAuthor = 'claude',
   ) {
     const t = now();
@@ -139,6 +143,8 @@ export class Repo {
       if (patch.status === 'closed') {
         set.pending = 0; // a closed stream is done, not waiting
         set.reminder_at = null;
+        set.snooze_until = null;
+        set.back_at = null;
       }
     }
     if (patch.labels !== undefined) set.labels = j(patch.labels);
@@ -148,6 +154,8 @@ export class Repo {
       set.pending = patch.pending ? 1 : 0;
       set.pending_at = patch.pending ? t : null;
       set.reminder_at = null; // snoozed again, or new activity: the reminder is answered
+      set.back_at = null;
+      set.snooze_until = patch.pending ? (patch.snoozeUntil ?? null) : null; // plain Pending, or Pending until a date
     }
     if (patch.agentSessionId !== undefined) set.agent_session_id = patch.agentSessionId;
     if (patch.touch) set.last_activity_at = t;
@@ -165,10 +173,22 @@ export class Repo {
     await this.emitStream(id);
   }
 
+  /** Snoozed streams whose time has come: back to the top of Open, unread, marked Back. */
+  async surfaceSnoozed(nowMs = Date.now()) {
+    const t = new Date(nowMs).toISOString();
+    const rows = await this.db.selectFrom('streams').select(['id', 'title']).where('status', '=', 'open').where('pending', '=', 1).where('snooze_until', 'is not', null).where('snooze_until', '<=', t).execute();
+    for (const r of rows) {
+      await this.db.updateTable('streams').set({ pending: 0, pending_at: null, snooze_until: null, back_at: t, unread: 1, last_activity_at: t, updated_at: t }).where('id', '=', r.id).execute();
+      await this.emitStream(r.id);
+    }
+    return rows;
+  }
+
   /** Open pending streams whose last activity (or the moment they were snoozed, if later) is at least `days` ago. */
   async pendingStreamsDue(days: number, nowMs = Date.now()) {
     if (!(days > 0)) return [];
-    const rows = await this.db.selectFrom('streams').selectAll().where('status', '=', 'open').where('pending', '=', 1).execute();
+    // (snoozed-to-a-date streams wait for their date instead)
+    const rows = await this.db.selectFrom('streams').selectAll().where('status', '=', 'open').where('pending', '=', 1).where('snooze_until', 'is', null).execute();
     const cutoff = nowMs - days * 86_400_000;
     return rows.filter((r) => Math.max(Date.parse(r.last_activity_at), r.pending_at ? Date.parse(r.pending_at) : 0) <= cutoff).map((r) => r.id);
   }

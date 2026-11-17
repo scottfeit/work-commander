@@ -59,6 +59,16 @@ export async function surfaceDueReminders(d: Deps, nowMs = Date.now()): Promise<
   return due;
 }
 
+/** Snoozed work streams whose time has come are back: top of Open, unread, marked Back, with a notification (no draft). */
+export async function surfaceSnoozed(d: Pick<Deps, 'repo'>, nowMs = Date.now()) {
+  const back = await d.repo.surfaceSnoozed(nowMs);
+  for (const st of back) {
+    await d.repo.addChat({ streamId: st.id, role: 'system', content: 'Back from snooze.' });
+    bus.publish({ type: 'notify', streamId: st.id, title: 'Back', body: `"${st.title}" is back from snooze.` });
+  }
+  return back.map((s) => s.id);
+}
+
 /** Checks every few minutes while Work Commander runs; after downtime the first check happens right at startup. */
 export class ReminderScheduler {
   private timer?: NodeJS.Timeout;
@@ -66,7 +76,7 @@ export class ReminderScheduler {
   constructor(private d: Deps, private log: (m: string) => void = () => undefined) {}
   start() {
     void this.tick();
-    this.timer = setInterval(() => void this.tick(), 10 * 60_000);
+    this.timer = setInterval(() => void this.tick(), 60_000); // every minute, so a snooze ends on time
     this.timer.unref();
   }
   stop() {
@@ -76,6 +86,7 @@ export class ReminderScheduler {
     if (this.busy) return;
     this.busy = true;
     try {
+      await surfaceSnoozed(this.d);
       await surfaceDueReminders(this.d);
     } catch (e: any) {
       this.log(`reminders: ${e.message}`);

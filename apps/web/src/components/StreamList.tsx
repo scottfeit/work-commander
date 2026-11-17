@@ -1,3 +1,4 @@
+import { SnoozeMenu, snoozeLabel } from './SnoozeMenu';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
@@ -29,6 +30,7 @@ interface Props {
   onCloseStream: (id: string) => void;
   /** Mark a work stream Pending (waiting on others) or put it back in Open. */
   onTogglePending: (id: string, pending: boolean) => void;
+  onSnooze: (id: string, until: string) => void;
   /** Closing takes two clicks (Settings → Display). */
   confirmClose: boolean;
   /** What the system-wide Undo would reverse next (null: nothing). */
@@ -38,7 +40,7 @@ interface Props {
   onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -149,6 +151,12 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           {s.runState === 'running' && <span className="chip running">working…</span>}
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
           {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}
+          {s.backAt && <span className="chip reminder" title="Back from snooze">Back</span>}
+          {s.pending && s.snoozeUntil && (
+            <span className="chip snooze-chip" title={`Snoozed: comes back ${new Date(s.snoozeUntil).toLocaleString()}, or earlier if someone writes`}>
+              until {snoozeLabel(s.snoozeUntil)}
+            </span>
+          )}
           {s.status === 'closed' && <span className="chip">closed</span>}
         </div>
       </button>
@@ -175,6 +183,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
               <AlarmIcon />
             </button>
           )}
+          {s.status === 'open' && <SnoozeMenu onPending={() => onTogglePending(s.id, true)} onSnooze={(at) => onSnooze(s.id, at)} />}
         </div>
       )}
     </div>

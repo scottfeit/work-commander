@@ -395,6 +395,7 @@ export function App() {
         onMarkUnread={(id) => void markUnread(id)}
         onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
         onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
+        onSnooze={(id, snoozeUntil) => void patch(`/api/streams/${id}`, { pending: true, snoozeUntil })}
         undoNext={undoInfo.next}
         onUndo={() => void doUndo()}
         pollingPaused={!!polling.paused}

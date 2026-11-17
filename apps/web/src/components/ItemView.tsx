@@ -9,6 +9,7 @@ import { SourceBadge, dragItem } from './TabBar';
 import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
+import { SnoozeMenu } from './SnoozeMenu';
 import { EmailHtml } from './EmailHtml';
 
 /** Slack conversations are split by topic: send this message (or this and every later one) to another work stream. */
@@ -381,6 +382,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
             <AlarmIcon />
           </button>
         )}
+        {onTogglePending && stream.status === 'open' && <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} />}
         {onMarkUnread && (
           <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
             Mark unread
