@@ -515,6 +515,15 @@ export interface FieldMapping {
   managerLink?: 'email' | 'employeeId';
 }
 
+/** Whether polling and triage are paused (after a long gap, or by hand), and what is waiting for Resume. */
+export interface PollingState {
+  paused: { since: string; reason: 'gap' | 'manual'; /** When polling last ran before the gap. */ gapFrom?: string } | null;
+  /** Live updates (Slack events, Jira webhooks) held while paused; handled on Resume. */
+  held: number;
+  /** Resume is catching up on the gap. */
+  catchingUp: boolean;
+}
+
 export interface Settings {
   pu: PrimaryUser;
   claude: {
@@ -556,6 +565,8 @@ export interface Settings {
   /** When snoozed (Pending) work streams are surfaced again. */
   reminders: ReminderSettings;
   usage: UsageSettings;
+  /** Polling pauses itself after a long gap (the computer slept, or the server was off) until the PU resumes it. */
+  polling?: { pauseAfterGapHours: number };
   triage: TriageEngineSettings;
   /** The PU's standing instructions ("playbooks"): what to suggest when a kind of thing comes up. Given to triage and to Claude. */
   playbooks: string;
@@ -612,7 +623,8 @@ export type ServerEvent =
   | { type: 'usage.alert'; day: string; message: string; desktop: boolean; banner: boolean }
   | { type: 'laya.status'; status: LayaStatus }
   | { type: 'undo.changed'; undo: UndoInfo }
-  | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string };
+  | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string }
+  | { type: 'polling.changed'; polling: PollingState };
 
 export const GENERAL_STREAM = '__general__';
 

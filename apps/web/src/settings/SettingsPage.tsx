@@ -464,7 +464,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </section>
         )}
         {section === 'backup' && <BackupSection s={s} up={up} env={env} />}
-        {section === 'status' && <StatusSection />}
+        {section === 'status' && <StatusSection s={s} up={up} />}
       </main>
     </div>
   );
@@ -981,7 +981,7 @@ function BackupSection({ s, up, env }: { s: Settings; up: <K extends keyof Setti
   );
 }
 
-function StatusSection() {
+function StatusSection({ s, up }: { s: Settings; up: <K extends keyof Settings>(k: K, v: Partial<Settings[K]>) => void }) {
   const [status, setStatus] = useState<Record<string, { ok: boolean; message: string; at: string }>>({});
   const [audit, setAudit] = useState<any[]>([]);
   const load = () => {
@@ -1016,6 +1016,21 @@ function StatusSection() {
           )}
         </tbody>
       </table>
+      <h3>Pause after a gap</h3>
+      <Row label="Pause polling after" hint="If nothing has been checked for this long (the computer was asleep, or Work Commander was off), polling and triage stay paused until you click Resume, so you can clean up your inbox first and nothing you've archived or deleted is triaged. 0 = never pause.">
+        <input
+          className="num"
+          type="number"
+          min={0}
+          max={168}
+          step={0.5}
+          aria-label="Pause after gap hours"
+          value={s.polling?.pauseAfterGapHours ?? 2}
+          onChange={(e) => up('polling', { pauseAfterGapHours: Math.max(0, Number(e.target.value) || 0) })}
+        />{' '}
+        <span className="small muted">hours without polling (0 = never)</span>
+      </Row>
+      <p className="muted small">You can also pause and resume by hand with the pause button next to Undo at the top of the work streams.</p>
       <h2>Audit log</h2>
       <table className="table">
         <tbody>

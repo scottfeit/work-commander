@@ -691,6 +691,10 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   // ---------- integrations ----------
   f.get('/api/slack/channels', async () => ({ channels: await listMemberChannels(await settings.get(), (id) => secrets.get(id)) }));
   f.get('/api/integrations/status', async () => hub.status);
+  // Polling pauses itself after a long gap (or by hand) so the PU can clean up at the source before it catches up.
+  f.get('/api/polling', async () => hub.pollingState);
+  f.post('/api/polling/pause', async () => hub.pause('manual'));
+  f.post('/api/polling/resume', async () => hub.resume());
   f.post('/api/integrations/sync', async () => {
     await hub.pollAll();
     return hub.status;

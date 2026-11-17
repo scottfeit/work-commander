@@ -34,9 +34,11 @@ interface Props {
   /** What the system-wide Undo would reverse next (null: nothing). */
   undoNext: string | null;
   onUndo: () => void;
+  pollingPaused: boolean;
+  onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, confirmClose, undoNext, onUndo }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -185,6 +187,15 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <span className="logo" />
         <span>Work Commander</span>
         {demo && <span className="chip demo">demo</span>}
+        <button
+          type="button"
+          className={`icon-btn poll-btn${pollingPaused ? ' paused' : ''}`}
+          aria-label={pollingPaused ? 'Resume polling and triage' : 'Pause polling and triage'}
+          title={pollingPaused ? 'Polling and triage are paused: resume' : 'Pause polling and triage (e.g. while you clean up your inbox)'}
+          onClick={onTogglePolling}
+        >
+          {pollingPaused ? <PlayIcon /> : <PauseIcon />}
+        </button>
         <button
           type="button"
           className="icon-btn undo-btn"
@@ -474,6 +485,22 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
       </div>
       {err && <div className="small error">{err}</div>}
     </div>
+  );
+}
+
+/** Pause / resume polling and triage. */
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M9 6v12M15 6v12" />
+    </svg>
+  );
+}
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="currentColor">
+      <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" />
+    </svg>
   );
 }
 

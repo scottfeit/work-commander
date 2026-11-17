@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, EnvironmentInfo, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
+import type { ChatMessage, EnvironmentInfo, PollingState, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, patch, post, useServerEvents } from './api';
 import { StreamList } from './components/StreamList';
@@ -40,6 +40,7 @@ export function App() {
   const [keepDraftsOpen, setKeepDraftsOpen] = useState(false);
   // System-wide Undo: what it would reverse next, and whether to say what it undid (Settings → Display).
   const [undoInfo, setUndoInfo] = useState<UndoInfo>({ next: null, count: 0 });
+  const [polling, setPolling] = useState<PollingState>({ paused: null, held: 0, catchingUp: false });
   const undoToastRef = useRef(true);
   const [focusDraft, setFocusDraft] = useState<string | null>(null);
   const openTabRef = useRef<'overview' | 'recent'>('overview');
@@ -216,6 +217,9 @@ export function App() {
         case 'undo.changed':
           setUndoInfo(e.undo);
           break;
+        case 'polling.changed':
+          setPolling(e.polling);
+          break;
         case 'usage.alert':
           if (e.banner) setUsageAlert({ day: e.day, message: e.message });
           if (e.desktop && 'Notification' in window && Notification.permission === 'granted') new Notification('Work Commander: usage budget passed', { body: e.message });
@@ -233,7 +237,17 @@ export function App() {
 
   useEffect(() => {
     get<UndoInfo>('/api/undo').then(setUndoInfo, () => undefined);
+    get<PollingState>('/api/polling').then(setPolling, () => undefined);
   }, []);
+  const togglePolling = useCallback(async (resume: boolean) => {
+    try {
+      await post<PollingState>(resume ? '/api/polling/resume' : '/api/polling/pause');
+      // Read it back rather than using the reply: the catch-up can finish (and say so) before the reply arrives.
+      setPolling(await get<PollingState>('/api/polling'));
+    } catch (e: any) {
+      toast({ title: resume ? "Couldn't resume" : "Couldn't pause", body: e.message, tone: 'error' });
+    }
+  }, [toast]);
   const doUndo = useCallback(async () => {
     try {
       const r = await post<UndoInfo & { undone: string | null }>('/api/undo');
@@ -324,16 +338,39 @@ export function App() {
   if (path.startsWith('/settings')) return <SettingsPage env={env} onBack={() => nav('/')} />;
 
   return (
-    <div className={`app${usageAlert ? ' has-banner' : ''}`}>
-      {usageAlert && (
-        <div className="usage-banner" role="alert">
-          <span>{usageAlert.message}</span>
-          <button className="btn small" onClick={() => nav('/settings?section=usage')}>
-            See usage
-          </button>
-          <button className="btn small ghost" aria-label="Dismiss usage alert" onClick={dismissUsageAlert}>
-            Dismiss
-          </button>
+    <div className={`app${usageAlert || polling.paused || polling.catchingUp ? ' has-banner' : ''}`}>
+      {(usageAlert || polling.paused || polling.catchingUp) && (
+        <div className="banners">
+          {polling.paused && (
+            <div className="usage-banner polling-banner" role="status">
+              <span>
+                <b>Polling and triage are paused.</b>{' '}
+                {polling.paused.reason === 'gap'
+                  ? `Nothing had been checked since ${when(polling.paused.gapFrom ?? polling.paused.since)} (the computer was asleep, or Work Commander was off). Clean up in Gmail or Slack first if you like: on Resume, email you've archived or deleted and Slack messages you've deleted are skipped.`
+                  : `You paused them ${when(polling.paused.since)}. On Resume, everything since then is caught up, skipping email you've archived or deleted.`}
+                {polling.held > 0 && ` ${polling.held} live update${polling.held === 1 ? '' : 's'} waiting.`}
+              </span>
+              <button className="btn small primary" onClick={() => void togglePolling(true)}>
+                Resume
+              </button>
+            </div>
+          )}
+          {!polling.paused && polling.catchingUp && (
+            <div className="usage-banner polling-banner" role="status">
+              <span>Catching up on what arrived while polling was paused…</span>
+            </div>
+          )}
+          {usageAlert && (
+            <div className="usage-banner" role="alert">
+              <span>{usageAlert.message}</span>
+              <button className="btn small" onClick={() => nav('/settings?section=usage')}>
+                See usage
+              </button>
+              <button className="btn small ghost" aria-label="Dismiss usage alert" onClick={dismissUsageAlert}>
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       )}
       <StreamList
@@ -354,6 +391,8 @@ export function App() {
         onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
         undoNext={undoInfo.next}
         onUndo={() => void doUndo()}
+        pollingPaused={!!polling.paused}
+        onTogglePolling={() => void togglePolling(!!polling.paused)}
       />
       <main className="main" ref={mainRef} style={{ gridTemplateRows: `${split}fr 6px ${1 - split}fr` }}>
         <div className={`work-area${showOverview ? ' with-overview' : ''}`} ref={workRef} style={showOverview ? { gridTemplateColumns: `minmax(0, ${1 - ovSplit}fr) 6px minmax(0, ${ovSplit}fr)` } : undefined}>
@@ -415,4 +454,11 @@ export function App() {
       <Toasts toasts={toasts} onOpen={(id) => setSelected(id)} onDismiss={(id) => setToasts((x) => x.filter((y) => y.id !== id))} />
     </div>
   );
+}
+
+/** "at 9:41 PM" today, otherwise "on Mon 16 Nov at 9:41 PM". */
+function when(iso: string) {
+  const d = new Date(iso);
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? `at ${t}` : `on ${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} at ${t}`;
 }

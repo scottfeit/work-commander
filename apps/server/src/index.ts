@@ -95,7 +95,8 @@ async function main() {
   new OrgChartRefresher({ repo: app.repo, secrets: app.secrets, settings: () => app.settings.get() }, (m) => f.log.warn(m)).start();
 
   // Messages whose triage was cut short (restart, sleep) are judged now and every few minutes after.
-  const recover = () => void app.triage.recoverUnprocessed().catch((e) => f.log.warn(`triage recovery: ${e.message}`));
+  // (Not while polling is paused: nothing is triaged until Resume.)
+  const recover = () => void (app.hub.isPaused ? Promise.resolve() : app.triage.recoverUnprocessed()).catch((e) => f.log.warn(`triage recovery: ${e.message}`));
   recover();
   setInterval(recover, 5 * 60_000).unref();
 

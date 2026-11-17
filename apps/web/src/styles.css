@@ -86,7 +86,10 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel-2); min-height: 0; }
 .brand { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; font-weight: 650; letter-spacing: -.01em; }
 /* Settings: top right of the sidebar, above the All open work count. */
-.brand .undo-btn { margin-left: auto; color: var(--muted); display: inline-grid; place-items: center; }
+.brand .poll-btn { margin-left: auto; color: var(--muted); display: inline-grid; place-items: center; }
+.brand .poll-btn:hover { color: var(--text); }
+.brand .poll-btn.paused { color: var(--attn); }
+.brand .undo-btn { color: var(--muted); display: inline-grid; place-items: center; }
 .brand .undo-btn:disabled { opacity: .4; cursor: default; }
 .brand .undo-btn:not(:disabled):hover { color: var(--text); }
 .brand .gear-btn { color: var(--muted); display: inline-grid; place-items: center; }
@@ -394,6 +397,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 
 /* ---------- Usage ---------- */
 .app.has-banner { grid-template-rows: auto minmax(0, 1fr); }
+.banners { grid-column: 1 / -1; display: grid; }
 .usage-banner { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 6px 16px; background: var(--attn-bg); color: var(--attn); border-bottom: 1px solid var(--line); font-size: 13px; }
 .usage-banner span { flex: 1; }
 .usage-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
