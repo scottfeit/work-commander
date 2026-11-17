@@ -1,13 +1,13 @@
 import { describeRule, matchRule } from '../core/rules.js';
 import { z } from 'zod';
-import type { StreamItem, Settings, ThreadMessage, TriageRule } from '@wc/shared';
+import type { Person, StreamItem, Settings, ThreadMessage, TriageRule } from '@wc/shared';
 import { Repo } from '../core/repo.js';
 import { bus } from '../core/bus.js';
 import type { InboundItem } from '../integrations/types.js';
 import { stripQuoted } from '../integrations/types.js';
 import type { AgentBackend } from './backend.js';
 import type { StreamAgentRunner } from './runner.js';
-import { TOPIC_SPLIT_RULES, TRIAGE_RULES, playbookBlock, puBlock, streamsBlock } from './prompts.js';
+import { TOPIC_SPLIT_RULES, TRIAGE_BATCH_RULES, TRIAGE_RULES, playbookBlock, puBlock, streamsBlock } from './prompts.js';
 import { referencesPU } from '../core/mentions.js';
 import { mentionsAddedToChat } from '../core/chatHint.js';
 import { timeAgo } from '../core/time.js';
@@ -31,6 +31,23 @@ export const TriageDecision = z.object({
   next: z.object({ type: z.enum(['none', 'draft', 'offer', 'handoff']), instruction: z.string(), offerLabel: z.string().nullable() }),
 });
 export type TriageDecision = z.infer<typeof TriageDecision>;
+
+/** Several updates decided in one call (a backlog after a pause). */
+const TriageBatch = z.object({ decisions: z.array(TriageDecision.extend({ key: z.string(), sameNewStreamAs: z.string().nullable() })) });
+type BatchDecision = TriageDecision & { sameNewStreamAs?: string | null };
+/** Updates per batched triage call. */
+const BATCH = 8;
+const keyOf = (n: number) => `u${n + 1}`;
+
+/** An update that is stored and waiting for its decision. */
+interface Pending {
+  inbound: InboundItem;
+  item: StreamItem;
+  fresh: ThreadMessage[];
+  brokeThrough: boolean;
+  /** Earlier events on the same conversation folded into this decision (a burst). */
+  also: { source: string; eventId: string }[];
+}
 
 /** A new work stream's name, when Laya (not Claude) decided the message starts one. */
 const NewStreamName = z.object({ title: z.string(), summary: z.string(), labels: z.array(z.string()).nullable() });
@@ -151,16 +168,115 @@ export class TriagePipeline {
   }
 
   async handle(inbound: InboundItem) {
-    // "Don't poll silenced items": a silenced thread is not even stored while it is silenced (it catches up once it is un-silenced).
     const sil = (await this.settings()).silencing;
+    for (const [ib, part] of await this.store(inbound, sil)) await this.processUpdate(ib, part, sil);
+  }
+
+  /** Store an update and split it by topic: the parts to decide on, each with its own event id. */
+  private async store(inbound: InboundItem, sil: Settings['silencing']): Promise<[InboundItem, Upserted][]> {
+    // "Don't poll silenced items": a silenced thread is not even stored while it is silenced (it catches up once it is un-silenced).
     if (sil?.skipPolling) {
       const there = await this.repo.findExistingItem(inbound.source, inbound.externalId);
-      if (there?.streamId && there.data.muted) return;
+      if (there?.streamId && there.data.muted) return [];
     }
     const up = await this.repo.upsertItem(inbound);
     // A DM or group DM can run several topics; each goes to the work stream it belongs to and is judged there on its own.
     const parts = await this.splitByTopic(inbound, up);
-    for (const [n, part] of parts.entries()) await this.processUpdate(n ? { ...inbound, eventId: `${inbound.eventId}#${n}` } : inbound, part, sil);
+    return parts.map((part, n) => [n ? { ...inbound, eventId: `${inbound.eventId}#${n}` } : inbound, part]);
+  }
+
+  /** InboundSink for a backlog (catching up after a pause): serialized like sink(). */
+  sinkBatch = (items: InboundItem[]) => {
+    const next = this.chain.catch(() => undefined).then(() => this.handleBatch(items));
+    this.chain = next;
+    return next;
+  };
+
+  /**
+   * A backlog judged together: several updates to one conversation are judged once, with all their new messages, and the
+   * rest share one call to Claude (in groups of BATCH), so the PU's details, playbooks and open work streams are sent once.
+   */
+  async handleBatch(items: InboundItem[]) {
+    if (items.length <= 1) {
+      for (const i of items) await this.handle(i);
+      return;
+    }
+    const s = await this.settings();
+    const pending: Pending[] = [];
+    for (const inbound of items) {
+      for (const [ib, part] of await this.store(inbound, s.silencing)) {
+        const p = await this.prepare(ib, part, s.silencing);
+        if (!p) continue;
+        const same = pending.find((x) => x.item.id === p.item.id);
+        if (!same) {
+          pending.push(p);
+          continue;
+        }
+        // a burst on one conversation: one decision, made on all of it
+        const seen = new Set(same.fresh.map((m) => m.id));
+        same.fresh = [...same.fresh, ...p.fresh.filter((m) => !seen.has(m.id))].sort((a, b) => a.at.localeCompare(b.at));
+        same.also.push({ source: same.inbound.source, eventId: same.inbound.eventId });
+        same.inbound = p.inbound;
+        same.item = p.item;
+        same.brokeThrough ||= p.brokeThrough;
+      }
+    }
+    const decided = new Map<Pending, TriageDecision>();
+    const learn = new Map<Pending, (d: TriageDecision) => Promise<unknown>>();
+    const toClaude: Pending[] = [];
+    for (const p of pending) {
+      const t = await this.tryLaya(p.item.id, p.inbound, p.item.streamId, p.fresh, s, []);
+      if (t.d) decided.set(p, t.d);
+      else {
+        toClaude.push(p);
+        if (t.learn) learn.set(p, t.learn);
+      }
+    }
+    for (let i = 0; i < toClaude.length; i += BATCH) {
+      const chunk = toClaude.slice(i, i + BATCH);
+      const got = chunk.length > 1 ? await this.decideBatch(chunk, s).catch((e) => (console.error('[triage batch]', e.message), new Map<Pending, BatchDecision>())) : new Map<Pending, BatchDecision>();
+      for (const p of chunk) {
+        const d = got.get(p) ?? (await this.decide(p.inbound, p.item.streamId, p.fresh, s).catch(() => null));
+        if (!d) continue; // left unprocessed: recovery tries again later
+        decided.set(p, d);
+        await learn.get(p)?.(d);
+      }
+    }
+    // Route in arrival order; updates that start the same new piece of work share the stream the first one created.
+    const madeBy = new Map<string, string>();
+    for (const [n, p] of pending.entries()) {
+      let d = decided.get(p) as BatchDecision | undefined;
+      if (!d) continue;
+      const first = d.sameNewStreamAs ? madeBy.get(d.sameNewStreamAs) : undefined;
+      if (first && !p.item.streamId) d = { ...d, stream: { ...d.stream, action: 'existing', streamId: first } };
+      await this.finish(p, d, s);
+      if (d.stream.action === 'new') {
+        const home = (await this.repo.getItem(p.item.id))?.streamId;
+        if (home) madeBy.set(keyOf(n), home);
+      }
+    }
+  }
+
+  /** One call deciding several updates. Missing answers are decided one by one by the caller. */
+  private async decideBatch(chunk: Pending[], s: Settings): Promise<Map<Pending, BatchDecision>> {
+    const people = await this.repo.listPeople();
+    const ids = new Set(chunk.map((p) => p.item.id));
+    const shared = await this.sharedBlocks(s, people, new Set(), ids);
+    const parts: string[] = [];
+    const index = new Map<string, Pending>();
+    for (const p of chunk) {
+      const key = keyOf(index.size);
+      index.set(key, p);
+      parts.push(`=== Update ${key} ===\n${(await this.itemBlocks(p.inbound, p.item.streamId, p.fresh, people, true)).join('\n\n')}`);
+    }
+    const prompt = [...shared, ...parts, `Answer with one decision per update key (${[...index.keys()].join(', ')}).`].filter(Boolean).join('\n\n');
+    const out = await this.backend.structured({ systemPrompt: `${TRIAGE_RULES}\n\n${TRIAGE_BATCH_RULES}`, prompt, schema: TriageBatch, usage: { kind: 'triage' } });
+    const res = new Map<Pending, BatchDecision>();
+    for (const d of out?.decisions ?? []) {
+      const p = index.get(d.key);
+      if (p && !res.has(p)) res.set(p, { ...d, sameNewStreamAs: d.sameNewStreamAs && index.has(d.sameNewStreamAs) && d.sameNewStreamAs !== d.key ? d.sameNewStreamAs : null });
+    }
+    return res;
   }
 
   /**
@@ -233,12 +349,12 @@ export class TriagePipeline {
     return [...rest, ...out];
   }
 
-  /** The decisions after an item was stored: silencing, linking, triage, routing. */
-  private async processUpdate(inbound: InboundItem, up: Upserted, sil: Settings['silencing']) {
+  /** Everything before the decision: silencing, linking, the PU's rules. Null when nothing is left to decide. */
+  private async prepare(inbound: InboundItem, up: Upserted, sil: Settings['silencing']): Promise<Pending | null> {
     let item = up.item;
     const { newMessages, created, changed } = up;
-    if (!changed) return;
-    if (!(await this.repo.recordInbound(inbound.source, inbound.eventId, item.id))) return;
+    if (!changed) return null;
+    if (!(await this.repo.recordInbound(inbound.source, inbound.eventId, item.id))) return null;
     // A silenced item keeps receiving updates (already stored above) but makes no noise: no triage, notification, unread dot or reopening.
     let brokeThrough = false;
     if (item.streamId && item.data.muted) {
@@ -247,19 +363,19 @@ export class TriagePipeline {
       brokeThrough = !!sil?.mentionsOverride && !sil.skipPolling && referencesPU(others, (await this.settings()).pu);
       if (!brokeThrough) {
         await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'item is silenced' });
-        return;
+        return null;
       }
     }
     if (!item.streamId) item = (await this.autoLink(item)) ?? item;
     if (!item.streamId && item.data.proposalsMuted) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'you dismissed and muted it' });
-      return;
+      return null;
     }
     // A ticket moved to Resolved/Closed as the result of work WC did, with nothing new said on it, is not new activity: it must not
     // trigger triage or withdraw a pending "close this stream" proposal. (An assignment to the PU, a reopen etc. still are.)
     if (item.streamId && up.ticketMeta && newMessages.length === 0 && isOutcomeChange(up.ticketMeta, item.data.wcTransitionAt)) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'ticket moved to a finished state as an outcome of the work, not new activity' });
-      return;
+      return null;
     }
     const fresh = newMessages.length ? newMessages : (item.data.messages ?? item.data.ticket?.comments ?? []).slice(-1);
     const fromOthers = fresh.filter((m) => !m.isFromPU);
@@ -269,26 +385,44 @@ export class TriagePipeline {
     if (fromOthers.length === 0 && !(inbound.kind === 'ticket' && (created || newMessages.length === 0))) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'authored by PU' });
       if (item.streamId && !created) await this.noteDirectReply(item, newMessages.filter((m) => m.isFromPU));
-      return;
+      return null;
     }
 
-    const s = await this.settings();
     // The PU's rules come first: a match is ignored or filed without asking Claude (or Laya).
     if (!item.streamId) {
-      const rule = matchRule(s.rules ?? [], item, fromOthers);
-      if (rule && (await this.applyRule(rule, inbound, item, fresh))) return;
+      const rule = matchRule((await this.settings()).rules ?? [], item, fromOthers);
+      if (rule && (await this.applyRule(rule, inbound, item, fresh))) return null;
     }
+    return { inbound, item, fresh, brokeThrough, also: [] };
+  }
+
+  /** The decisions after an item was stored: silencing, linking, rules, triage, routing. */
+  private async processUpdate(inbound: InboundItem, up: Upserted, sil: Settings['silencing']) {
+    const p = await this.prepare(inbound, up, sil);
+    if (!p) return;
+    const s = await this.settings();
     const held: UsageEntry[] = [];
     try {
-      const decision = await this.judge(item.id, inbound, item.streamId, fresh, s, held);
-      await this.repo.markInbound(inbound.source, inbound.eventId, decision.relevant, decision);
-      await this.route(inbound, item, decision, s);
+      const decision = await this.judge(p.item.id, p.inbound, p.item.streamId, p.fresh, s, held);
+      await this.finish(p, decision, s, false);
     } finally {
-      await this.settleUsage(held, item.id);
+      await this.settleUsage(held, p.item.id);
     }
-    await this.flagUnread(item.id, fresh, brokeThrough);
-    await this.followChatHint(item.id, fresh);
+    await this.after(p);
   }
+
+  /** Record and act on a decision. */
+  private async finish(p: Pending, decision: TriageDecision, s: Settings, then = true) {
+    for (const e of [{ source: p.inbound.source, eventId: p.inbound.eventId }, ...p.also]) await this.repo.markInbound(e.source, e.eventId, decision.relevant, decision);
+    await this.route(p.inbound, p.item, decision, s);
+    if (then) await this.after(p);
+  }
+
+  private async after(p: Pending) {
+    await this.flagUnread(p.item.id, p.fresh, p.brokeThrough);
+    await this.followChatHint(p.item.id, p.fresh);
+  }
+
 
   /** One of the PU's rules matched: ignore the update, or file it into the rule's work stream (reopening it if closed). */
   private async applyRule(rule: TriageRule, inbound: InboundItem, item: StreamItem, fresh: ThreadMessage[]) {
@@ -531,8 +665,17 @@ export class TriagePipeline {
    * sure; otherwise Claude decides (as it always does with the Claude engine) and Laya learns from that decision.
    */
   private async judge(itemId: string, inbound: InboundItem, existingStreamId: string | null, fresh: ThreadMessage[], s: Settings, held: UsageEntry[]): Promise<TriageDecision> {
+    const t = await this.tryLaya(itemId, inbound, existingStreamId, fresh, s, held);
+    if (t.d) return t.d;
+    const d = await this.decide(inbound, existingStreamId, fresh, s, held);
+    await t.learn?.(d);
+    return d;
+  }
+
+  /** Laya decides alone when it is active and sure enough; otherwise it hands back a way to learn from Claude's decision. */
+  private async tryLaya(itemId: string, inbound: InboundItem, existingStreamId: string | null, fresh: ThreadMessage[], s: Settings, held: UsageEntry[]): Promise<{ d: TriageDecision | null; learn: ((d: TriageDecision) => Promise<unknown>) | null }> {
     const laya = this.laya && (await this.laya.active(s)) ? this.laya : null;
-    if (!laya) return this.decide(inbound, existingStreamId, fresh, s, held);
+    if (!laya) return { d: null, learn: null };
     const ctx = await laya.context(itemId, inbound, fresh, existingStreamId, s);
     const a = await laya.assess(ctx);
     const own = laya.decideAlone(a, ctx);
@@ -540,12 +683,10 @@ export class TriagePipeline {
       const d = await this.fromLaya(own, inbound, fresh, held);
       if (d) {
         await laya.recordLive(ctx, a, own);
-        return d;
+        return { d, learn: null };
       }
     }
-    const d = await this.decide(inbound, existingStreamId, fresh, s, held);
-    await laya.learn(ctx, a, { relevant: d.relevant, stream: { action: d.stream.action, streamId: d.stream.streamId }, next: { type: d.next.type } });
-    return d;
+    return { d: null, learn: (d) => laya.learn(ctx, a, { relevant: d.relevant, stream: { action: d.stream.action, streamId: d.stream.streamId }, next: { type: d.next.type } }) };
   }
 
   /** Turn Laya's decision into a triage decision. A new stream still needs a title and overview, which Claude writes. */
@@ -588,30 +729,47 @@ export class TriagePipeline {
 
   async decide(inbound: InboundItem, existingStreamId: string | null, fresh: ThreadMessage[], s: Settings, held?: UsageEntry[]): Promise<TriageDecision> {
     const people = await this.repo.listPeople();
+    // Streams the PU has said this item doesn't belong to are not offered as a home for it.
+    const self_ = await this.repo.findItem(inbound.source, inbound.externalId);
+    const excluded = new Set(self_?.data.notRelevantTo ?? []);
+    const [pu, playbooks, streams, skipped] = await this.sharedBlocks(s, people, excluded, new Set(self_ ? [self_.id] : []));
+    const [known, ...rest] = await this.itemBlocks(inbound, existingStreamId, fresh, people, false);
+    // (same order as always: who's who, then the open streams, then this item's details)
+    const [existing, closedBlock, hints, pastBlock, ...tail] = rest;
+    const prompt = [pu, playbooks, known, streams, existing, closedBlock, hints, skipped, pastBlock, ...tail].filter(Boolean).join('\n\n');
+    return this.backend.structured({ systemPrompt: TRIAGE_RULES, prompt, schema: TriageDecision, usage: { kind: 'triage', streamId: existingStreamId, held } });
+  }
+
+  /** What every triage call shares: the PU, their playbooks, the open work streams, and recently skipped messages. */
+  private async sharedBlocks(s: Settings, people: Person[], excluded: Set<string>, selfIds: Set<string>) {
     const self = people.find((p) => p.email === s.pu.email.toLowerCase()) ?? null;
     const manager = self?.managerEmail ? people.find((p) => p.email === self.managerEmail) : null;
     const reports = self ? people.filter((p) => p.managerEmail === self.email) : [];
+    const open = (await this.repo.listStreams(false)).filter((o) => !excluded.has(o.id));
+    // Messages triage skipped in the last day: related ones (several alerts about one outage, say) can add up to real work together.
+    const recentSkipped = (await this.repo.listSkipped(1)).filter((x) => !selfIds.has(x.id)).slice(0, 15);
+    const skippedBlock = recentSkipped.length
+      ? 'Recently skipped messages (last 24h, in no work stream). If this new message and any of them are about the same event or piece of work, list their ids in relatedItemIds:\n' +
+        recentSkipped.map((x) => `- item ${x.id} [${x.source}] "${x.title}"${x.from ? ` from ${x.from}` : ''} (${timeAgo(x.updatedAt)}); skipped because: ${x.reason.slice(0, 160)}`).join('\n')
+      : '';
+    return [puBlock(s.pu, { self, manager, reports }), playbookBlock(s.playbooks), streamsBlock(open), skippedBlock];
+  }
+
+  /** One update's own details: people in it, its stream, hints, similar past work, and its messages. */
+  private async itemBlocks(inbound: InboundItem, existingStreamId: string | null, fresh: ThreadMessage[], people: Person[], batch: boolean) {
     const msgs = inbound.data.messages ?? inbound.data.ticket?.comments ?? [];
     const participants = new Set<string>();
     for (const m of msgs) for (const e of [m.author.email, ...(m.to ?? []), ...(m.cc ?? [])]) if (e) participants.add(e.toLowerCase());
     const known = people.filter((p) => participants.has(p.email)).map((p) => `${p.name} <${p.email}>: ${p.title ?? ''} ${p.department ?? ''}${p.managerEmail ? `, reports to ${p.managerEmail}` : ''}`);
-    // Streams the PU has said this item doesn't belong to are not offered as a home for it.
-    const excluded = new Set((await this.repo.findItem(inbound.source, inbound.externalId))?.data.notRelevantTo ?? []);
-    const open = (await this.repo.listStreams(false)).filter((o) => !excluded.has(o.id));
-
+    const self_ = await this.repo.findItem(inbound.source, inbound.externalId);
+    const notHere = self_?.data.notRelevantTo ?? [];
     // Deterministic hint: a top-level Slack DM in a channel where a stream recently posted.
     const hints: string[] = [];
     if (inbound.source === 'slack' && inbound.data.slack && !existingStreamId) {
       const rows = await this.repo.db.selectFrom('items').select(['stream_id', 'data']).where('source', '=', 'slack').where('stream_id', 'is not', null).execute();
       for (const r of rows) if (r.data.includes(`"channel":"${inbound.data.slack.channel}"`)) hints.push(`Stream ${r.stream_id} recently messaged in this same Slack conversation.`);
     }
-    // Messages triage skipped in the last day: related ones (several alerts about one outage, say) can add up to real work together.
-    const self_ = await this.repo.findItem(inbound.source, inbound.externalId);
-    const recentSkipped = (await this.repo.listSkipped(1)).filter((x) => x.id !== self_?.id).slice(0, 15);
-    const skippedBlock = recentSkipped.length
-      ? 'Recently skipped messages (last 24h, in no work stream). If this new message and any of them are about the same event or piece of work, list their ids in relatedItemIds:\n' +
-        recentSkipped.map((x) => `- item ${x.id} [${x.source}] "${x.title}"${x.from ? ` from ${x.from}` : ''} (${timeAgo(x.updatedAt)}); skipped because: ${x.reason.slice(0, 160)}`).join('\n')
-      : '';
+    if (batch && notHere.length) hints.push(`The PU said this item does not belong to stream(s) ${notHere.join(', ')}; never choose them.`);
     // How similar work went before (closed streams only; open ones are already listed above): the basis for "do it like last time" offers.
     const queryText = `${inbound.title} ${fresh.map((m) => m.text).join(' ').slice(0, 400)}`;
     const past = (await this.repo.searchPastWork(queryText, { excludeStreamId: existingStreamId, closedOnly: true, limit: 3, minMatched: 2 })).filter((x) => x.id !== (self_ as any)?.streamId);
@@ -627,23 +785,16 @@ export class TriagePipeline {
         ? `That stream is CLOSED${home.closedAt ? ` (closed ${home.closedAt.slice(0, 10)})` : ''}: "${home.title}". Its overview: ${home.summary.replace(/\s+/g, ' ').slice(0, 600)}\nThis conversation already belonged to that work. If the new activity continues, questions or depends on that work, or the PU may still owe something, mark it relevant (the stream is reopened). Mark it not relevant only if nothing here needs the PU.`
         : '';
     const t = inbound.data.ticket;
-    const prompt = [
-      puBlock(s.pu, { self, manager, reports }),
-      playbookBlock(s.playbooks),
+    return [
       known.length ? `People in this conversation (org chart):\n${known.join('\n')}` : '',
-      streamsBlock(open),
       existingStreamId ? `This item is ALREADY attached to stream ${existingStreamId}; use action "existing" with that id.` : '',
       closedBlock,
       hints.join('\n'),
-      skippedBlock,
       pastBlock,
       `Incoming ${inbound.source} ${inbound.kind}: "${inbound.title}" ${inbound.url ?? ''}`,
       t ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? 'unassigned'} requester=${t.requester ?? '?'}\n${(t.description ?? '').slice(0, 2000)}` : '',
       `Earlier context:\n${msgs.filter((m) => !fresh.includes(m)).slice(-4).map(fmt).join('\n\n') || '(none)'}`,
       `NEW activity:\n${fresh.map(fmt).join('\n\n')}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-    return this.backend.structured({ systemPrompt: TRIAGE_RULES, prompt, schema: TriageDecision, usage: { kind: 'triage', streamId: existingStreamId, held } });
+    ];
   }
 }

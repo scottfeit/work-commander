@@ -51,7 +51,7 @@ async function main() {
 
   await app.repo.mergeAllChannelItems().then((n) => n && f.log.info(`folded ${n} Slack channel message item(s) into their discussions`)).catch((e) => f.log.warn(`channel merge: ${e.message}`));
   await app.repo.mergeSlackDmItems().then((n) => n && f.log.info(`merged ${n} duplicate Slack DM item(s)`)).catch((e) => f.log.warn(`DM merge: ${e.message}`));
-  await app.hub.start(app.triage.sink);
+  await app.hub.start(app.triage.sink, app.triage.sinkBatch);
 
   // Claude Code hand-offs: bring RESULT.md back into the stream automatically (local only: the folders live on this machine).
   if (cfg.hosting === 'local') {

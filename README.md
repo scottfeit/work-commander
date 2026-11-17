@@ -30,7 +30,7 @@ One dashboard for all of a person's work streams, with Claude in the middle. Cla
 
 ## Layout
 
-- **Left:** work streams, labelled by Claude, in Open, Pending, Closed and Declined sections (each with its own Show checkbox), with drafts-to-review counts. At the top, the pause button stops polling and triage until you resume (this also happens by itself after a gap of 2 hours or more, such as the computer sleeping, so you can clean up your inbox before it catches up), Undo (or ⌘Z) reverses your last three actions, and the gear opens Settings.
+- **Left:** work streams, labelled by Claude, in Open, Pending, Closed and Declined sections (each with its own Show checkbox), with drafts-to-review counts. At the top, the pause button stops polling and triage until you resume (this also happens by itself after a gap of 2 hours or more, such as the computer sleeping, so you can clean up your inbox before it catches up; the catch-up is then triaged in batches, one call to Claude for up to eight updates, with several updates on one conversation judged once), Undo (or ⌘Z) reverses your last three actions, and the gear opens Settings.
 - **Top tab bar and pane:** everything attached to the selected stream (email threads, Slack threads, tickets), with the Overview in a resizable pane to their right. Email items have Mark read, Archive and Delete buttons that act on the thread in Gmail.
 - **Bottom left:** Claude chat. It knows the selected stream and tab, and is aware of all open streams.
 - **Bottom right:** the draft pane, shown when something is waiting for approval (or always, if you choose in Settings → Display).

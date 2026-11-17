@@ -33,6 +33,9 @@ export class IntegrationHub {
   /** Live updates that arrived while paused, newest per conversation; handled on Resume. */
   private held: InboundItem[] = [];
   private catchingUp = false;
+  /** While Resume catches up: what the polls bring in, triaged together afterwards. */
+  private collected: InboundItem[] | null = null;
+  private sinkBatch?: (items: InboundItem[]) => Promise<void>;
   /** The last moment polling was known to be running; a jump past the gap setting means the computer slept or the server was off. */
   private lastSeen = 0;
   private gapMs = 2 * 3600_000;
@@ -100,8 +103,9 @@ export class IntegrationHub {
     return x.mode === 'mcp' ? 'mcp' : 'api';
   }
 
-  async start(sink: InboundSink) {
+  async start(sink: InboundSink, sinkBatch?: (items: InboundItem[]) => Promise<void>) {
     this.sink = sink;
+    this.sinkBatch = sinkBatch;
     await this.loadPause();
     await this.restart();
     this.ticker = setInterval(() => void this.alive(), 30_000);
@@ -180,12 +184,20 @@ export class IntegrationHub {
     this.changed();
     void (async () => {
       try {
+        // The polls' updates are collected (not triaged one by one), with the held ones as they are now, then triaged as one batch.
+        this.collected = [];
         await this.pollAll();
         for (const h of held) {
           const cur = await this.current(h).catch(() => (this.cleaned(h) ? null : h));
-          if (cur) await this.sink(cur).catch((e) => console.error('[resume]', e.message));
+          if (cur) this.collected.push(cur);
         }
+        const batch = this.collected;
+        this.collected = null;
+        const latest = [...new Map(batch.map((i) => [`${i.source}:${i.externalId}:${i.eventId}`, i])).values()];
+        if (this.sinkBatch) await this.sinkBatch(latest).catch((e) => console.error('[resume]', e.message));
+        else for (const i of latest) await this.sink(i).catch((e) => console.error('[resume]', e.message));
       } finally {
+        this.collected = null;
         this.catchingUp = false;
         this.changed();
       }
@@ -201,8 +213,9 @@ export class IntegrationHub {
       this.changed();
       return;
     }
-    if (this.catchingUp && this.cleaned(item)) {
-      await this.repo.audit('system', 'polling.skipped_cleaned', { source: item.source, externalId: item.externalId, title: item.title }).catch(() => undefined);
+    if (this.collected) {
+      if (this.cleaned(item)) await this.repo.audit('system', 'polling.skipped_cleaned', { source: item.source, externalId: item.externalId, title: item.title }).catch(() => undefined);
+      else this.collected.push(item);
       return;
     }
     return this.sink(item);
