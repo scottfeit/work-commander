@@ -10,6 +10,7 @@ import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
 import { SnoozeMenu } from './SnoozeMenu';
+import { DueLine, promisedOption } from './Due';
 import { EmailHtml } from './EmailHtml';
 
 /** Slack conversations are split by topic: send this message (or this and every later one) to another work stream. */
@@ -411,7 +412,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
             <AlarmIcon />
           </button>
         )}
-        {onTogglePending && stream.status === 'open' && <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} />}
+        {onTogglePending && stream.status === 'open' && <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} extra={promisedOption(stream)} />}
         {onMarkUnread && (
           <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
             Mark unread
@@ -427,6 +428,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           </button>
         )}
       </div>
+      {stream.status === 'open' && <DueLine stream={stream} />}
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="overview-foot">
         <div className="muted small">

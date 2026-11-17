@@ -1,3 +1,4 @@
+import { DEADLINE_RULE } from '../core/deadlines.js';
 import type { Person, PrimaryUser, StreamItem, WorkStream } from '@wc/shared';
 
 /** The PU's standing instructions (playbooks), for triage and for Claude. */
@@ -71,6 +72,7 @@ Decide:
 3. next: "draft" when the PU obviously needs a response or a ticket and you can describe what the agent should draft now (the PU will review before anything is sent); "offer" when doing the work is substantial (e.g. researching and resolving a ticket) and the PU should agree first — give a short offerLabel; "handoff" when the work itself belongs with Claude Code (software, or a change the agent has no tool for, such as editing a Sheet or Doc or changing a setting): instruction = a self-contained task for Claude Code including links, offerLabel = one or two sentences for the PU saying what was asked. Never use "draft" for a mere "I'll look into it" acknowledgement of such work: "handoff" lets the PU pick the acknowledgement or the hand-off with one click. "none" otherwise.
 4. relatedItemIds: you may be shown recently skipped messages. When this new message and some of them describe the same event or incident (for example an outage reported by an alert, an ISP notice and a colleague's report) and it falls within the PU's function, treat it as relevant even though each message alone is only an FYI, and list the ids of the earlier ones that are really about the same thing so they join the stream. Use null when none are related; never include unrelated ones.
 5. Playbooks and similar past work: if one of the PU's standing instructions applies, or similar past work is shown below the message, use it in "next". Prefer type "offer" with an instruction that repeats what was done before or what the playbook says (name the place, such as the tracking sheet) and a short offerLabel, so the PU can accept it in one click. Do not claim past work applies just because it shares a word with the message.
+6. ${DEADLINE_RULE}
 Write instructions to the stream agent as imperative sentences.`;
 
 /** Added to TRIAGE_RULES when several updates are decided in one call. */

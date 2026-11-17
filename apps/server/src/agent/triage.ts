@@ -1,4 +1,5 @@
 import { describeRule, matchRule } from '../core/rules.js';
+import { DeadlineFound, applyDeadline, findDeadline } from '../core/deadlines.js';
 import { z } from 'zod';
 import type { Person, StreamItem, Settings, ThreadMessage, TriageRule } from '@wc/shared';
 import { Repo } from '../core/repo.js';
@@ -29,8 +30,10 @@ export const TriageDecision = z.object({
   updatedSummary: z.string().nullable(),
   notify: z.object({ title: z.string(), body: z.string() }).nullable(),
   next: z.object({ type: z.enum(['none', 'draft', 'offer', 'handoff']), instruction: z.string(), offerLabel: z.string().nullable() }),
+  /** A deadline stated in the new activity (who owes whom), or null. Absent when Claude wasn't asked (Laya decided). */
+  deadline: DeadlineFound.nullable(),
 });
-export type TriageDecision = z.infer<typeof TriageDecision>;
+export type TriageDecision = Omit<z.infer<typeof TriageDecision>, 'deadline'> & { deadline?: DeadlineFound | null };
 
 /** Several updates decided in one call (a backlog after a pause). */
 const TriageBatch = z.object({ decisions: z.array(TriageDecision.extend({ key: z.string(), sameNewStreamAs: z.string().nullable() })) });
@@ -385,6 +388,7 @@ export class TriagePipeline {
     if (fromOthers.length === 0 && !(inbound.kind === 'ticket' && (created || newMessages.length === 0))) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'authored by PU' });
       if (item.streamId && !created) await this.noteDirectReply(item, newMessages.filter((m) => m.isFromPU));
+      await this.noteDeadline(item.id, newMessages); // "I'll have it to you by Friday" is the PU's own deadline
       return null;
     }
 
@@ -415,7 +419,23 @@ export class TriagePipeline {
   private async finish(p: Pending, decision: TriageDecision, s: Settings, then = true) {
     for (const e of [{ source: p.inbound.source, eventId: p.inbound.eventId }, ...p.also]) await this.repo.markInbound(e.source, e.eventId, decision.relevant, decision);
     await this.route(p.inbound, p.item, decision, s);
+    await this.noteDeadline(p.item.id, p.fresh, decision.deadline);
     if (then) await this.after(p);
+  }
+
+  /**
+   * A deadline in the update goes on the stream it landed in. Claude's triage reads it as part of its decision (free); when
+   * Claude wasn't asked (Laya, a rule, the PU's own message) the cheap model is asked, and only if the words look like one.
+   */
+  private async noteDeadline(itemId: string, fresh: ThreadMessage[], found?: DeadlineFound | null) {
+    try {
+      const item = await this.repo.getItem(itemId);
+      if (!item?.streamId) return;
+      const d = found !== undefined ? found : await findDeadline(this.backend, (await this.settings()).pu.name, fresh);
+      if (d) await applyDeadline(this.repo, item.streamId, d, { itemId, source: item.source });
+    } catch (e: any) {
+      console.error('[deadline]', e.message);
+    }
   }
 
   private async after(p: Pending) {
@@ -439,6 +459,7 @@ export class TriagePipeline {
     await this.repo.addChat({ streamId: st.id, role: 'system', content: `"${item.title}" filed here by ${why}.` });
     await this.repo.markInbound(inbound.source, inbound.eventId, true, { filed: st.id, reason: `filed by ${why}`, rule: rule.id });
     await this.flagUnread(item.id, fresh);
+    await this.noteDeadline(item.id, fresh);
     return true;
   }
 

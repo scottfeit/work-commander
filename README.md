@@ -38,6 +38,8 @@ One dashboard for all of a person's work streams, with Claude in the middle. Cla
 
 ![Settings](docs/screenshot-settings.png)
 
+Deadlines: triage reads deadlines from messages and tells who owes whom. "I need this by Friday" (or your own "I'll have it by Friday") becomes the stream's due date, shown as a chip (grey, amber due today, red overdue; overdue and due-today streams sort to the top of Open) and in the Overview with the words it came from, where you can change or clear it. "I'll get it to you by Thursday" from someone else is offered in the Pending ▾ menu as "Until they deliver".
+
 Meetings (Settings → Meetings): Google Calendar meetings that share people or topic with an open work stream are checked by a cheap model and, if they're about it, appear there as a tab; Claude posts a brief in the chat before each one and offers (or drafts) a follow-up after.
 
 Writing style (Settings → Writing style): Claude's drafts follow a guide learned from your own sent email and Slack messages (tone, length, greetings, sign-offs) plus counted reply-all and CC habits; the guide is editable.

@@ -127,6 +127,10 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
         pending: z.boolean().optional(),
         /** With pending: true, snooze until this moment. */
         snoozeUntil: z.string().datetime().nullable().optional(),
+        /** Set (or clear, null) the due date by hand; a date you set is never replaced by one read from a message. */
+        due: z.object({ at: z.string().datetime(), allDay: z.boolean().optional() }).nullable().optional(),
+        /** Clear the "they'll deliver by" date. */
+        promised: z.null().optional(),
         ticketTarget: z.object({ flavor: z.enum(['jsm', 'jira']), projectKey: z.string(), typeId: z.string(), serviceDeskId: z.string().optional() }).nullable().optional(),
       })
       .parse(req.body);
@@ -139,8 +143,15 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     }
     const t = q(await streamTitle(id));
     const label =
-      b.status === 'closed' ? `close ${t}` : b.status === 'open' ? `reopen ${t}` : b.pending === true && b.snoozeUntil ? `snooze ${t}` : b.pending === true ? `mark ${t} pending` : b.pending === false ? `take ${t} out of Pending` : b.title !== undefined ? `rename ${t}` : b.summary !== undefined ? `edit the overview of ${t}` : unread ? `mark ${t} unread` : `change ${t}`;
-    await undo.capture(label, { streams: [id] }, () => repo.updateStream(id, b, 'you'));
+      b.status === 'closed' ? `close ${t}` : b.status === 'open' ? `reopen ${t}` : b.pending === true && b.snoozeUntil ? `snooze ${t}` : b.pending === true ? `mark ${t} pending` : b.pending === false ? `take ${t} out of Pending` : b.due !== undefined ? (b.due ? `set the due date of ${t}` : `clear the due date of ${t}`) : b.promised === null ? `clear the delivery date of ${t}` : b.title !== undefined ? `rename ${t}` : b.summary !== undefined ? `edit the overview of ${t}` : unread ? `mark ${t} unread` : `change ${t}`;
+    await undo.capture(label, { streams: [id] }, async () => {
+      const { due, promised, ...fields } = b;
+      if (Object.keys(fields).length) await repo.updateStream(id, fields, 'you');
+      if (due !== undefined || promised !== undefined) {
+        const cur = (await repo.getStream(id))?.deadlines ?? {};
+        await repo.setDeadlines(id, { due: due === undefined ? cur.due : due ? { at: due.at, allDay: due.allDay, by: 'you' } : null, promised: promised === null ? null : cur.promised });
+      }
+    });
     return repo.getStream(id);
   });
   // Run the pending-reminder check now (the scheduler also does this every few minutes).

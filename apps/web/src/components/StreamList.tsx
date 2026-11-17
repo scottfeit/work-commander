@@ -1,4 +1,5 @@
 import { SnoozeMenu, snoozeLabel } from './SnoozeMenu';
+import { DueChip, dueRank, promisedOption } from './Due';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
@@ -65,7 +66,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   const openEntries: Entry[] = [
     ...open.map((s) => ({ key: s.id, at: s.lastActivityAt, stream: s })),
     ...skipped.filter((i) => !i.dismissed && matches(i)).map((i) => ({ key: i.id, at: i.updatedAt, item: i })),
-  ].sort(byTime);
+  ].sort((a: Entry, b: Entry) => dueRank(a.stream) - dueRank(b.stream) || byTime(a, b)); // overdue, then due today, then the rest
   // Pending (waiting on others): same ordering as everything else, by last update, in their own collapsible section below Open.
   const pendingEntries: Entry[] = pendingStreams.map((s) => ({ key: s.id, at: s.lastActivityAt, stream: s })).sort(byTime);
   const closedEntries: Entry[] = closed.map((s) => ({ key: s.id, at: s.lastActivityAt, stream: s }));
@@ -152,6 +153,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
           {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}
           {s.backAt && <span className="chip reminder" title="Back from snooze">Back</span>}
+          {s.status === 'open' && s.due && <DueChip due={s.due} />}
           {s.pending && s.snoozeUntil && (
             <span className="chip snooze-chip" title={`Snoozed: comes back ${new Date(s.snoozeUntil).toLocaleString()}, or earlier if someone writes`}>
               until {snoozeLabel(s.snoozeUntil)}
@@ -183,7 +185,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
               <AlarmIcon />
             </button>
           )}
-          {s.status === 'open' && <SnoozeMenu onPending={() => onTogglePending(s.id, true)} onSnooze={(at) => onSnooze(s.id, at)} />}
+          {s.status === 'open' && <SnoozeMenu onPending={() => onTogglePending(s.id, true)} onSnooze={(at) => onSnooze(s.id, at)} extra={promisedOption(s)} />}
         </div>
       )}
     </div>

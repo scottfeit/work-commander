@@ -12,6 +12,7 @@ import type {
   SystemId,
   TicketTarget,
   WorkStream,
+  StreamDeadline,
 } from '@wc/shared';
 import type { Database, DB } from '../db/index.js';
 import { j, now, pj } from '../db/index.js';
@@ -79,6 +80,10 @@ export class Repo {
       reminderAt: r.reminder_at,
       snoozeUntil: r.snooze_until ?? null,
       backAt: r.back_at ?? null,
+      ...(() => {
+        const d = pj<{ due?: StreamDeadline | null; promised?: StreamDeadline | null }>(r.deadlines ?? null, {});
+        return { deadlines: d, due: d.due ?? null, promised: d.promised ?? null };
+      })(),
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
@@ -115,6 +120,7 @@ export class Repo {
       reminder_at: null,
       snooze_until: null,
       back_at: null,
+      deadlines: null,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -170,6 +176,13 @@ export class Repo {
   async surfaceReminder(id: string) {
     const t = now();
     await this.db.updateTable('streams').set({ pending: 0, pending_at: null, reminder_at: t, unread: 1, last_activity_at: t, updated_at: t }).where('id', '=', id).execute();
+    await this.emitStream(id);
+  }
+
+  /** A stream's due date and "they'll deliver by" date. */
+  async setDeadlines(id: string, d: { due?: StreamDeadline | null; promised?: StreamDeadline | null }) {
+    const clean = { ...(d.due ? { due: d.due } : {}), ...(d.promised ? { promised: d.promised } : {}) };
+    await this.db.updateTable('streams').set({ deadlines: Object.keys(clean).length ? j(clean) : null, updated_at: now() }).where('id', '=', id).execute();
     await this.emitStream(id);
   }
 

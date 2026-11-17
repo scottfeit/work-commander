@@ -60,7 +60,7 @@ export class ScriptedBackend implements AgentBackend {
     } else {
       d = { relevant: !!existing, reason: 'Follow-up activity', stream: { action: existing ? 'existing' : 'none', streamId: existing, title: null, summary: null, labels: null }, relatedItemIds: null, updatedSummary: null, notify: null, next: { type: 'none', instruction: '', offerLabel: null } };
     }
-    return i.schema.parse(d);
+    return i.schema.parse({ deadline: null, ...d }); // the demo's messages state no deadlines
   }
 
   async turn(i: TurnInput): Promise<TurnOutput> {
