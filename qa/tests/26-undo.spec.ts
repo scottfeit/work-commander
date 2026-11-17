@@ -15,6 +15,11 @@ test('Email items have Mark read, Archive and Delete for the Gmail thread; each 
   await page.locator('.tabbar').getByRole('img', { name: 'Gmail' }).click();
   const g = page.locator('.top-pane .gmail-actions');
   await expect(g.locator('button > span:first-child')).toHaveText(['Mark read', 'Archive', 'Delete']);
+  // on their own row, below the title and the item's own buttons
+  const [title, quick, first] = await Promise.all([page.locator('.top-pane .item-head h2').boundingBox(), page.locator('.top-pane .item-head').getByRole('button', { name: 'Quick reply' }).boundingBox(), g.getByRole('button').first().boundingBox()]);
+  expect(first!.y).toBeGreaterThanOrEqual(Math.max(title!.y + title!.height, quick!.y + quick!.height));
+  expect(Math.abs(first!.x - title!.x)).toBeLessThan(40); // starts at the left, under the title
+  await page.locator('.top-pane .item-head').screenshot({ path: 'qa/results/gmail-row.png' });
   // outlined, like Allow
   expect(await g.getByRole('button', { name: 'Delete' }).evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe('rgba(0, 0, 0, 0)');
 

@@ -148,7 +148,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .item-head { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 16px 0 10px; box-shadow: 0 1px 0 var(--line); margin-bottom: 12px; }
 .item-head h2 { margin: 0; flex: 1; font-size: 17px; min-width: 14ch; }
 /* Gmail: Mark read / Archive / Delete (or their undo), kept together. */
-.gmail-actions { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.gmail-actions { display: flex; flex-basis: 100%; gap: 6px; align-items: center; flex-wrap: wrap; }
 .gmail-btn { display: inline-grid; justify-items: center; }
 .gmail-btn > span { grid-area: 1 / 1; }
 .gmail-btn-alt { visibility: hidden; }

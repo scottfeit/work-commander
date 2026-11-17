@@ -152,7 +152,6 @@ export function ItemView({
             Quick reply
           </button>
         )}
-        {item.source === 'gmail' && <GmailButtons item={item} />}
         {!peek && (
           <button
             className={`btn small ${item.data.muted ? '' : 'ghost'}`}
@@ -176,6 +175,8 @@ export function ItemView({
             Not relevant
           </button>
         )}
+        {/* Gmail-only actions get their own row under the title and the item buttons. */}
+        {item.source === 'gmail' && <GmailButtons item={item} />}
       </div>
       {t ? (
         <>
