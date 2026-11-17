@@ -1,3 +1,4 @@
+import { slackMessageUrl } from './slackUrl.js';
 import { WebClient } from '@slack/web-api';
 import type { SlackSettings, ThreadMessage } from '@wc/shared';
 import type { ChatApi, InboundItem, InboundSink, Ingestor } from './types.js';
@@ -124,6 +125,7 @@ export class SlackWorkspace implements ChatApi {
       kind: 'slack_thread',
       externalId: `${channel}:dm`,
       title: chName,
+      url: this.teamUrl && msgs.length ? slackMessageUrl(this.teamUrl, channel, msgs[msgs.length - 1].ts) : undefined,
       data: { messages, slack: { channel, channelName: chName, threadTs: msgs[0]?.ts ?? '' } },
       eventId: `${channel}:${triggerTs ?? msgs[msgs.length - 1]?.ts ?? 'dm'}`,
     };

@@ -20,6 +20,7 @@ import type {
 import type { Database, DB } from '../db/index.js';
 import { j, now, pj } from '../db/index.js';
 import { bus } from './bus.js';
+import { slackBaseOf, slackMessageUrl } from '../integrations/slackUrl.js';
 
 /** Where a draft goes: two pending drafts with the same target are versions of one message. null = not comparable. */
 export function draftTarget(p: { kind: string; system: string; payload: Record<string, any> }): string | null {
@@ -418,6 +419,43 @@ export class Repo {
     return source === 'slack' ? /^(D[A-Z0-9]+)(?::.*)?$/.exec(externalId)?.[1] ?? /^([A-Z][A-Z0-9]+):dm(?:@.*)?$/.exec(externalId)?.[1] ?? null : null;
   }
 
+  private slackBase?: string | null;
+  /** The workspace address, learned from any Slack link seen (Slack links carry it; messages alone do not). */
+  async slackBaseUrl() {
+    if (this.slackBase === undefined) this.slackBase = (await this.getSync('slack.base')) || null;
+    return this.slackBase;
+  }
+  private async noteSlackUrl(url?: string | null) {
+    const base = slackBaseOf(url);
+    if (!base || base === (await this.slackBaseUrl())) return;
+    this.slackBase = base;
+    await this.setSync('slack.base', base);
+  }
+  /** A DM or group DM is one flowing conversation, so its link opens the conversation at its latest message. Null until the workspace address is known. */
+  private async flatSlackUrl(channel: string | null, messages: ThreadMessage[] | undefined) {
+    const base = await this.slackBaseUrl();
+    const last = (messages ?? []).filter((m) => !m.id.startsWith('sent-')).map((m) => m.id).sort((a, b) => Number(a) - Number(b)).pop();
+    return base && channel && last ? slackMessageUrl(base, channel, last) : null;
+  }
+  /** Items that were stored before this: give every DM / group DM item its link (once the workspace address is known). */
+  async fillSlackUrls() {
+    if (!(await this.slackBaseUrl())) {
+      const withUrl = await this.db.selectFrom('items').select('url').where('source', '=', 'slack').where('url', 'is not', null).limit(20).execute();
+      for (const r of withUrl) await this.noteSlackUrl(r.url);
+    }
+    let n = 0;
+    for (const it of await this.db.selectFrom('items').selectAll().where('source', '=', 'slack').where('url', 'is', null).execute()) {
+      const channel = Repo.slackDmChannel('slack', it.external_id);
+      const url = await this.flatSlackUrl(channel, this.toItem(it).data.messages);
+      if (!url) continue;
+      await this.db.updateTable('items').set({ url }).where('id', '=', it.id).execute();
+      const item = await this.getItem(it.id);
+      if (item) bus.publish({ type: 'item.updated', item });
+      n++;
+    }
+    return n;
+  }
+
   /** Every Slack item of one channel or conversation. A conversation can be split across work streams, one item per stream. */
   async slackFamily(channel: string): Promise<StreamItem[]> {
     const rows = await this.db
@@ -537,7 +575,8 @@ export class Repo {
       messages: [...have.values()].sort((a, b) => a.at.localeCompare(b.at)),
       mergedExternalIds: aliases.size ? [...aliases] : undefined,
     };
-    await this.db.updateTable('items').set({ data: j(data), updated_at: t }).where('id', '=', target.id).execute();
+    const url = Repo.slackDmChannel('slack', target.externalId) ? await this.flatSlackUrl(input.channel, data.messages) : null;
+    await this.db.updateTable('items').set({ data: j(data), updated_at: t, ...(url ? { url } : {}) }).where('id', '=', target.id).execute();
     const affected = new Set<string>();
     if (input.toStreamId) affected.add(input.toStreamId);
     for (const [holderId, ids] of gone) {
@@ -546,8 +585,9 @@ export class Repo {
       if (h.streamId) affected.add(h.streamId);
       if (left.length) {
         const hd: ItemData = { ...h.data, messages: left };
-        await this.db.updateTable('items').set({ data: j(hd) }).where('id', '=', h.id).execute();
-        bus.publish({ type: 'item.updated', item: { ...h, data: hd } });
+        const hUrl = Repo.slackDmChannel('slack', h.externalId) ? await this.flatSlackUrl(input.channel, left) : null;
+        await this.db.updateTable('items').set({ data: j(hd), ...(hUrl ? { url: hUrl } : {}) }).where('id', '=', h.id).execute();
+        bus.publish({ type: 'item.updated', item: { ...h, data: hd, url: hUrl ?? h.url } });
       } else {
         await this.db.updateTable('inbound_events').set({ item_id: target.id }).where('item_id', '=', h.id).execute();
         await this.db.deleteFrom('message_html').where('item_id', '=', h.id).execute();
@@ -643,6 +683,11 @@ export class Repo {
         existing = alias;
       }
     }
+    if (input.source === 'slack') {
+      await this.noteSlackUrl(input.url);
+      const flat = Repo.slackDmChannel('slack', input.externalId);
+      if (flat) input = { ...input, url: (await this.flatSlackUrl(flat, input.data.messages)) ?? input.url };
+    }
     // A conversation can be split across work streams: a message another item of the same conversation already holds stays there.
     let holder: StreamItem | undefined;
     if (input.source === 'slack' && input.data.messages?.length) {
@@ -701,12 +746,14 @@ export class Repo {
     }
     const data: ItemData = { ...prev, ...input.data, messages: messages.length ? messages : undefined, ticket };
     const streamId = existing.streamId ?? input.streamId ?? null;
+    const flatCh = input.source === 'slack' ? Repo.slackDmChannel('slack', existing.externalId) : null;
+    if (flatCh) input = { ...input, url: (await this.flatSlackUrl(flatCh, messages)) ?? input.url };
     await this.db
       .updateTable('items')
       .set({ title: input.title || existing.title, url: input.url ?? existing.url ?? null, data: j(data), updated_at: t, stream_id: streamId })
       .where('id', '=', existing.id)
       .execute();
-    const item = { ...existing, title: input.title || existing.title, data, updatedAt: t, streamId };
+    const item = { ...existing, title: input.title || existing.title, url: input.url ?? existing.url, data, updatedAt: t, streamId };
     bus.publish({ type: 'item.updated', item });
     const ticketMeta = ticketChanged && prev.ticket && input.data.ticket ? { status: [prev.ticket.status, input.data.ticket.status] as [string, string], assignee: [prev.ticket.assignee, input.data.ticket.assignee] as [string | undefined, string | undefined] } : undefined;
     const fresh = newMessages.filter((m) => !echoes.has(m.id));

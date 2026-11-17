@@ -24,6 +24,8 @@ export interface TurnRequest {
    * Whatever the purpose, a turn that prepared drafts counts as drafting (except a hand-off coming back).
    */
   purpose?: 'chat' | 'draft' | 'handoff' | 'review';
+  /** A turn the PU didn't start may create drafts even when automatic drafts are off (used to file a draft Claude Code already wrote). */
+  allowDrafts?: boolean;
 }
 
 /**
@@ -183,7 +185,7 @@ export class StreamAgentRunner {
     const held: UsageEntry[] = [];
     try {
       // Auto drafts off: a turn the PU didn't start (new activity, a hand-off coming back) may only offer drafts.
-      const offerOnly = req.origin === 'system' && !(await this.settings()).claude.autoDraft;
+      const offerOnly = req.origin === 'system' && !req.allowDrafts && !(await this.settings()).claude.autoDraft;
       const tools = await buildTools({ streamId, runId, offerOnly }, this.toolDeps);
       const external = await this.externalServers();
       const systemPrompt = await this.systemPrompt(streamId, req.selectedItemId);

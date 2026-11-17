@@ -146,7 +146,7 @@ export async function pollSlackDirect(call: McpCall, p: DirectPollInput): Promis
     return out;
   };
 
-  const addDm = async (channel: string, after: number, label?: string) => {
+  const addDm = async (channel: string, after: number, label?: string, url?: string) => {
     if (items.has(`${channel}:dm`)) return;
     const r = parseSlackMessages(await run('slack_read_channel', { channel_id: channel, oldest: String(after), limit: 100, response_format: 'detailed' }), me);
     const messages = r.messages.filter((m) => Number(m.id) > after).map(({ replies: _r, ...m }) => m);
@@ -158,6 +158,7 @@ export async function pollSlackDirect(call: McpCall, p: DirectPollInput): Promis
       kind: 'slack_thread',
       externalId: `${channel}:dm`,
       title: name,
+      url,
       data: { messages, slack: { channel, channelName: name, threadTs: messages[0].id } },
       eventId: `${channel}:dm@${messages[messages.length - 1].id}`,
     });
@@ -180,7 +181,7 @@ export async function pollSlackDirect(call: McpCall, p: DirectPollInput): Promis
       eventId: `${externalId}@${messages[messages.length - 1].id}`,
     });
   };
-  const fromHit = async (h: SlackSearchHit) => (isDm(h.channel, h.channelLabel) ? addDm(h.channel, p.since, h.channelLabel) : addThread(h.channel, h.threadTs ?? h.ts, h.channelLabel, h.url));
+  const fromHit = async (h: SlackSearchHit) => (isDm(h.channel, h.channelLabel) ? addDm(h.channel, p.since, h.channelLabel, h.url) : addThread(h.channel, h.threadTs ?? h.ts, h.channelLabel, h.url));
 
   // 1. Mentions of the PU anywhere, and 2. anything in their DMs and group DMs (their own messages too).
   if (p.me) for (const h of await search({ keywords: [`<@${p.me}>`] })) await fromHit(h);
