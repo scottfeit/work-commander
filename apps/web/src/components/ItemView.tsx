@@ -416,13 +416,14 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           </span>
         )}
         {onMarkUnread && (
-          <button className="btn small" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
-            Mark unread
+          <button className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
+            Unread
           </button>
         )}
         {stream.status === 'open' ? (
-          <ConfirmButton confirm={confirmClose} onConfirm={() => save({ status: 'closed' })} armedChildren="Click again to close" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
-            Close stream
+          // Same labels as the work stream's tile: Unread, Close, then Confirm.
+          <ConfirmButton confirm={confirmClose} onConfirm={() => save({ status: 'closed' })} ariaLabel="Close stream" armedAriaLabel="Confirm close" armedChildren="Confirm" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
+            Close
           </ConfirmButton>
         ) : (
           <button className="btn small" onClick={() => save({ status: 'open' })}>

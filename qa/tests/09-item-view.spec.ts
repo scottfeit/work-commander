@@ -112,8 +112,8 @@ test('the Overview "Close stream" button also needs two clicks', async ({ page }
   await stream(page, /overview close test/i).click();
   const btn = page.locator('.item-view.overview').getByRole('button', { name: /close stream/i });
   await btn.click();
-  await expect(page.locator('.item-view.overview').getByRole('button', { name: /click again/i })).toBeVisible();
+  await expect(page.locator('.item-view.overview').getByRole('button', { name: 'Confirm close' })).toBeVisible();
   expect((await api.get(`/api/streams`)).json.find((s: any) => s.id === id).status).toBe('open');
-  await page.locator('.item-view.overview').getByRole('button', { name: /click again/i }).click();
+  await page.locator('.item-view.overview').getByRole('button', { name: 'Confirm close' }).click();
   await expect.poll(async () => (await api.get(`/api/streams?includeClosed=1`)).json.find((s: any) => s.id === id).status).toBe('closed');
 });

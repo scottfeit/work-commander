@@ -14,9 +14,9 @@ test('Closing a work stream takes two clicks by default', async ({ page }) => {
   await stream(page, /close twice stream/i).click();
   const btn = page.locator('.item-head').getByRole('button', { name: 'Close stream' });
   await btn.click();
-  await expect(page.locator('.item-head').getByRole('button', { name: 'Click again to close' })).toBeVisible();
+  await expect(page.locator('.item-head').getByRole('button', { name: 'Confirm close' })).toBeVisible();
   expect(await statusOf(id)).toBe('open');
-  await page.locator('.item-head').getByRole('button', { name: 'Click again to close' }).click();
+  await page.locator('.item-head').getByRole('button', { name: 'Confirm close' }).click();
   await expect.poll(() => statusOf(id)).toBe('closed');
 });
 
