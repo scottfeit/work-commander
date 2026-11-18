@@ -64,3 +64,21 @@ test('Refresh overview rewrites the overview and keeps the old one', async ({ pa
   await page.getByRole('button', { name: /Previous overviews/ }).click();
   await expect(page.locator('.summary-history')).toHaveCount(0);
 });
+
+test('a work item can be dragged onto a closed work stream, which stays closed', async ({ page }) => {
+  const closed = (await api.post('/api/streams', { title: 'Closed drop target', summary: '' })).json.id;
+  await api.call('PATCH', `/api/streams/${closed}`, { status: 'closed' });
+  const src = (await api.post('/api/streams', { title: 'Closed drop source', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  for (const [id, title] of [['cdA', 'To the closed one'], ['cdB', 'Stays here']])
+    db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run(id, src, 'gmail', 'email_thread', `ext-${id}`, title, null, JSON.stringify({ messages: [] }), '2026-10-01T00:00:00.000Z');
+  db.close();
+  await page.goto(WEB);
+  await page.locator('.sidebar').getByRole('checkbox', { name: /Show closed/ }).check();
+  await stream(page, /closed drop source/i).click();
+  await page.locator('.tabbar [role=tab]', { hasText: 'To the closed one' }).dragTo(stream(page, /closed drop target/i));
+  await expect.poll(async () => (await api.get('/api/items/cdA')).json.streamId).toBe(closed);
+  const st = (await api.get('/api/streams?includeClosed=1')).json.find((s: any) => s.id === closed);
+  expect(st.status).toBe('closed');
+});

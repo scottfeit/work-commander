@@ -848,8 +848,7 @@ export class Repo {
     if (!it) throw new Error('Item not found');
     const to = await this.getStream(toStreamId);
     if (!to) throw new Error('Work stream not found');
-    if (to.status !== 'open') throw new Error('Reopen that work stream before moving items into it');
-    if (it.streamId === toStreamId) return;
+    if (it.streamId === toStreamId) return; // (a closed stream takes items too, and stays closed)
     const from = it.streamId ? await this.getStream(it.streamId) : null;
     await this.attachItem(itemId, toStreamId);
     await this.audit('pu', 'item.moved', { itemId, from: it.streamId, to: toStreamId });

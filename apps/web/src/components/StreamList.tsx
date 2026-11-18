@@ -104,7 +104,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
     onSelect(s.id);
   };
 
-  const accepts = (e: React.DragEvent, s: WorkStream) => s.status === 'open' && e.dataTransfer.types.includes(ITEM_DRAG);
+  // Any work stream takes a dropped work item, closed ones too (they stay closed).
+  const accepts = (e: React.DragEvent, s: WorkStream) => !!s && e.dataTransfer.types.includes(ITEM_DRAG);
   const drop = async (e: React.DragEvent, s: WorkStream) => {
     e.preventDefault();
     setDropOn(null);
