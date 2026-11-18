@@ -51,6 +51,28 @@ export class SlackWorkspace implements ChatApi {
     }
   }
 
+  /**
+   * The current reactions on some messages of one conversation, in one call: the thread's replies, or (for a DM or channel
+   * discussion) the stretch of history they span.
+   */
+  async reactionsFor(channel: string, threadTs: string | null, ts: string[]): Promise<Map<string, ThreadMessage['reactions']>> {
+    const me = await this.selfUserId();
+    const want = new Set(ts);
+    const sorted = [...ts].sort((a, b) => Number(a) - Number(b));
+    const r = threadTs
+      ? await this.web.conversations.replies({ channel, ts: threadTs, limit: 200 })
+      : await this.web.conversations.history({ channel, oldest: sorted[0], latest: sorted[sorted.length - 1], inclusive: true, limit: 200 });
+    const out = new Map<string, ThreadMessage['reactions']>();
+    for (const m of (r.messages ?? []) as any[]) if (want.has(m.ts)) out.set(m.ts, reactionsOf(m, me).reactions ?? []);
+    // a discussion gathered from the channel (not one thread): read the rest from history, also in one call
+    const missing = sorted.filter((t) => !out.has(t));
+    if (threadTs && missing.length) {
+      const h = await this.web.conversations.history({ channel, oldest: missing[0], latest: missing[missing.length - 1], inclusive: true, limit: 200 });
+      for (const m of (h.messages ?? []) as any[]) if (want.has(m.ts) && !out.has(m.ts)) out.set(m.ts, reactionsOf(m, me).reactions ?? []);
+    }
+    return out;
+  }
+
   /** The workspace's own emoji (name -> image URL; aliases resolved). Empty without the emoji:read scope. */
   async customEmoji(): Promise<Record<string, string>> {
     try {
@@ -282,6 +304,18 @@ export class SlackIngestor implements Ingestor {
           this.status(false, `Slack event: ${e.message}`);
         }
       });
+      // Reactions added or removed in Slack itself: just update the stored message (no triage, no tokens).
+      for (const type of ['reaction_added', 'reaction_removed'] as const) {
+        this.socket.on(type, async ({ event, ack }: any) => {
+          await ack();
+          try {
+            if (event?.item?.type !== 'message' || !event.item.channel || !event.item.ts || !event.reaction) return;
+            await this.repo.applySlackReactions(event.item.channel, { ts: event.item.ts, name: event.reaction, added: type === 'reaction_added', byPU: event.user === me });
+          } catch (e: any) {
+            this.status(false, `Slack reaction event: ${e.message}`);
+          }
+        });
+      }
       this.socket.on('disconnect', () => this.status(false, 'Slack Socket Mode disconnected; reconnecting'));
       await this.socket.start();
       this.status(true, 'Slack Socket Mode connected');

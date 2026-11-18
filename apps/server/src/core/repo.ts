@@ -457,6 +457,43 @@ export class Repo {
   }
 
   /** Every Slack item of one channel or conversation. A conversation can be split across work streams, one item per stream. */
+  /**
+   * Keep stored Slack reactions in step with Slack: `set` replaces a message's reactions (read from Slack); `event` applies one
+   * reaction_added / reaction_removed. The PU's own (including ones WC added, which Slack echoes back) only flip "mine",
+   * so they are never counted twice. Only the reactions change: no triage, nothing marked unread. Returns the items updated.
+   */
+  async applySlackReactions(channel: string, change: { set: Map<string, ThreadMessage['reactions']> } | { ts: string; name: string; added: boolean; byPU: boolean }) {
+    const touched: string[] = [];
+    for (const it of await this.slackFamily(channel)) {
+      let changed = false;
+      const messages = (it.data.messages ?? []).map((m) => {
+        let next = m.reactions ?? [];
+        if ('set' in change) {
+          if (!change.set.has(m.id)) return m;
+          next = change.set.get(m.id) ?? [];
+        } else {
+          if (m.id !== change.ts) return m;
+          const r = next.find((x) => x.name === change.name);
+          if (change.added) {
+            if (change.byPU && r?.mine) return m;
+            next = r ? next.map((x) => (x.name === change.name ? { ...x, count: x.count + 1, mine: x.mine || change.byPU } : x)) : [...next, { name: change.name, count: 1, mine: change.byPU }];
+          } else {
+            if (!r || (change.byPU && !r.mine)) return m;
+            next = r.count > 1 ? next.map((x) => (x.name === change.name ? { ...x, count: x.count - 1, mine: change.byPU ? false : x.mine } : x)) : next.filter((x) => x.name !== change.name);
+          }
+        }
+        if (JSON.stringify(next) === JSON.stringify(m.reactions ?? [])) return m;
+        changed = true;
+        return { ...m, reactions: next.length ? next : undefined };
+      });
+      if (changed) {
+        await this.setItemData(it.id, { ...it.data, messages });
+        touched.push(it.id);
+      }
+    }
+    return touched;
+  }
+
   async slackFamily(channel: string): Promise<StreamItem[]> {
     const rows = await this.db
       .selectFrom('items')

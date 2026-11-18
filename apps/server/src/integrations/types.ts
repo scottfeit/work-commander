@@ -50,6 +50,8 @@ export interface ChatApi {
   download?(url: string): Promise<Buffer>;
   /** Add or remove the PU's emoji reaction on a message. */
   react?(channel: string, ts: string, name: string, add: boolean): Promise<void>;
+  /** Current reactions on these messages (one call). */
+  reactionsFor?(channel: string, threadTs: string | null, ts: string[]): Promise<Map<string, ThreadMessage['reactions']>>;
   /** The workspace's own emoji: name -> image URL. */
   customEmoji?(): Promise<Record<string, string>>;
   selfUserId(): Promise<string>;

@@ -27,6 +27,7 @@ oauth_config:
       - files:write
       - files:read
       - reactions:write
+      - reactions:read
       - emoji:read
     bot:
       - users:read
@@ -37,6 +38,8 @@ settings:
       - message.groups
       - message.im
       - message.mpim
+      - reaction_added
+      - reaction_removed
   interactivity:
     is_enabled: false
   org_deploy_enabled: false

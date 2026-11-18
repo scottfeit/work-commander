@@ -16,7 +16,10 @@ test('react to Slack messages: existing reactions toggle, the quick five on hove
   const item = async () => (await api.get('/api/items/sr1')).json;
 
   await page.goto(WEB);
+  // opening the Slack item brings its reactions up to date with Slack (one call)
+  const sync = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/items/sr1/reactions/sync'));
   await stream(page, /reactions stream/i).click();
+  await sync;
   const first = page.locator('.top-pane .msg').nth(0);
   const tada = first.getByRole('button', { name: /^:tada: 2/ });
   await expect(tada).toContainText('🎉');

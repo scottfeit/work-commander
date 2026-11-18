@@ -373,6 +373,16 @@ export function App() {
     setItems((xs) => xs.map((x) => (x.id === viewedUnread ? { ...x, data: { ...x.data, unread: undefined } } : x)));
     void post(`/api/items/${viewedUnread}/read`).catch(() => undefined);
   }, [viewedUnread]);
+  // Opening a Slack work item brings its reactions up to date with Slack (one cheap call, at most once a minute per item).
+  const reactionSync = useRef(new Map<string, number>());
+  useEffect(() => {
+    const it = selectedItem;
+    if (!it || it.source !== 'slack') return;
+    const last = reactionSync.current.get(it.id) ?? 0;
+    if (Date.now() - last < 60_000) return;
+    reactionSync.current.set(it.id, Date.now());
+    void post(`/api/items/${encodeURIComponent(it.id)}/reactions/sync`).catch(() => undefined);
+  }, [selectedItem?.id]);
   const setItemRead = useCallback((id: string, read: boolean) => {
     if (!read) setHeldUnread(id); // stays unread while you're still on it
     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, data: { ...x.data, unread: read ? undefined : true } } : x)));

@@ -319,6 +319,19 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     }
     return { standard: standardEmoji(), custom: customEmoji.list };
   });
+  // Opening a Slack work item: bring its reactions up to date with Slack (one call; reactions only, no triage).
+  f.post('/api/items/:id/reactions/sync', async (req) => {
+    const it = await repo.getItem((req.params as any).id);
+    if (!it || it.source !== 'slack' || !it.data.messages?.length) return { updated: false };
+    if ((await hub.systemMode('slack')) !== 'api') return { updated: false };
+    const chat = await hub.api('chat');
+    if (!chat.reactionsFor) return { updated: false };
+    const [channel, thread] = it.externalId.split(':');
+    const threadTs = thread && thread !== 'dm' && !Repo.slackIsFlat(channel, [it]) ? (it.data.slack?.threadTs ?? thread) : null;
+    const set = await chat.reactionsFor(it.data.slack?.channel ?? channel, threadTs, it.data.messages.map((m) => m.id));
+    const touched = await repo.applySlackReactions(it.data.slack?.channel ?? channel, { set });
+    return { updated: touched.length > 0 };
+  });
   // React to a Slack message (or take the reaction back), right away. The item's copy is updated to match.
   f.post('/api/items/:id/messages/:mid/react', async (req) => {
     const p = req.params as any;
