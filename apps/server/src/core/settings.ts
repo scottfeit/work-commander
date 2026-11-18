@@ -57,7 +57,7 @@ export function defaultSettings(): Settings {
       policy: { read: 'approve', write: 'approve' },
     },
     orgChart: { type: 'none' },
-    ui: { showClosedByDefault: false, recentTabFirst: false, openTab: 'overview', confirmClose: true, undoToast: true, manualStreamRead: false, manualItemRead: false },
+    ui: { showClosedByDefault: false, recentTabFirst: false, openTab: 'overview', confirmClose: true, undoToast: true, manualStreamRead: false, manualItemRead: false, newestFirst: { email: false, slack: false, tickets: false } },
     backup: { enabled: false, folder: '', everyHours: 24, keep: 14 },
     silencing: { skipPolling: false, mentionsOverride: false },
     reminders: { pendingDays: 3 },

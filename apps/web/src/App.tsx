@@ -42,6 +42,7 @@ export function App() {
   // Settings → Display: things stay unread until you click Read.
   const [manualStreamRead, setManualStreamRead] = useState(false);
   const [manualItemRead, setManualItemRead] = useState(false);
+  const [newestFirst, setNewestFirst] = useState<{ email?: boolean; slack?: boolean; tickets?: boolean }>({});
   const manualStreamReadRef = useRef(false);
   /** An item you just marked Unread while looking at it: don't mark it read again until you leave its tab. */
   const [heldUnread, setHeldUnread] = useState<string | null>(null);
@@ -133,6 +134,7 @@ export function App() {
         setManualStreamRead(!!s.ui?.manualStreamRead);
         manualStreamReadRef.current = !!s.ui?.manualStreamRead;
         setManualItemRead(!!s.ui?.manualItemRead);
+        setNewestFirst(s.ui?.newestFirst ?? {});
         undoToastRef.current = s.ui?.undoToast !== false;
         openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
       })
@@ -515,7 +517,7 @@ export function App() {
           <TabBar manualRead={manualItemRead} heldUnread={heldUnread} stream={stream} items={tabItems} tab={selectedItem?.id ?? ''} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
           <section className="top-pane">
               {selectedItem ? (
-                <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} manualRead={manualItemRead} onSetRead={(read) => setItemRead(selectedItem.id, read)} />
+                <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} manualRead={manualItemRead} onSetRead={(read) => setItemRead(selectedItem.id, read)} newestFirst={newestFirst} />
               ) : selected === GENERAL_STREAM ? (
                 <div className="empty-state">
                   <h2>All open work</h2>

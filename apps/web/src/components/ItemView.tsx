@@ -119,7 +119,10 @@ export function ItemView({
   onQuickReply,
   manualRead,
   onSetRead,
+  newestFirst = {},
 }: {
+  /** Settings → Display: newest message first, per kind. */
+  newestFirst?: { email?: boolean; slack?: boolean; tickets?: boolean };
   item: StreamItem;
   onRemoved?: () => void;
   peek?: boolean;
@@ -211,7 +214,7 @@ export function ItemView({
           )}
           <h3>Comments · {t.comments.length}</h3>
           {t.comments.length === 0 && <p className="muted">No comments yet.</p>}
-          {t.comments.map((c) => (
+          {(newestFirst.tickets ? [...t.comments].reverse() : t.comments).map((c) => (
             <Message key={c.id} m={c} />
           ))}
         </>
@@ -219,7 +222,7 @@ export function ItemView({
         <MeetingView m={item.data.meeting} />
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
-          {item.data.messages.map((m) => (
+          {((item.source === 'gmail' && newestFirst.email) || (item.source === 'slack' && newestFirst.slack) ? [...item.data.messages].reverse() : item.data.messages).map((m) => (
             <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
           ))}
         </div>

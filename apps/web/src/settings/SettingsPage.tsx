@@ -429,6 +429,11 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <Row label="Closing work streams" hint="Close stream asks for a second click, so a stray click doesn't close one. A closed stream can always be reopened.">
               <Toggle checked={s.ui.confirmClose !== false} onChange={(confirmClose) => up('ui', { confirmClose })} label="Click twice to close a work stream" />
             </Row>
+            <Row label="Message order" hint="Normally the oldest message is at the top of a work item and the newest at the bottom.">
+              <Toggle checked={!!s.ui.newestFirst?.email} onChange={(email) => up('ui', { newestFirst: { ...s.ui.newestFirst, email } })} label="Emails: newest at the top" />
+              <Toggle checked={!!s.ui.newestFirst?.slack} onChange={(slack) => up('ui', { newestFirst: { ...s.ui.newestFirst, slack } })} label="Slack: newest at the top" />
+              <Toggle checked={!!s.ui.newestFirst?.tickets} onChange={(tickets) => up('ui', { newestFirst: { ...s.ui.newestFirst, tickets } })} label="Jira / JSM comments: newest at the top" />
+            </Row>
             <Row label="Read / unread" hint="Normally opening a work stream marks it read, and opening a work item's tab clears its dot. With these on, they stay unread until you click Read (the button then reads Unread).">
               <Toggle checked={!!s.ui.manualStreamRead} onChange={(manualStreamRead) => up('ui', { manualStreamRead })} label="Mark work streams Read myself" />
               <Toggle checked={!!s.ui.manualItemRead} onChange={(manualItemRead) => up('ui', { manualItemRead })} label="Mark work items Read myself" />

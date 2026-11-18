@@ -623,6 +623,8 @@ export interface Settings {
     confirmClose?: boolean;
     /** After Undo, show a short message saying what was undone. Default on. */
     undoToast?: boolean;
+    /** Show the newest message first in work items, per kind (default oldest first). */
+    newestFirst?: { email?: boolean; slack?: boolean; tickets?: boolean };
     /** Work streams stay unread until you click Read (opening one doesn't mark it read). Default off. */
     manualStreamRead?: boolean;
     /** Work items stay unread until you click Read on the item (opening its tab doesn't). Default off. */
