@@ -45,7 +45,26 @@ export function App() {
   const manualStreamReadRef = useRef(false);
   /** An item you just marked Unread while looking at it: don't mark it read again until you leave its tab. */
   const [heldUnread, setHeldUnread] = useState<string | null>(null);
-  const [keepDraftsOpen, setKeepDraftsOpen] = useState(false);
+  // The Drafts pane is open or collapsed to a thin bar (your choice, kept across work streams and reloads). A draft that
+  // arrives while you're looking opens it until that stream has no drafts left; then your choice applies again.
+  const [draftsHidden, setDraftsHidden] = useState(() => {
+    try {
+      return localStorage.getItem('wc.draftsHidden') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [draftsAutoOpen, setDraftsAutoOpen] = useState(false);
+  const hideDrafts = useCallback((hidden: boolean) => {
+    setDraftsHidden(hidden);
+    setDraftsAutoOpen(false);
+    try {
+      localStorage.setItem('wc.draftsHidden', hidden ? '1' : '0');
+    } catch {
+      /* private window: just for now */
+    }
+  }, []);
+  const draftsRef = useRef<Proposal[]>([]);
   // System-wide Undo: what it would reverse next, and whether to say what it undid (Settings → Display).
   const [undoInfo, setUndoInfo] = useState<UndoInfo>({ next: null, count: 0 });
   const [polling, setPolling] = useState<PollingState>({ paused: null, held: 0, catchingUp: false });
@@ -114,7 +133,6 @@ export function App() {
         setManualStreamRead(!!s.ui?.manualStreamRead);
         manualStreamReadRef.current = !!s.ui?.manualStreamRead;
         setManualItemRead(!!s.ui?.manualItemRead);
-        setKeepDraftsOpen(!!s.ui?.keepDraftsOpen);
         undoToastRef.current = s.ui?.undoToast !== false;
         openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
       })
@@ -185,6 +203,7 @@ export function App() {
         const r = await post<{ proposal: Proposal }>(`/api/items/${item.id}/quick-reply`);
         setDrafts((xs) => (xs.some((x) => x.id === r.proposal.id) ? xs : [...xs, r.proposal].sort((a, b) => a.createdAt.localeCompare(b.createdAt))));
         setFocusDraft(r.proposal.id);
+        setDraftsAutoOpen(true);
       } catch (e: any) {
         toast({ title: 'Quick reply', body: e.message, tone: 'error' });
       }
@@ -217,6 +236,8 @@ export function App() {
           else setItems((xs) => (xs.some((x) => x.id === e.item.id) ? xs.map((x) => (x.id === e.item.id ? e.item : x)) : [...xs, e.item]));
           break;
         case 'proposal.updated':
+          // a draft newly arriving in the stream you're looking at opens the pane
+          if (sidOf(e.proposal.streamId) === cur && e.proposal.status === 'pending' && !draftsRef.current.some((x) => x.id === e.proposal.id)) setDraftsAutoOpen(true);
           if (sidOf(e.proposal.streamId) === cur)
             setDrafts((xs) => {
               const rest = xs.filter((x) => x.id !== e.proposal.id);
@@ -392,6 +413,13 @@ export function App() {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
+  draftsRef.current = drafts;
+  // Opened by a new draft: back to your choice once this stream has none left, and when you switch streams.
+  useEffect(() => {
+    if (!drafts.length) setDraftsAutoOpen(false);
+  }, [drafts.length]);
+  useEffect(() => setDraftsAutoOpen(false), [selected]);
+  const draftsCollapsed = draftsHidden && !draftsAutoOpen;
   const bottomRef = useRef<HTMLElement>(null);
   const startDraftDrag = (ev: React.MouseEvent) => {
     ev.preventDefault();
@@ -514,8 +542,8 @@ export function App() {
         <div className="divider" onMouseDown={startDrag} title="Drag to resize" />
         <section
           ref={bottomRef}
-          className={`bottom ${drafts.length || keepDraftsOpen ? 'with-drafts' : ''}`}
-          style={drafts.length || keepDraftsOpen ? { gridTemplateColumns: `minmax(0, ${1 - draftSplit}fr) 6px minmax(0, ${draftSplit}fr)` } : undefined}
+          className={`bottom ${draftsCollapsed ? 'drafts-collapsed' : 'with-drafts'}`}
+          style={draftsCollapsed ? undefined : { gridTemplateColumns: `minmax(0, ${1 - draftSplit}fr) 6px minmax(0, ${draftSplit}fr)` }}
         >
           <ChatPane
             streamId={selected}
@@ -525,7 +553,13 @@ export function App() {
             live={live?.text ?? null}
             running={running}
           />
-          {(drafts.length > 0 || keepDraftsOpen) && (
+          {draftsCollapsed && (
+            <button type="button" className={`drafts-bar${drafts.length ? ' has' : ''}`} aria-label={`Show the Drafts pane (${drafts.length} waiting)`} title="Show the Drafts pane" onClick={() => hideDrafts(false)}>
+              <span className="drafts-bar-count">{drafts.length}</span>
+              <span className="drafts-bar-label">Drafts</span>
+            </button>
+          )}
+          {!draftsCollapsed && (
             <div
               className="divider-v"
               role="separator"
@@ -539,8 +573,9 @@ export function App() {
               }}
             />
           )}
-          {(drafts.length > 0 || keepDraftsOpen) && (
+          {!draftsCollapsed && (
             <DraftPane
+              onHide={() => hideDrafts(true)}
               confirmClose={confirmClose}
               drafts={drafts}
               focusId={focusDraft}

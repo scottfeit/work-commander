@@ -29,7 +29,7 @@ function setPath(o: any, path: string, v: unknown) {
  * `onDecided` reports the server's answer to an approve/reject so the pane updates at once, without waiting for
  * the live event stream (which may have dropped). `onStale` reloads the list when a draft was already handled.
  */
-export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, confirmClose = true }: { confirmClose?: boolean; drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void; focusId?: string | null; onFocused?: () => void }) {
+export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, onHide, confirmClose = true }: { onHide?: () => void; confirmClose?: boolean; drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void; focusId?: string | null; onFocused?: () => void }) {
   // Unsaved PU edits, keyed by proposal id. Kept here so "Approve all" sends the edited text.
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
   const titles = new Map(drafts.map((d) => [d.id, d.title]));
@@ -67,6 +67,11 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, conf
         {drafts.length > 1 && (
           <button className="btn small primary right" title="Sends every draft except blank Quick Reply drafts and close-stream proposals" onClick={approveAll}>
             Approve all
+          </button>
+        )}
+        {onHide && (
+          <button type="button" className={`icon-btn drafts-hide${drafts.length > 1 ? '' : ' right'}`} aria-label="Hide the Drafts pane" title="Hide the Drafts pane (a new draft opens it again)" onClick={onHide}>
+            »
           </button>
         )}
       </div>

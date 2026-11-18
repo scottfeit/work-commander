@@ -621,8 +621,6 @@ export interface Settings {
     emailView?: 'text' | 'original';
     /** Closing a work stream takes two clicks (the first arms the button). Default on. */
     confirmClose?: boolean;
-    /** Keep the Drafts pane open even when nothing is waiting for review. Default off (it appears only when there are drafts). */
-    keepDraftsOpen?: boolean;
     /** After Undo, show a short message saying what was undone. Default on. */
     undoToast?: boolean;
     /** Work streams stay unread until you click Read (opening one doesn't mark it read). Default off. */

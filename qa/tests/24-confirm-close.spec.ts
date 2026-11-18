@@ -54,18 +54,45 @@ test("With the setting off, Claude's close suggestion in the drafts pane closes 
   await setConfirm(true);
 });
 
-test('Settings → Display: the Drafts pane can stay open with no drafts', async ({ page }) => {
+test('the Drafts pane collapses to a thin bar and back; your choice holds across streams and reloads; a new draft opens it', async ({ page }) => {
   await api.post('/api/streams', { title: 'No drafts stream', summary: '' });
   await page.goto(WEB);
+  await page.evaluate(() => localStorage.removeItem('wc.draftsHidden'));
+  await page.reload();
   await stream(page, /no drafts stream/i).click();
-  await expect(page.locator('.drafts')).toHaveCount(0); // default: only while drafts wait
-  await page.goto(`${WEB}/settings?section=display`);
-  await page.getByText('Keep the Drafts pane open, even with no drafts').click();
-  await page.getByRole('button', { name: /save changes/i }).click();
-  expect((await api.get('/api/settings')).json.ui.keepDraftsOpen).toBe(true);
-  await page.goto(WEB);
+  await expect(page.locator('.drafts')).toContainText('No drafts waiting'); // open by default, even with none
+  await page.getByRole('button', { name: 'Hide the Drafts pane' }).click();
+  const bar = page.getByRole('button', { name: /^Show the Drafts pane/ });
+  await expect(bar).toBeVisible();
+  await expect(page.locator('.drafts')).toHaveCount(0);
+  const [b, bottom] = await Promise.all([bar.boundingBox(), page.locator('.bottom').boundingBox()]);
+  expect(b!.width).toBeLessThan(40);
+  expect(Math.abs(b!.x + b!.width - (bottom!.x + bottom!.width))).toBeLessThan(2); // at the right edge
+
+  // other streams (even with drafts already waiting) stay collapsed; the bar shows the count
+  await stream(page, /contractor access/i).click();
+  await expect(bar).toHaveAttribute('aria-label', 'Show the Drafts pane (2 waiting)');
+  await page.locator('.bottom').screenshot({ path: 'qa/results/drafts-bar.png' });
+  await page.reload();
+  await stream(page, /contractor access/i).click();
+  await expect(bar).toBeVisible();
+
+  // a draft arriving while you look opens it; once you switch streams, your choice applies again
+  await page.locator('.top-pane .item-head').getByRole('button', { name: 'Quick reply' }).click();
+  await expect(page.locator('.drafts')).toBeVisible();
+  await stream(page, /no drafts stream/i).click();
+  await expect(bar).toBeVisible();
+  // ...and it stays open until that stream has no drafts left
+  await stream(page, /contractor access/i).click();
+  await expect(bar).toBeVisible();
+
+  // the bar opens it again, for good
+  await bar.click();
+  await expect(page.locator('.drafts')).toBeVisible();
+  await page.reload();
   await stream(page, /no drafts stream/i).click();
   await expect(page.locator('.drafts')).toContainText('No drafts waiting');
-  const s = (await api.get('/api/settings')).json;
-  await api.call('PUT', '/api/settings', { ...s, ui: { ...s.ui, keepDraftsOpen: false } });
+  // the old "keep open" setting is gone
+  await page.goto(`${WEB}/settings?section=display`);
+  await expect(page.getByText('Keep the Drafts pane open')).toHaveCount(0);
 });

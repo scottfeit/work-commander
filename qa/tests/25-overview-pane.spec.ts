@@ -19,7 +19,7 @@ test('the Overview is a pane beside the work item, about a third wide, resizable
   expect(w0 / area.width).toBeLessThan(0.38);
 
   // drag the line left: the Overview gets wider, and stays that way after a reload
-  const line = (await page.locator('.divider-v').boundingBox())!;
+  const line = (await page.getByRole('separator', { name: 'Resize the Overview pane' }).boundingBox())!;
   await page.mouse.move(line.x + line.width / 2, line.y + 40);
   await page.mouse.down();
   await page.mouse.move(line.x - 150, line.y + 40, { steps: 5 });
@@ -31,7 +31,7 @@ test('the Overview is a pane beside the work item, about a third wide, resizable
   expect(Math.abs((await pane.boundingBox())!.width - w1)).toBeLessThan(4);
 
   // double-click resets it
-  await page.locator('.divider-v').dblclick();
+  await page.getByRole('separator', { name: 'Resize the Overview pane' }).dblclick();
   expect(Math.abs((await pane.boundingBox())!.width - w0)).toBeLessThan(4);
   await page.locator('.overview-pane').screenshot({ path: 'qa/results/overview-pane.png' });
 });

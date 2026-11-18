@@ -436,9 +436,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <Row label="Undo" hint="The arrow next to Settings (or ⌘Z) undoes your last three actions: moves, Pending, closing, edits, Accept and Decline, Gmail buttons and more">
               <Toggle checked={s.ui.undoToast !== false} onChange={(undoToast) => up('ui', { undoToast })} label="Show a message saying what was undone" />
             </Row>
-            <Row label="Drafts pane" hint="Normally the Drafts pane appears beside the chat only while drafts are waiting for you">
-              <Toggle checked={!!s.ui.keepDraftsOpen} onChange={(keepDraftsOpen) => up('ui', { keepDraftsOpen })} label="Keep the Drafts pane open, even with no drafts" />
-            </Row>
+            
             <Row label="Work item tabs">
               <Toggle
                 checked={!!s.ui.recentTabFirst}
