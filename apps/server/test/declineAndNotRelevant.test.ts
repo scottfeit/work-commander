@@ -83,8 +83,11 @@ describe('linking and moving items', () => {
     await repo.markItemNotRelevant(item.id, other);
     await repo.moveItem(item.id, streamId);
     expect((await repo.getItem(item.id))!.streamId).toBe(streamId);
+    // a closed stream takes items too, and stays closed
     await repo.updateStream(other, { status: 'closed' });
-    await expect(repo.moveItem(item.id, other)).rejects.toThrow(/Reopen/);
+    await repo.moveItem(item.id, other);
+    expect((await repo.getItem(item.id))!.streamId).toBe(other);
+    expect((await repo.getStream(other))!.status).toBe('closed');
   });
 });
 
