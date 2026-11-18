@@ -31,7 +31,7 @@ export function textToAdf(text: string) {
   };
 }
 
-const FIELDS = ['summary', 'status', 'assignee', 'reporter', 'description', 'comment', 'updated', 'project', 'issuetype', 'created'];
+const FIELDS = ['summary', 'status', 'assignee', 'reporter', 'description', 'comment', 'updated', 'project', 'issuetype', 'created', 'attachment'];
 
 export class AtlassianCloud implements TicketApi {
   private base: string;
@@ -119,10 +119,19 @@ export class AtlassianCloud implements TicketApi {
           description: adfToText(f.description).trim(),
           flavor: isJsm ? 'jsm' : 'jira',
           comments,
+          attachments: (f.attachment ?? []).filter((a: any) => a?.id && a.content).map((a: any) => ({ id: String(a.id), name: String(a.filename ?? 'file'), mimeType: String(a.mimeType ?? 'application/octet-stream'), size: typeof a.size === 'number' ? a.size : undefined, ref: String(a.content) })),
         },
       },
       eventId: triggerId ?? `${issue.key}@${f.updated ?? lastComment?.id}`,
     };
+  }
+
+  /** An attachment's bytes (its content URL on this site; Atlassian may redirect to its media store). */
+  async download(url: string): Promise<Buffer> {
+    if (!url.startsWith(this.base + '/')) throw new Error('Not an attachment on this Atlassian site');
+    const r = await this.fetchImpl(url, { headers: { Authorization: this.auth } });
+    if (!r.ok) throw new Error(`Jira attachment: ${r.status}`);
+    return Buffer.from(await r.arrayBuffer());
   }
 
   async getIssue(key: string) {

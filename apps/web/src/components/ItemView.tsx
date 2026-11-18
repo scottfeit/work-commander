@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { GmailAction, GmailThreadState, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
+import type { GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { fmtTime, get, patch, post, timeAgo } from '../api';
 import { UsagePie } from './usageViz';
@@ -96,7 +96,40 @@ function TextBody({ text, fold }: { text: string; fold: boolean }) {
   );
 }
 
-function Message({ m, compact, html, defaultOriginal, item }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem }) {
+/** Image types shown inline (SVG can carry scripts, so it's a download like any other file). */
+const INLINE_IMAGE = /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i;
+const fileSize = (n?: number) => (n == null ? '' : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+
+/** A message's (or ticket's) attachments: images inline (click for full size), other files as chips that download. */
+function Attachments({ itemId, list }: { itemId: string; list: MessageAttachment[] }) {
+  const url = (a: MessageAttachment, inline = false) => `/api/items/${encodeURIComponent(itemId)}/attachments/${encodeURIComponent(a.id)}${inline ? '?inline=1' : ''}`;
+  const images = list.filter((a) => INLINE_IMAGE.test(a.mimeType));
+  const files = list.filter((a) => !INLINE_IMAGE.test(a.mimeType));
+  return (
+    <div className="attachments">
+      {images.length > 0 && (
+        <div className="att-images">
+          {images.map((a) => (
+            <a key={a.id} href={url(a, true)} target="_blank" rel="noreferrer" title={`${a.name} (${fileSize(a.size)}): open full size`}>
+              <img src={url(a, true)} alt={a.name} loading="lazy" />
+            </a>
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <div className="att-files">
+          {files.map((a) => (
+            <a key={a.id} className="att-file" href={url(a)} download={a.name} title={`Download ${a.name}`}>
+              <span aria-hidden="true">📎</span> {a.name} {a.size != null && <span className="muted small">{fileSize(a.size)}</span>}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Message({ m, compact, html, defaultOriginal, item, itemId }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem; itemId?: string }) {
   const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
   const [moving, setMoving] = useState(false);
   const original = choice ?? !!defaultOriginal;
@@ -131,6 +164,7 @@ function Message({ m, compact, html, defaultOriginal, item }: { m: ThreadMessage
       ) : (
         <TextBody text={m.text} fold={!compact} />
       )}
+      {itemId && !!m.attachments?.length && <Attachments itemId={itemId} list={m.attachments} />}
     </article>
   );
 }
@@ -236,10 +270,16 @@ export function ItemView({
               <Linkified text={t.description} />
             </div>
           )}
+          {!!t.attachments?.length && (
+            <>
+              <h3>Attachments · {t.attachments.length}</h3>
+              <Attachments itemId={item.id} list={t.attachments} />
+            </>
+          )}
           <h3>Comments · {t.comments.length}</h3>
           {t.comments.length === 0 && <p className="muted">No comments yet.</p>}
           {(newestFirst.tickets ? [...t.comments].reverse() : t.comments).map((c) => (
-            <Message key={c.id} m={c} />
+            <Message key={c.id} m={c} itemId={item.id} />
           ))}
         </>
       ) : item.data.meeting ? (
@@ -247,7 +287,7 @@ export function ItemView({
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
           {((item.source === 'gmail' && newestFirst.email) || (item.source === 'slack' && newestFirst.slack) ? [...item.data.messages].reverse() : item.data.messages).map((m) => (
-            <Message key={m.id} m={m} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
+            <Message key={m.id} m={m} itemId={item.id} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
           ))}
         </div>
       ) : (

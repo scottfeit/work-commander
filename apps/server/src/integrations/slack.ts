@@ -1,6 +1,6 @@
 import { slackMessageUrl } from './slackUrl.js';
 import { WebClient } from '@slack/web-api';
-import type { SlackSettings, ThreadMessage } from '@wc/shared';
+import type { MessageAttachment, SlackSettings, ThreadMessage } from '@wc/shared';
 import type { ChatApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import type { Repo } from '../core/repo.js';
 import type { OutFile } from '../core/attachments.js';
@@ -14,13 +14,29 @@ export function parseWatchedChannels(s: string | undefined) {
   return [...new Set((s ?? '').split(/[,\n;]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean))];
 }
 
+/** A Slack message's files, as attachments (fetched through the server with the token). */
+export function filesOf(m: { files?: any[] }): { attachments?: MessageAttachment[] } {
+  const a = (m.files ?? [])
+    .filter((f) => f && f.id && (f.url_private_download || f.url_private) && f.mode !== 'tombstone')
+    .map((f) => ({ id: String(f.id), name: String(f.name ?? f.title ?? 'file'), mimeType: String(f.mimetype ?? 'application/octet-stream'), size: typeof f.size === 'number' ? f.size : undefined, ref: String(f.url_private_download ?? f.url_private) }));
+  return a.length ? { attachments: a } : {};
+}
+
 export class SlackWorkspace implements ChatApi {
   web: WebClient;
   private uid?: string;
   private teamUrl?: string;
   private names = new Map<string, { name: string; email?: string }>();
-  constructor(token: string) {
+  constructor(private token: string) {
     this.web = new WebClient(token);
+  }
+
+  /** A file's bytes (Slack's private file URLs need the token). */
+  async download(url: string): Promise<Buffer> {
+    if (!/^https:\/\/([a-z0-9-]+\.)*slack(-edge)?\.com\//i.test(url)) throw new Error('Not a Slack file');
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+    if (!r.ok) throw new Error(`Slack file: ${r.status}${r.status === 403 ? ' (the Slack app needs the files:read user scope)' : ''}`);
+    return Buffer.from(await r.arrayBuffer());
   }
 
   async selfUserId() {
@@ -74,6 +90,7 @@ export class SlackWorkspace implements ChatApi {
         id: m.ts,
         author: { name: u.name, email: (u as any).email, slackUserId: m.user },
         text: await this.render(m.text ?? ''),
+        ...filesOf(m),
         at: new Date(Number(m.ts) * 1000).toISOString(),
         isFromPU: m.user === me,
       });
@@ -104,7 +121,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
     }
     return { messages, channelLabel: await this.channelName(channel) };
   }
@@ -125,7 +142,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
     }
     const chName = await this.channelName(channel);
     return {

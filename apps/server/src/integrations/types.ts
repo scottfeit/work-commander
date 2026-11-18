@@ -1,5 +1,5 @@
 import type { OutFile } from '../core/attachments.js';
-import type { GmailAction, GmailThreadState, ItemData, ItemSource, StreamItem, ThreadMessage } from '@wc/shared';
+import type { GmailAction, GmailThreadState, ItemData, ItemSource, MessageAttachment, StreamItem, ThreadMessage } from '@wc/shared';
 
 /** What every ingestion source hands to the triage pipeline. */
 export interface InboundItem {
@@ -32,6 +32,8 @@ export interface EmailApi {
   modifyThread?(threadId: string, action: GmailAction, opts?: { toInbox?: boolean }): Promise<void>;
   /** Where the thread is now (read, archived, in Trash). */
   threadState?(threadId: string): Promise<GmailThreadState>;
+  /** An attachment's bytes. */
+  attachment?(messageId: string, a: MessageAttachment): Promise<Buffer>;
 }
 
 export interface DocsApi {
@@ -44,6 +46,8 @@ export interface CalendarApi {
 }
 
 export interface ChatApi {
+  /** A file's bytes, from its private URL. */
+  download?(url: string): Promise<Buffer>;
   selfUserId(): Promise<string>;
   getThread(channel: string, threadTs: string): Promise<InboundItem>;
   search(query: string, max?: number): Promise<{ channel: string; ts: string; threadTs?: string; user: string; text: string; permalink: string }[]>;
@@ -52,6 +56,8 @@ export interface ChatApi {
 }
 
 export interface TicketApi {
+  /** An attachment's bytes, from its content URL. */
+  download?(url: string): Promise<Buffer>;
   myself(): Promise<{ accountId: string; email?: string; displayName: string }>;
   getIssue(key: string): Promise<InboundItem>;
   search(jql: string, max?: number): Promise<{ key: string; summary: string; status: string; updated: string }[]>;

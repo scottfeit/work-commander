@@ -53,6 +53,11 @@ export class DemoWorld {
       return t;
     },
     threadState: async (id: string) => ({ ...(this.gmailState.get(id) ?? { unread: true, inbox: true, trash: false }) }),
+    /** Demo attachments: a small PNG for images, a line of text for anything else. */
+    attachment: async (_messageId: string, a: { mimeType: string; name: string }) =>
+      /^image\//.test(a.mimeType)
+        ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHRwSACXQD/G6p0GcAAAAAElFTkSuQmCC', 'base64')
+        : Buffer.from(`Demo attachment: ${a.name}\n`),
     modifyThread: async (id: string, action: 'read' | 'unread' | 'archive' | 'unarchive' | 'trash' | 'untrash', opts: { toInbox?: boolean } = {}) => {
       const s = await this.email.threadState(id);
       if (action === 'read' || action === 'unread') s.unread = action === 'unread';

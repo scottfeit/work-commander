@@ -13,7 +13,9 @@ test('no console errors, page errors or failed requests while touring the app', 
   await stream(page, /contractor access/i).click();
   for (const tab of await page.locator('.tabbar button').all()) await tab.click();
   await page.getByRole('button', { name: /settings/i }).first().click();
-  for (const b of await page.locator('nav button, aside button, .settings-nav button').all()) await b.click().catch(() => undefined);
+  // every Settings section (not "← Dashboard", which would leave the page mid-tour)
+  await expect(page.locator('.settings-nav .nav-item').first()).toBeVisible();
+  for (const b of await page.locator('.settings-nav .nav-item').all()) await b.click();
   await page.getByRole('button', { name: /dashboard/i }).first().click();
   expect(problems, problems.join('\n')).toEqual([]);
 });

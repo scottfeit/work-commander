@@ -94,8 +94,20 @@ export interface TicketTarget {
   serviceDeskId?: string;
 }
 
+/** A file attached to a message (or a ticket). The bytes stay at the source; `ref` is how to fetch them there. */
+export interface MessageAttachment {
+  /** Stable within the item (Gmail part id, Slack file id, Jira attachment id). */
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+  /** Gmail attachment id, Slack url_private, or Jira content URL. */
+  ref: string;
+}
+
 export interface ThreadMessage {
   id: string;
+  attachments?: MessageAttachment[];
   author: { name?: string; email?: string; slackUserId?: string; accountId?: string };
   to?: string[];
   cc?: string[];
@@ -151,6 +163,8 @@ export interface ItemData {
     description?: string;
     flavor: 'jsm' | 'jira';
     comments: ThreadMessage[];
+    /** Files attached to the issue. */
+    attachments?: MessageAttachment[];
   };
   /** Slack-specific */
   slack?: { channel: string; channelName?: string; threadTs: string };

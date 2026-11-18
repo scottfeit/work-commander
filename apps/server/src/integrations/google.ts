@@ -2,7 +2,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { gmail as gmailApi, type gmail_v1 } from '@googleapis/gmail';
 import { drive as driveApi } from '@googleapis/drive';
 import { calendar as calendarApi } from '@googleapis/calendar';
-import type { GmailAction, GmailThreadState, GoogleSettings, PrimaryUser, ThreadMessage } from '@wc/shared';
+import type { GmailAction, GmailThreadState, GoogleSettings, MessageAttachment, PrimaryUser, ThreadMessage } from '@wc/shared';
 import type { CalendarApi, DocsApi, EmailApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import { htmlToText } from './types.js';
 import type { Repo } from '../core/repo.js';
@@ -46,6 +46,14 @@ function bodies(part?: gmail_v1.Schema$MessagePart): { plain?: string; html?: st
     out.plain ??= b.plain;
     out.html ??= b.html;
   }
+  return out;
+}
+
+/** Files attached to a message: every part with a file name whose bytes are held as an attachment. */
+export function attachmentsOf(part?: gmail_v1.Schema$MessagePart, out: MessageAttachment[] = []): MessageAttachment[] {
+  if (!part) return out;
+  if (part.filename && part.body?.attachmentId) out.push({ id: part.partId || part.body.attachmentId.slice(0, 24), name: part.filename, mimeType: part.mimeType || 'application/octet-stream', size: part.body.size ?? undefined, ref: part.body.attachmentId });
+  for (const p of part.parts ?? []) attachmentsOf(p, out);
   return out;
 }
 
@@ -140,6 +148,7 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
         subject: header(m, 'Subject'),
         text: b.text || m.snippet || '',
         html: b.html,
+        ...((a) => (a.length ? { attachments: a } : {}))(attachmentsOf(m.payload)),
         at: new Date(Number(m.internalDate ?? Date.now())).toISOString(),
         isFromPU: from.email === puEmail.toLowerCase() || (m.labelIds ?? []).includes('SENT'),
       };
@@ -157,6 +166,21 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
       },
       eventId: triggerId ?? last?.id ?? thread.id!,
     };
+  }
+
+  /** An attachment's bytes. Gmail's attachment ids can change between reads, so if the stored one fails it's looked up again by part. */
+  async attachment(messageId: string, a: MessageAttachment): Promise<Buffer> {
+    const get = (id: string) => this.gmail.users.messages.attachments.get({ userId: 'me', messageId, id });
+    let r;
+    try {
+      r = await get(a.ref);
+    } catch {
+      const m = await this.gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+      const now = attachmentsOf(m.data.payload).find((x) => x.id === a.id || x.name === a.name);
+      if (!now) throw new Error('That attachment is no longer on the message');
+      r = await get(now.ref);
+    }
+    return Buffer.from((r.data.data ?? '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
   }
 
   async getThread(threadId: string, triggerId?: string) {

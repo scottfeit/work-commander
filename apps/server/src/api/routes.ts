@@ -1,3 +1,4 @@
+import { INLINE_IMAGE, fetchAttachment, findAttachment } from '../core/itemAttachments.js';
 import { refreshItem } from '../core/refreshItem.js';
 import { learnStyle } from '../core/writingStyle.js';
 import { parseTime } from '../core/parseTime.js';
@@ -290,6 +291,23 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.post('/api/items/:id/read', async (req) => {
     await repo.markItemRead((req.params as any).id);
     return { ok: true };
+  });
+  // A work item's attachment: images inline (?inline=1), anything else as a download. Served locked down (no sniffing, sandboxed).
+  f.get('/api/items/:id/attachments/:att', async (req, reply) => {
+    const p = req.params as any;
+    const it = await repo.getItem(p.id);
+    const found = it && findAttachment(it, p.att);
+    if (!it || !found) return reply.code(404).send({ error: 'Attachment not found' });
+    const bytes = await fetchAttachment(hub, it, found);
+    const inline = (req.query as any).inline === '1' && INLINE_IMAGE.test(found.a.mimeType);
+    const name = found.a.name.replace(/[\r\n"]/g, '');
+    return reply
+      .header('Content-Type', inline ? found.a.mimeType : 'application/octet-stream')
+      .header('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Security-Policy', "default-src 'none'; sandbox")
+      .header('Cache-Control', 'private, max-age=3600')
+      .send(bytes);
   });
   // Re-read a work item from its source now (no triage).
   f.post('/api/items/:id/refresh', async (req) => {
