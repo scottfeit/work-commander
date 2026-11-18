@@ -259,9 +259,9 @@ function MeetingView({ m }: { m: NonNullable<StreamItem['data']['meeting']> }) {
 /** Coding work goes to Claude Code: Work Commander's agent has no shell or file tools by design. */
 type HandoffInfo = { folder: string; canOpenTerminal: boolean; last: { folder: string; createdAt: string; returnedAt: string | null } | null };
 
-function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string }) {
+function Handoff({ streamId, updatedAt, open, onClose, onAvailable }: { streamId: string; updatedAt: string; open: boolean; onClose: () => void; onAvailable: (ok: boolean) => void }) {
   const [info, setInfo] = useState<HandoffInfo | null>(null);
-  const [open, setOpen] = useState(false);
+  const setOpen = (v: boolean) => !v && onClose();
   const [folder, setFolder] = useState('');
   const [openTerminal, setOpenTerminal] = useState(true);
   const [task, setTask] = useState('');
@@ -270,7 +270,6 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     setInfo(null);
-    setOpen(false);
     setDone(null);
     setErr(null);
     setTask('');
@@ -281,8 +280,9 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
         setInfo(r);
         setFolder((f) => f || r.folder);
         setOpenTerminal(r.canOpenTerminal);
+        onAvailable(true);
       })
-      .catch(() => setInfo(null)); // not available (e.g. hosted on GCP)
+      .catch(() => (setInfo(null), onAvailable(false))); // not available (e.g. hosted on GCP)
   }, [streamId, updatedAt]);
   if (!info) return null;
   const go = async () => {
@@ -312,11 +312,7 @@ function Handoff({ streamId, updatedAt }: { streamId: string; updatedAt: string 
           )}
         </p>
       )}
-      {!open ? (
-        <button className="btn small" onClick={() => setOpen(true)}>
-          Hand off to Claude Code
-        </button>
-      ) : (
+      {open && (
         <div className="handoff-form">
           <p className="muted small">Writes everything this stream knows to BRIEF.md in the folder below{info.canOpenTerminal ? ', then opens Terminal with Claude Code running there' : ''}. Use it for work Work Commander's agent can't do itself: coding, or changing something it has no tool for, such as editing a Google Sheet or Doc.</p>
           <label className="small">
@@ -410,11 +406,16 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
       .catch(() => setHistory([]));
   }, [stream.id, stream.summary]);
   const save = (b: Partial<Omit<WorkStream, "ticketTarget">> & { ticketTarget?: TicketTarget | null }) => patch(`/api/streams/${stream.id}`, b);
+  // Hand-off to Claude Code: its button sits in the row at the top; the form and its status show just below.
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [canHandoff, setCanHandoff] = useState(false);
+  useEffect(() => setHandoffOpen(false), [stream.id]);
 
   return (
     <div className="item-view overview">
       <div className="item-head">
         <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
+        <div className="ov-actions">
         {onTogglePending && stream.status === 'open' && (
           <span className="pending-split">
           <button
@@ -449,7 +450,14 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
             Reopen
           </button>
         )}
+        {canHandoff && (
+          <button type="button" className={`btn small${handoffOpen ? ' on' : ''}`} aria-expanded={handoffOpen} aria-label="Hand off to Claude Code" title="Hand this work off to Claude Code (writes a brief, then opens it in Terminal)" onClick={() => setHandoffOpen((o) => !o)}>
+            Claude Code
+          </button>
+        )}
+        </div>
       </div>
+      <Handoff streamId={stream.id} updatedAt={stream.updatedAt} open={handoffOpen} onClose={() => setHandoffOpen(false)} onAvailable={setCanHandoff} />
       {stream.status === 'open' && <DueLine stream={stream} />}
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="overview-foot">
@@ -475,8 +483,6 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
           </ol>
         </>
       )}
-
-      <Handoff streamId={stream.id} updatedAt={stream.updatedAt} />
 
       <h3>Linked items</h3>
       {items.length === 0 && <p className="muted">Nothing linked yet.</p>}

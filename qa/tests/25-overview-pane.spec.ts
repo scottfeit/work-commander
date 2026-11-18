@@ -125,3 +125,21 @@ test('the tab bar runs the full width, to the right edge; the Overview pane sits
   expect(Math.abs(ov!.y - item!.y)).toBeLessThan(2); // the item and the Overview start at the same height
   await page.locator('.work-area').screenshot({ path: 'qa/results/tabbar-full-width.png' });
 });
+
+test('"Claude Code" (hand-off) sits in the Overview\'s button row at the top; its form opens just below', async ({ page }) => {
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  const ov = page.locator('.overview-pane');
+  const cc = ov.getByRole('button', { name: 'Hand off to Claude Code' });
+  await expect(cc).toHaveText('Claude Code');
+  const ys = await ov.locator('.ov-actions > *').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; }));
+  expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(3); // one line
+  expect((await cc.boundingBox())!.y).toBeLessThan((await ov.locator('.summary-input').boundingBox())!.y);
+  await cc.click();
+  const form = ov.locator('.handoff-form');
+  await expect(form).toBeVisible();
+  expect((await form.boundingBox())!.y).toBeLessThan((await ov.locator('.summary-input').boundingBox())!.y);
+  await ov.screenshot({ path: 'qa/results/overview-claude-code.png' });
+  await cc.click();
+  await expect(form).toHaveCount(0);
+});

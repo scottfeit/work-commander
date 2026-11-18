@@ -547,3 +547,9 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 .pending-split > .pending-btn.on + .snooze .pending-caret { background: #e8710a; color: #fff; border-left-color: rgba(255, 255, 255, .55); }
 @media (prefers-color-scheme: dark) { .pending-split .pending-caret { border-color: #c96a1a; color: #ffa24d; } .pending-split > .pending-btn.on + .snooze .pending-caret { background: #d9731a; color: #fff; } }
 .due-lines > .link { justify-self: start; }
+
+/* Overview pane: its buttons on one line under the title (they give way with … before anything wraps). */
+.ov-actions { display: flex; flex: 1 1 100%; gap: 6px; flex-wrap: nowrap; align-items: center; min-width: 0; }
+.ov-actions > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-actions > .pending-split { flex: 0 0 auto; }
+.overview-pane .handoff { margin: 8px 0 0; }
