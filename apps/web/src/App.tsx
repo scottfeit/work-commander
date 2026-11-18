@@ -143,10 +143,18 @@ export function App() {
   useEffect(() => {
     if (peek && tab !== peek.id) setPeek(null);
   }, [tab, peek]);
+  // Viewing a ? item or proposed stream: no work stream is selected meanwhile (none highlighted, no tabs, no Overview).
+  // Closing or declining the preview goes back to the stream you were on; accepting opens the new one.
+  const peekRef = useRef<StreamItem | null>(null);
+  peekRef.current = peek;
+  const beforePeekRef = useRef<string | null>(null);
   const openSkipped = useCallback(async (id: string) => {
     try {
       const it = await get<StreamItem>(`/api/items/${id}`);
+      if (!peekRef.current) beforePeekRef.current = selRef.current;
+      peekRef.current = it;
       setPeek(it);
+      setSelected(GENERAL_STREAM);
       setTab(it.id);
     } catch {
       /* gone */
@@ -158,8 +166,12 @@ export function App() {
     if (id === selRef.current) setSelected(GENERAL_STREAM);
   }, []);
   const closePeek = useCallback(() => {
+    peekRef.current = null;
     setPeek(null);
     setTab(OVERVIEW_TAB);
+    const back = beforePeekRef.current;
+    beforePeekRef.current = null;
+    if (back) setSelected(back);
   }, []);
   const dismissPeek = useCallback(async () => {
     if (!peek) return;
@@ -169,7 +181,8 @@ export function App() {
   }, [peek, closePeek]);
   useEffect(() => {
     setLive(null);
-    setTab(OVERVIEW_TAB);
+    // (opening a preview selects nothing, i.e. All open work: keep the preview's tab)
+    setTab(peekRef.current && selected === GENERAL_STREAM ? peekRef.current.id : OVERVIEW_TAB);
     void loadSelected(selected).then((it) => {
       const want = wantTabRef.current;
       wantTabRef.current = null;
@@ -487,7 +500,7 @@ export function App() {
         manualRead={manualStreamRead}
         onSetRead={(id, read) => void patch(`/api/streams/${id}`, { unread: !read })}
         streams={streams}
-        selected={selected}
+        selected={peek ? '' : selected}
         onSelect={(id) => {
           // Picking a work stream (even the one already selected) leaves a ? item being viewed.
           if (peek) closePeek();
