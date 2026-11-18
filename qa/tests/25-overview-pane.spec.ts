@@ -114,3 +114,14 @@ test('the Claude and Drafts panes resize into each other by dragging the line be
   const [c2, d2] = await widths();
   expect(Math.abs(c2 - d2)).toBeLessThan(4);
 });
+
+test('the tab bar runs the full width, to the right edge; the Overview pane sits below it', async ({ page }) => {
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  const [bar, area, ov, item] = await Promise.all([page.locator('.work-area > .tabbar').boundingBox(), page.locator('.work-area').boundingBox(), page.locator('.overview-pane').boundingBox(), page.locator('.top-pane').boundingBox()]);
+  expect(Math.abs(bar!.x + bar!.width - (area!.x + area!.width))).toBeLessThan(2);
+  expect(Math.abs(bar!.x - area!.x)).toBeLessThan(2);
+  expect(ov!.y).toBeGreaterThanOrEqual(bar!.y + bar!.height - 1);
+  expect(Math.abs(ov!.y - item!.y)).toBeLessThan(2); // the item and the Overview start at the same height
+  await page.locator('.work-area').screenshot({ path: 'qa/results/tabbar-full-width.png' });
+});

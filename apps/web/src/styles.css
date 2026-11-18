@@ -129,7 +129,8 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .src { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
 .src-gmail { color: #c5221f; } .src-slack { color: #7c3aed; } .src-jira, .src-jsm { color: #1d64d8; } .src-grant { color: var(--ok); }
-.work-area { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; }
+.work-area { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.work-area > .tabbar { grid-column: 1 / -1; }
 .item-side { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .top-pane { overflow: auto; background: var(--panel); min-height: 0; flex: 1; }
 .overview-pane { overflow: auto; background: var(--panel); min-height: 0; min-width: 0; }
@@ -536,3 +537,4 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 .pending-split .pending-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; border-color: #e8710a; color: #e8710a; padding: 0 5px; }
 .pending-split > .pending-btn.on + .snooze .pending-caret { background: #e8710a; color: #fff; border-left-color: rgba(255, 255, 255, .55); }
 @media (prefers-color-scheme: dark) { .pending-split .pending-caret { border-color: #c96a1a; color: #ffa24d; } .pending-split > .pending-btn.on + .snooze .pending-caret { background: #d9731a; color: #fff; } }
+.due-lines > .link { justify-self: start; }

@@ -54,7 +54,7 @@ function step(d: 1 | -1) {
 }
 
 function tab(d: 1 | -1) {
-  const all = [...document.querySelectorAll<HTMLElement>('.top-pane .tabbar [role=tab], .item-side .tabbar [role=tab]')];
+  const all = [...document.querySelectorAll<HTMLElement>('.work-area .tabbar [role=tab]')];
   const unique = [...new Set(all)];
   if (!unique.length) return;
   const i = unique.findIndex((t) => t.classList.contains('active'));
