@@ -23,6 +23,18 @@ describe('Quick Reply drafts', () => {
     expect(d.kind).toBe('email_reply');
     expect(d.payload).toMatchObject({ thread_id: 'T9', to: ['ann@x.com', 'bob@x.com'], cc: ['cy@x.com'], subject: 'Re: Budget', body: '' });
   });
+  it('slack: a channel thread is answered in that thread, a DM or group DM is not threaded', () => {
+    const api = settings({ slack: { ...defaultSettings().slack, mode: 'api' } });
+    const mcp = settings({ slack: { ...defaultSettings().slack, mode: 'mcp' } });
+    const thread = it_({ source: 'slack', externalId: 'C02LX7D4R35:1794824578.886879', title: '#security-biztech: SpyCloud migrated', data: { slack: { channel: 'C02LX7D4R35', channelName: '#security-biztech', threadTs: '1794824578.886879' } } });
+    expect(buildQuickReply(thread, api).payload).toMatchObject({ channel: 'C02LX7D4R35', thread_ts: '1794824578.886879', recipient: '#security-biztech (in thread)' });
+    expect((buildQuickReply(thread, mcp).payload as any).args).toMatchObject({ channel_id: 'C02LX7D4R35', thread_ts: '1794824578.886879' });
+    const group = it_({ source: 'slack', externalId: 'C0GROUP001:dm@abc', title: 'Group DM', data: { slack: { channel: 'C0GROUP001', threadTs: '1794000000.000100' } } });
+    expect(buildQuickReply(group, api).payload).not.toHaveProperty('thread_ts');
+    const dm = it_({ source: 'slack', externalId: 'D1ABCDEF:dm', title: 'DM with Alex Newman', data: { slack: { channel: 'D1ABCDEF', threadTs: '1794000000.000100' } } });
+    expect(buildQuickReply(dm, api).payload).not.toHaveProperty('thread_ts');
+  });
+
   it('slack: the DM or the channel, per connection mode', () => {
     const dm = it_({ source: 'slack', externalId: 'D1ABCDEF:dm', title: 'DM with Alex Newman', data: {} });
     const mcp = buildQuickReply(dm, settings({ slack: { ...defaultSettings().slack, mode: 'mcp' } }));

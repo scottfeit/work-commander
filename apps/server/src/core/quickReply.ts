@@ -47,13 +47,17 @@ export function buildQuickReply(item: StreamItem, s: Settings): QuickDraft {
     const dm = channel.startsWith('D');
     const named = /^(#[^\s:]+)/.exec(item.title)?.[1] ?? (item.data.slack?.channelName ? `#${item.data.slack.channelName.replace(/^#/, '')}` : null);
     const person = /^DM (?:with|from) (.+)$/.exec(item.title)?.[1];
+    // A channel thread is answered in that thread. (A DM or group DM is one flowing conversation: its item is "<channel>:dm", with no thread.)
+    const flat = dm || /:dm(?:@.*)?$/.test(item.externalId);
+    const threadTs = !flat ? item.data.slack?.threadTs || undefined : undefined;
     const label = dm ? (person ? `DM with ${person}` : 'Slack DM') : (named ?? `Slack channel ${channel}`);
+    const to = threadTs ? `${label} (in thread)` : label;
     if (s.slack.mode === 'mcp') {
       return {
         kind: 'mcp_tool_call',
         system: 'slack',
-        title: `Quick reply: ${label}`,
-        payload: { server: 'slack', system: 'slack', tool: 'slack_send_message', args: { channel_id: channel, message: '' }, recipient: label, quick: true },
+        title: `Quick reply: ${to}`,
+        payload: { server: 'slack', system: 'slack', tool: 'slack_send_message', args: { channel_id: channel, message: '', ...(threadTs ? { thread_ts: threadTs } : {}) }, recipient: to, quick: true },
         editable: [
           { key: 'recipient', label: 'To', type: 'readonly' },
           { key: 'args.message', label: 'Message', type: 'textarea' },
@@ -63,8 +67,8 @@ export function buildQuickReply(item: StreamItem, s: Settings): QuickDraft {
     return {
       kind: 'slack_post',
       system: 'slack',
-      title: `Quick reply: ${label}`,
-      payload: { recipient: label, channel, text: '', quick: true },
+      title: `Quick reply: ${to}`,
+      payload: { recipient: to, channel, text: '', ...(threadTs ? { thread_ts: threadTs } : {}), quick: true },
       editable: [
         { key: 'recipient', label: 'To', type: 'readonly' },
         { key: 'text', label: 'Message', type: 'textarea' },
