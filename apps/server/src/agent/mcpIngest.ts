@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ItemSource, Settings, StreamItem } from '@wc/shared';
-import type { Repo } from '../core/repo.js';
+import { Repo } from '../core/repo.js';
 import type { SecretStore } from '../secrets/store.js';
 import type { InboundSink, Ingestor } from '../integrations/types.js';
 import { McpConnection, isReadOnlyTool, toSdkMcpConfig } from '../integrations/mcp.js';
@@ -70,6 +70,25 @@ export function planTrackedSlackReads(items: StreamItem[], opts: { skipMuted?: b
   };
 }
 
+/**
+ * A DM split across work streams has parts outside the streams being read (messages in no stream). The read point of a DM is its newest
+ * message anywhere in the conversation, so the parts are counted too: otherwise the same messages are fetched again on every poll.
+ */
+export async function conversationParts(repo: Repo, items: StreamItem[]): Promise<StreamItem[]> {
+  const have = new Set(items.map((i) => i.id));
+  const out: StreamItem[] = [];
+  const done = new Set<string>();
+  for (const it of items) {
+    const channel = Repo.slackChannelOf(it);
+    if (!channel || done.has(channel)) continue;
+    done.add(channel);
+    const family = await repo.slackFamily(channel);
+    if (!Repo.slackIsFlat(channel, family)) continue;
+    for (const f of family) if (!have.has(f.id)) out.push(f);
+  }
+  return out;
+}
+
 export class McpPollIngestor implements Ingestor {
   private timer?: NodeJS.Timeout;
   private busy = false;
@@ -100,6 +119,7 @@ export class McpPollIngestor implements Ingestor {
     // A stream closed recently still reopens when the conversation picks up again, so its Slack conversations keep being read.
     const days = (await this.settings()).claude.reopenClosedWithinDays ?? 14;
     for (const st of all.filter((x) => x.status !== 'open' && x.closedAt && Date.now() - Date.parse(x.closedAt) <= days * 86_400_000)) items.push(...(await this.repo.listItems(st.id)));
+    items.push(...(await conversationParts(this.repo, items)));
     return planTrackedSlackReads(items, { skipMuted: !!(await this.settings()).silencing?.skipPolling });
   }
 

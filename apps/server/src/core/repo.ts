@@ -722,6 +722,7 @@ export class Repo {
       return { item, newMessages: input.data.messages ?? [], created: true, changed: true, ticketMeta: undefined };
     }
     const prev = existing.data;
+    const before = stable(prev); // (the code below edits prev in place)
     const incoming = input.data.messages ?? [];
     // A locally recorded copy of something the PU sent ("sent-…") gives way to the real message once it arrives.
     // (Slack sends carry a "Sent using Work Commander" footer that the local copy lacks.)
@@ -750,6 +751,9 @@ export class Repo {
     const streamId = existing.streamId ?? input.streamId ?? null;
     const flatCh = input.source === 'slack' ? Repo.slackDmChannel('slack', existing.externalId) : null;
     if (flatCh) input = { ...input, url: (await this.flatSlackUrl(flatCh, messages)) ?? input.url };
+    // Reading something again that has not changed is not activity: leave it (and its "updated" time, which Dismiss and sorting go by) alone.
+    if ((input.title || existing.title) === existing.title && (input.url ?? existing.url ?? null) === (existing.url ?? null) && streamId === existing.streamId && stable(data) === before)
+      return { item: existing, newMessages: [] as ThreadMessage[], created: false, changed: false, ticketMeta: undefined };
     await this.db
       .updateTable('items')
       .set({ title: input.title || existing.title, url: input.url ?? existing.url ?? null, data: j(data), updated_at: t, stream_id: streamId })
@@ -1335,4 +1339,10 @@ function toPerson(r: DB['people']): Person {
     atlassianAccountId: r.atlassian_account_id ?? undefined,
     source: r.source as Person['source'],
   };
+}
+
+/** JSON with sorted keys, for comparing two values regardless of the order their keys were written in. */
+function stable(v: unknown): string {
+  const norm = (x: any): any => (Array.isArray(x) ? x.map(norm) : x && typeof x === 'object' ? Object.fromEntries(Object.keys(x).sort().filter((k) => x[k] !== undefined).map((k) => [k, norm(x[k])])) : x);
+  return JSON.stringify(norm(v));
 }
