@@ -553,3 +553,9 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 .ov-actions > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-actions > .pending-split { flex: 0 0 auto; }
 .overview-pane .handoff { margin: 8px 0 0; }
+
+/* A ▸ / ▾ disclosure heading (Previous overviews, quoted email text). */
+.disclosure { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-transform: inherit; letter-spacing: inherit; }
+.disclosure .tri { display: inline-block; transition: transform .12s; font-size: 1.15em; width: 1em; text-align: center; }
+.disclosure[aria-expanded='true'] .tri { transform: rotate(90deg); }
+.disclosure:hover { color: var(--text); }

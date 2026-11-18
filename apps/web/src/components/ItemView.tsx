@@ -408,6 +408,23 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
   const save = (b: Partial<Omit<WorkStream, "ticketTarget">> & { ticketTarget?: TicketTarget | null }) => patch(`/api/streams/${stream.id}`, b);
   // Hand-off to Claude Code: its button sits in the row at the top; the form and its status show just below.
   const [handoffOpen, setHandoffOpen] = useState(false);
+  // Previous overviews: collapsed until you open them; your choice holds for every work stream.
+  const [historyOpen, setHistoryOpen] = useState(() => {
+    try {
+      return localStorage.getItem('wc.prevOverviewsOpen') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleHistory = () =>
+    setHistoryOpen((o) => {
+      try {
+        localStorage.setItem('wc.prevOverviewsOpen', o ? '0' : '1');
+      } catch {
+        /* just for now */
+      }
+      return !o;
+    });
   const [canHandoff, setCanHandoff] = useState(false);
   useEffect(() => setHandoffOpen(false), [stream.id]);
 
@@ -469,7 +486,12 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
 
       {history.length > 0 && (
         <>
-          <h3>Previous overviews</h3>
+          <h3>
+            <button type="button" className="disclosure" aria-expanded={historyOpen} onClick={toggleHistory}>
+              <span className="tri" aria-hidden="true">▸</span> Previous overviews · {history.length}
+            </button>
+          </h3>
+          {historyOpen && (
           <ol className="summary-history">
             {history.map((v) => (
               <li key={v.id}>
@@ -481,6 +503,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
               </li>
             ))}
           </ol>
+          )}
         </>
       )}
 

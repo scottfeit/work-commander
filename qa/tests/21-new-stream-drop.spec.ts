@@ -51,5 +51,16 @@ test('Refresh overview rewrites the overview and keeps the old one', async ({ pa
   await stream(page, /drop source pair/i).click();
   await page.getByRole('button', { name: 'Refresh overview' }).click();
   await expect(page.locator('.summary-input')).toHaveValue(/^Refreshed overview: .*Kept thread/);
-  await expect(page.getByRole('heading', { name: 'Previous overviews' })).toBeVisible();
+  // Previous overviews: collapsed at first; the triangle opens them, and that holds for other streams and after a reload
+  const toggle = page.getByRole('button', { name: /Previous overviews/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.summary-history')).toHaveCount(0);
+  await toggle.click();
+  await expect(page.locator('.summary-history li').first()).toBeVisible();
+  await page.locator('.overview-pane').screenshot({ path: 'qa/results/previous-overviews.png' });
+  await page.reload();
+  await stream(page, /drop source pair/i).click();
+  await expect(page.getByRole('button', { name: /Previous overviews/ })).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('button', { name: /Previous overviews/ }).click();
+  await expect(page.locator('.summary-history')).toHaveCount(0);
 });
