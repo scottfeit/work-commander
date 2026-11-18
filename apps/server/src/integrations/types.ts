@@ -48,6 +48,10 @@ export interface CalendarApi {
 export interface ChatApi {
   /** A file's bytes, from its private URL. */
   download?(url: string): Promise<Buffer>;
+  /** Add or remove the PU's emoji reaction on a message. */
+  react?(channel: string, ts: string, name: string, add: boolean): Promise<void>;
+  /** The workspace's own emoji: name -> image URL. */
+  customEmoji?(): Promise<Record<string, string>>;
   selfUserId(): Promise<string>;
   getThread(channel: string, threadTs: string): Promise<InboundItem>;
   search(query: string, max?: number): Promise<{ channel: string; ts: string; threadTs?: string; user: string; text: string; permalink: string }[]>;

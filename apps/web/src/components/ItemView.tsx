@@ -11,6 +11,7 @@ import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
 import { SnoozeMenu } from './SnoozeMenu';
 import { splitQuoted } from './quoted';
+import { Emoji, EmojiPicker, useEmoji } from './Emoji';
 import { DueLine, promisedOption } from './Due';
 import { EmailHtml } from './EmailHtml';
 
@@ -129,7 +130,48 @@ function Attachments({ itemId, list }: { itemId: string; list: MessageAttachment
   );
 }
 
-function Message({ m, compact, html, defaultOriginal, item, itemId }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem; itemId?: string }) {
+const DEFAULT_QUICK = ['+1', 'white_check_mark', 'eyes', 'pray', 'tada'];
+
+/** A Slack message's reactions: click one to add or take back yours; your quick five (on hover) and the full picker add new ones. Sent to Slack at once. */
+function Reactions({ item, m, quick }: { item: StreamItem; m: ThreadMessage; quick: string[] }) {
+  const c = useEmoji();
+  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const react = async (name: string, add: boolean) => {
+    setErr(null);
+    try {
+      await post(`/api/items/${encodeURIComponent(item.id)}/messages/${encodeURIComponent(m.id)}/react`, { name, add });
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+  const list = m.reactions ?? [];
+  return (
+    <div className="reactions">
+      {list.map((r) => (
+        <button key={r.name} type="button" className={`reaction${r.mine ? ' mine' : ''}`} aria-pressed={r.mine} aria-label={`:${r.name}: ${r.count}${r.mine ? ', including you' : ''}`} title={r.mine ? `Take back your :${r.name}:` : `React :${r.name}: too`} onClick={() => void react(r.name, !r.mine)}>
+          <Emoji name={r.name} c={c} /> <span className="reaction-n">{r.count}</span>
+        </button>
+      ))}
+      <button type="button" className="reaction add" aria-label="Add a reaction" aria-expanded={!!picker} title="Add a reaction" onClick={(e) => setPicker(picker ? null : e.currentTarget)}>
+        ☺<span aria-hidden="true">+</span>
+      </button>
+      <span className="quick-react">
+        {quick
+          .filter((n) => !list.some((r) => r.name === n && r.mine))
+          .map((n) => (
+            <button key={n} type="button" className="reaction quick" aria-label={`React :${n}:`} title={`React :${n}:`} onClick={() => void react(n, true)}>
+              <Emoji name={n} c={c} />
+            </button>
+          ))}
+      </span>
+      {picker && <EmojiPicker anchor={picker} quick={quick} onPick={(n) => void react(n, true)} onClose={() => setPicker(null)} />}
+      {err && <span className="small error">{err}</span>}
+    </div>
+  );
+}
+
+function Message({ m, compact, html, defaultOriginal, item, itemId, quick }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem; itemId?: string; quick?: string[] }) {
   const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
   const [moving, setMoving] = useState(false);
   const original = choice ?? !!defaultOriginal;
@@ -165,6 +207,7 @@ function Message({ m, compact, html, defaultOriginal, item, itemId }: { m: Threa
         <TextBody text={m.text} fold={!compact} />
       )}
       {itemId && !!m.attachments?.length && <Attachments itemId={itemId} list={m.attachments} />}
+      {item?.source === 'slack' && <Reactions item={item} m={m} quick={quick ?? DEFAULT_QUICK} />}
     </article>
   );
 }
@@ -192,8 +235,14 @@ export function ItemView({
 }) {
   const t = item.data.ticket;
   const [emailOriginal, setEmailOriginal] = useState(false);
+  const [quick, setQuick] = useState<string[] | undefined>(undefined);
   useEffect(() => {
-    get('/api/settings').then((s) => setEmailOriginal(s.ui?.emailView === 'original')).catch(() => undefined);
+    get('/api/settings')
+      .then((s) => {
+        setEmailOriginal(s.ui?.emailView === 'original');
+        setQuick(s.slack?.quickReactions?.length ? s.slack.quickReactions : undefined);
+      })
+      .catch(() => undefined);
   }, [item.id]);
   const [htmls, setHtmls] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -287,7 +336,7 @@ export function ItemView({
       ) : item.data.messages ? (
         <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
           {((item.source === 'gmail' && newestFirst.email) || (item.source === 'slack' && newestFirst.slack) ? [...item.data.messages].reverse() : item.data.messages).map((m) => (
-            <Message key={m.id} m={m} itemId={item.id} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
+            <Message key={m.id} m={m} itemId={item.id} quick={quick} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
           ))}
         </div>
       ) : (

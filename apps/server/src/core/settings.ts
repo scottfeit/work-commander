@@ -34,6 +34,7 @@ export function defaultSettings(): Settings {
       api: {},
       mcp: { transport: 'http', url: 'https://mcp.slack.com/mcp', readOnlyToolPatterns: DEFAULT_READ_ONLY },
       watchedChannels: '',
+      quickReactions: ['+1', 'white_check_mark', 'eyes', 'pray', 'tada'],
       ingestion: 'realtime',
       pollSeconds: 60,
       policy: { read: 'auto', write: 'approve' },

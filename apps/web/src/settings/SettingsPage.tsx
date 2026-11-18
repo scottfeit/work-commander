@@ -6,6 +6,7 @@ import { TriageSection } from './TriageSection';
 import { RulesSection } from './RulesSection';
 import { StyleSection } from './StyleSection';
 import { MeetingsSection } from './MeetingsSection';
+import { QuickReactions } from './QuickReactions';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
 
@@ -269,6 +270,9 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             )}
             <Row label="Watched channels" hint="Also look at new messages in the channels you tick, not only DMs, mentions and threads you're in">
               <ChannelPicker value={s.slack.watchedChannels} onChange={(watchedChannels) => up('slack', { watchedChannels })} canLoad={!dirty} />
+            </Row>
+            <Row label="Quick reactions" hint="The five emoji offered first when you react to a Slack message (on hover, and at the top of the full picker). Click one to change it.">
+              <QuickReactions value={s.slack.quickReactions ?? ['+1', 'white_check_mark', 'eyes', 'pray', 'tada']} onChange={(quickReactions) => up('slack', { quickReactions })} />
             </Row>
             <IngestionEditor
               mode={s.slack.ingestion}

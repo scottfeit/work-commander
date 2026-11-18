@@ -14,6 +14,12 @@ export function parseWatchedChannels(s: string | undefined) {
   return [...new Set((s ?? '').split(/[,\n;]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean))];
 }
 
+/** A Slack message's emoji reactions, and whether the PU is among those who reacted. */
+export function reactionsOf(m: { reactions?: any[] }, me: string): { reactions?: { name: string; count: number; mine: boolean }[] } {
+  const r = (m.reactions ?? []).filter((x) => x?.name).map((x) => ({ name: String(x.name), count: Number(x.count ?? x.users?.length ?? 1), mine: (x.users ?? []).includes(me) }));
+  return r.length ? { reactions: r } : {};
+}
+
 /** A Slack message's files, as attachments (fetched through the server with the token). */
 export function filesOf(m: { files?: any[] }): { attachments?: MessageAttachment[] } {
   const a = (m.files ?? [])
@@ -29,6 +35,36 @@ export class SlackWorkspace implements ChatApi {
   private names = new Map<string, { name: string; email?: string }>();
   constructor(private token: string) {
     this.web = new WebClient(token);
+  }
+
+  /** Add (or take back) the PU's emoji reaction on a message. Reacting twice, or removing one that isn't there, is fine. */
+  async react(channel: string, ts: string, name: string, add: boolean) {
+    try {
+      if (add) await this.web.reactions.add({ channel, timestamp: ts, name });
+      else await this.web.reactions.remove({ channel, timestamp: ts, name });
+    } catch (e: any) {
+      const code = e?.data?.error;
+      if (code === 'already_reacted' || code === 'no_reaction') return;
+      if (code === 'missing_scope') throw new Error('The Slack app needs the reactions:write user scope (update it from deploy/slack-app-manifest.yaml and reinstall)');
+      if (code === 'invalid_name') throw new Error(`Slack doesn't know the emoji :${name}:`);
+      throw e;
+    }
+  }
+
+  /** The workspace's own emoji (name -> image URL; aliases resolved). Empty without the emoji:read scope. */
+  async customEmoji(): Promise<Record<string, string>> {
+    try {
+      const r = await this.web.emoji.list({});
+      const all = (r.emoji ?? {}) as Record<string, string>;
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(all)) {
+        const target = v.startsWith('alias:') ? all[v.slice(6)] : v;
+        if (target && /^https:/.test(target)) out[k] = target;
+      }
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   /** A file's bytes (Slack's private file URLs need the token). */
@@ -90,7 +126,7 @@ export class SlackWorkspace implements ChatApi {
         id: m.ts,
         author: { name: u.name, email: (u as any).email, slackUserId: m.user },
         text: await this.render(m.text ?? ''),
-        ...filesOf(m),
+        ...filesOf(m), ...reactionsOf(m, me),
         at: new Date(Number(m.ts) * 1000).toISOString(),
         isFromPU: m.user === me,
       });
@@ -121,7 +157,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
     }
     return { messages, channelLabel: await this.channelName(channel) };
   }
@@ -142,7 +178,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
     }
     const chName = await this.channelName(channel);
     return {

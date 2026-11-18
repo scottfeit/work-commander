@@ -1,3 +1,4 @@
+import { standardEmoji } from '../core/emoji.js';
 import { INLINE_IMAGE, fetchAttachment, findAttachment } from '../core/itemAttachments.js';
 import { refreshItem } from '../core/refreshItem.js';
 import { learnStyle } from '../core/writingStyle.js';
@@ -308,6 +309,36 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
       .header('Content-Security-Policy', "default-src 'none'; sandbox")
       .header('Cache-Control', 'private, max-age=3600')
       .send(bytes);
+  });
+  // Emoji to react with: Slack's standard set, plus the workspace's own (cached for an hour).
+  let customEmoji: { at: number; list: Record<string, string> } | null = null;
+  f.get('/api/slack/emoji', async () => {
+    if (!customEmoji || Date.now() - customEmoji.at > 3600_000) {
+      const chat = await hub.api('chat').catch(() => null);
+      customEmoji = { at: Date.now(), list: (await chat?.customEmoji?.().catch(() => ({}))) ?? {} };
+    }
+    return { standard: standardEmoji(), custom: customEmoji.list };
+  });
+  // React to a Slack message (or take the reaction back), right away. The item's copy is updated to match.
+  f.post('/api/items/:id/messages/:mid/react', async (req) => {
+    const p = req.params as any;
+    const b = z.object({ name: z.string().min(1).max(100).regex(/^[a-z0-9_+'-]+(::skin-tone-\d)?$/i), add: z.boolean() }).parse(req.body);
+    const it = await repo.getItem(p.id);
+    if (!it || it.source !== 'slack') throw Object.assign(new Error('Not a Slack work item'), { statusCode: 400 });
+    const msg = it.data.messages?.find((m) => m.id === p.mid);
+    if (!msg) throw Object.assign(new Error('Message not found'), { statusCode: 404 });
+    const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
+    const chat = await hub.api('chat');
+    if (!chat.react) throw new Error('Reacting needs Slack connected directly (not through an MCP server)');
+    await chat.react(channel, msg.id, b.name, b.add);
+    const cur = msg.reactions ?? [];
+    const had = cur.find((r) => r.name === b.name);
+    const next = b.add
+      ? had ? (had.mine ? cur : cur.map((r) => (r.name === b.name ? { ...r, count: r.count + 1, mine: true } : r))) : [...cur, { name: b.name, count: 1, mine: true }]
+      : cur.flatMap((r) => (r.name !== b.name || !r.mine ? [r] : r.count > 1 ? [{ ...r, count: r.count - 1, mine: false }] : []));
+    await repo.setItemData(it.id, { ...it.data, messages: it.data.messages!.map((m) => (m.id === msg.id ? { ...m, reactions: next.length ? next : undefined } : m)) });
+    await repo.audit('you', b.add ? 'slack.reacted' : 'slack.unreacted', { itemId: it.id, ts: msg.id, name: b.name });
+    return { reactions: next };
   });
   // Re-read a work item from its source now (no triage).
   f.post('/api/items/:id/refresh', async (req) => {

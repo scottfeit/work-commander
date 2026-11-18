@@ -90,6 +90,10 @@ export class DemoWorld {
   chat = {
     selfUserId: async () => 'UALEX',
     getThread: async (channel: string, ts: string) => structuredClone(this.slackThreads.get(`${channel}:${ts}`)!),
+    /** Demo reactions are remembered here, as Slack would. */
+    reactions: [] as { channel: string; ts: string; name: string; add: boolean }[],
+    react: async (channel: string, ts: string, name: string, add: boolean) => void this.chat.reactions.push({ channel, ts, name, add }),
+    customEmoji: async () => ({ partyparrot: 'https://emoji.slack-edge.com/T0/partyparrot/abc.gif' }),
     search: async () => [],
     lookupUserByEmail: async (email: string) => {
       const p = PEOPLE.find((x) => x.email === email);

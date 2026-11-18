@@ -25,6 +25,9 @@ oauth_config:
       - search:read
       - chat:write
       - files:write
+      - files:read
+      - reactions:write
+      - emoji:read
     bot:
       - users:read
 settings:

@@ -108,6 +108,8 @@ export interface MessageAttachment {
 export interface ThreadMessage {
   id: string;
   attachments?: MessageAttachment[];
+  /** Slack emoji reactions on the message: name, how many, and whether one of them is the PU's. */
+  reactions?: { name: string; count: number; mine: boolean }[];
   author: { name?: string; email?: string; slackUserId?: string; accountId?: string };
   to?: string[];
   cc?: string[];
@@ -320,6 +322,15 @@ export interface SlackSettings {
   ingestion: IngestionMode;
   pollSeconds: number;
   policy: { read: PolicyMode; write: PolicyMode };
+  /** The five emoji offered first for reacting to a Slack message (Slack names, e.g. "+1"). */
+  quickReactions?: string[];
+}
+
+/** The emoji you can react with: Slack's standard set and your workspace's own. */
+export interface EmojiCatalog {
+  standard: { n: string; a?: string[]; c: string; cat: string }[];
+  /** Workspace emoji: name -> image URL. */
+  custom: Record<string, string>;
 }
 
 export interface AtlassianSettings {
