@@ -290,6 +290,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.markItemRead((req.params as any).id);
     return { ok: true };
   });
+  // The item's own Unread button: its tab gets a dot again (even on a silenced item: you asked for it).
+  f.post('/api/items/:id/unread', async (req) => {
+    await repo.markItemUnread((req.params as any).id, true);
+    return { ok: true };
+  });
   f.post('/api/streams/:id/item-order', async (req) => {
     const b = z.object({ ids: z.array(z.string()) }).parse(req.body);
     const id = (req.params as any).id as string;

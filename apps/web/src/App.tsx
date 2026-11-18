@@ -39,6 +39,12 @@ export function App() {
   const [skippedVersion, setSkippedVersion] = useState(0);
   const [recentTabFirst, setRecentTabFirst] = useState(false);
   const [confirmClose, setConfirmClose] = useState(true);
+  // Settings → Display: things stay unread until you click Read.
+  const [manualStreamRead, setManualStreamRead] = useState(false);
+  const [manualItemRead, setManualItemRead] = useState(false);
+  const manualStreamReadRef = useRef(false);
+  /** An item you just marked Unread while looking at it: don't mark it read again until you leave its tab. */
+  const [heldUnread, setHeldUnread] = useState<string | null>(null);
   const [keepDraftsOpen, setKeepDraftsOpen] = useState(false);
   // System-wide Undo: what it would reverse next, and whether to say what it undid (Settings → Display).
   const [undoInfo, setUndoInfo] = useState<UndoInfo>({ next: null, count: 0 });
@@ -105,6 +111,9 @@ export function App() {
       .then((s) => {
         setRecentTabFirst(!!s.ui?.recentTabFirst);
         setConfirmClose(s.ui?.confirmClose !== false);
+        setManualStreamRead(!!s.ui?.manualStreamRead);
+        manualStreamReadRef.current = !!s.ui?.manualStreamRead;
+        setManualItemRead(!!s.ui?.manualItemRead);
         setKeepDraftsOpen(!!s.ui?.keepDraftsOpen);
         undoToastRef.current = s.ui?.undoToast !== false;
         openTabRef.current = s.ui?.openTab === 'recent' ? 'recent' : 'overview';
@@ -149,7 +158,8 @@ export function App() {
       if (!it?.length || selRef.current !== selected || selected === GENERAL_STREAM || openTabRef.current !== 'recent') return;
       setTab(it.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).id);
     });
-    if (selected !== GENERAL_STREAM) void patch(`/api/streams/${selected}`, { unread: false }).catch(() => undefined);
+    // Opening a stream marks it read, unless you mark streams Read yourself (Settings → Display).
+    if (selected !== GENERAL_STREAM && !manualStreamReadRef.current) void patch(`/api/streams/${selected}`, { unread: false }).catch(() => undefined);
   }, [selected, loadSelected]);
 
   const toast = useCallback((t: Omit<Toast, 'id'>) => {
@@ -318,12 +328,20 @@ export function App() {
   const selectedItem = items.find((i) => i.id === tab) ?? (peek && tab === peek.id ? peek : null) ?? (stream ? (tabItems[0] ?? null) : null);
   const selectedIsPeek = !!selectedItem && !items.some((i) => i.id === selectedItem.id);
   // Opening a tab (or new activity arriving on the open one) clears its dot.
-  const viewedUnread = !selectedIsPeek && selectedItem?.data.unread ? selectedItem.id : null;
+  const viewedUnread = !selectedIsPeek && selectedItem?.data.unread && !manualItemRead && heldUnread !== selectedItem.id ? selectedItem.id : null;
+  useEffect(() => {
+    if (heldUnread && selectedItem?.id !== heldUnread) setHeldUnread(null);
+  }, [selectedItem?.id, heldUnread]);
   useEffect(() => {
     if (!viewedUnread) return;
     setItems((xs) => xs.map((x) => (x.id === viewedUnread ? { ...x, data: { ...x.data, unread: undefined } } : x)));
     void post(`/api/items/${viewedUnread}/read`).catch(() => undefined);
   }, [viewedUnread]);
+  const setItemRead = useCallback((id: string, read: boolean) => {
+    if (!read) setHeldUnread(id); // stays unread while you're still on it
+    setItems((xs) => xs.map((x) => (x.id === id ? { ...x, data: { ...x.data, unread: read ? undefined : true } } : x)));
+    void post(`/api/items/${id}/${read ? 'read' : 'unread'}`).catch(() => undefined);
+  }, []);
   const reorderTabs = useCallback(
     (id: string, targetId: string, after: boolean) => {
       const ids = tabItems.map((i) => i.id).filter((x) => x !== id);
@@ -436,6 +454,8 @@ export function App() {
       <Search open={search.open} initial={search.q} onClose={() => setSearch({ open: false })} onOpen={openHit} />
       <StreamList
         confirmClose={confirmClose}
+        manualRead={manualStreamRead}
+        onSetRead={(id, read) => void patch(`/api/streams/${id}`, { unread: !read })}
         streams={streams}
         selected={selected}
         onSelect={(id) => {
@@ -464,10 +484,10 @@ export function App() {
       <main className="main" ref={mainRef} style={{ gridTemplateRows: `${split}fr 6px ${1 - split}fr` }}>
         <div className={`work-area${showOverview ? ' with-overview' : ''}`} ref={workRef} style={showOverview ? { gridTemplateColumns: `minmax(0, ${1 - ovSplit}fr) 6px minmax(0, ${ovSplit}fr)` } : undefined}>
           {/* The tab bar runs the full width; the work item and the Overview pane sit side by side below it. */}
-          <TabBar stream={stream} items={tabItems} tab={selectedItem?.id ?? ''} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
+          <TabBar manualRead={manualItemRead} heldUnread={heldUnread} stream={stream} items={tabItems} tab={selectedItem?.id ?? ''} onTab={setTab} peek={peek} onClosePeek={closePeek} onReorder={reorderTabs} onAddUrl={stream ? addByUrl : undefined} />
           <section className="top-pane">
               {selectedItem ? (
-                <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} />
+                <ItemView item={selectedItem} peek={selectedIsPeek} onDismiss={() => void dismissPeek()} onRemoved={() => setTab(OVERVIEW_TAB)} onQuickReply={(it) => void quickReply(it)} manualRead={manualItemRead} onSetRead={(read) => setItemRead(selectedItem.id, read)} />
               ) : selected === GENERAL_STREAM ? (
                 <div className="empty-state">
                   <h2>All open work</h2>
@@ -486,7 +506,7 @@ export function App() {
             <>
               <div className="divider-v" role="separator" aria-orientation="vertical" aria-label="Resize the Overview pane" onMouseDown={startOvDrag} onDoubleClick={() => { setOvSplit(1 / 3); localStorage.removeItem('wc.ovSplit'); }} title="Drag to resize the Overview (double-click to reset)" />
               <aside className="overview-pane" aria-label="Overview">
-                <StreamOverview confirmClose={confirmClose} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
+                <StreamOverview confirmClose={confirmClose} manualRead={manualStreamRead} onSetRead={(read) => void patch(`/api/streams/${stream!.id}`, { unread: !read })} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
               </aside>
             </>
           )}

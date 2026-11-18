@@ -27,6 +27,9 @@ interface Props {
   peekId: string | null;
   /** Mark a work stream unread (swipe a tile sideways). */
   onMarkUnread: (id: string) => void;
+  /** Settings → Display "mark work streams Read myself": the button reads Read / Unread and just flips it. */
+  manualRead?: boolean;
+  onSetRead?: (id: string, read: boolean) => void;
   /** Close a work stream (the selected tile's Close stream button, after its second click). */
   onCloseStream: (id: string) => void;
   /** Mark a work stream Pending (waiting on others) or put it back in Open. */
@@ -43,7 +46,7 @@ interface Props {
   onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, onCloseStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -131,7 +134,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
     }
   };
   const row = (s: WorkStream) => (
-    <SwipeRow key={s.id} onSwipe={() => onMarkUnread(s.id)} label="Unread">
+    <SwipeRow key={s.id} onSwipe={() => (manualRead && onSetRead ? onSetRead(s.id, false) : onMarkUnread(s.id))} label="Unread">
     <div
       className={`stream ${s.id === selected ? 'active' : ''} ${s.status} ${s.pending ? 'pending' : ''} ${dropOn === s.id ? 'drop-target' : ''}`}
       onDragOver={(e) => {
@@ -144,7 +147,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
     >
       <button type="button" className="stream-open" onClick={() => onSelect(s.id)}>
         <div className="stream-head">
-          {s.unread && s.id !== selected && <span className="dot" aria-label="unread" />}
+          {s.unread && (s.id !== selected || manualRead) && <span className="dot" aria-label="unread" />}
           {s.lastSource && <SourceBadge source={s.lastSource} />}
           <span className="stream-title">{s.title}</span>
           <span className="muted small">{timeAgo(s.lastActivityAt)}</span>
@@ -167,9 +170,15 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       {s.id === selected && (
         // Like Accept / Dismiss on a skipped item: the open work stream's own actions sit at the bottom of its tile.
         <div className="stream-meta stream-actions">
-          <button type="button" className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={() => onMarkUnread(s.id)}>
-            Unread
-          </button>
+          {manualRead && onSetRead ? (
+            <button type="button" className="btn small read-btn" aria-label={s.unread ? 'Mark read' : 'Mark unread'} title={s.unread ? 'Mark this work stream read' : 'Mark this work stream unread'} onClick={() => onSetRead(s.id, s.unread)}>
+              {s.unread ? 'Read' : 'Unread'}
+            </button>
+          ) : (
+            <button type="button" className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={() => onMarkUnread(s.id)}>
+              Unread
+            </button>
+          )}
           {s.status === 'open' && (
             <ConfirmButton confirm={confirmClose} onConfirm={() => onCloseStream(s.id)} ariaLabel="Close stream" armedAriaLabel="Confirm close" armedChildren="Confirm" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
               Close

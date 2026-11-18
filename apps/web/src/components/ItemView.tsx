@@ -117,12 +117,17 @@ export function ItemView({
   peek,
   onDismiss,
   onQuickReply,
+  manualRead,
+  onSetRead,
 }: {
   item: StreamItem;
   onRemoved?: () => void;
   peek?: boolean;
   onDismiss?: () => void;
   onQuickReply?: (item: StreamItem) => void;
+  /** Settings → Display "mark work items Read myself": the button reads Read while it's unread. Otherwise it always reads Unread. */
+  manualRead?: boolean;
+  onSetRead?: (read: boolean) => void;
 }) {
   const t = item.data.ticket;
   const [emailOriginal, setEmailOriginal] = useState(false);
@@ -152,6 +157,16 @@ export function ItemView({
             onClick={() => onQuickReply(item)}
           >
             Quick reply
+          </button>
+        )}
+        {!peek && onSetRead && (
+          <button
+            className="btn small read-btn"
+            aria-label={manualRead && item.data.unread ? 'Mark item read' : 'Mark item unread'}
+            title={manualRead && item.data.unread ? 'Mark this work item read' : 'Mark this work item unread (its tab gets a dot until you open it again)'}
+            onClick={() => onSetRead(!!(manualRead && item.data.unread))}
+          >
+            {manualRead && item.data.unread ? 'Read' : 'Unread'}
           </button>
         )}
         {!peek && (
@@ -374,7 +389,7 @@ function RefreshOverview({ streamId, disabled }: { streamId: string; disabled: b
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePending, confirmClose = true }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onTogglePending?: () => void; confirmClose?: boolean }) {
+export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead, manualRead, onTogglePending, confirmClose = true }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onSetRead?: (read: boolean) => void; manualRead?: boolean; onTogglePending?: () => void; confirmClose?: boolean }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -415,7 +430,11 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onTogglePe
           <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} extra={promisedOption(stream)} />
           </span>
         )}
-        {onMarkUnread && (
+        {manualRead && onSetRead ? (
+          <button className="btn small read-btn" aria-label={stream.unread ? 'Mark read' : 'Mark unread'} title={stream.unread ? 'Mark this work stream read' : 'Mark this work stream unread'} onClick={() => onSetRead(stream.unread)}>
+            {stream.unread ? 'Read' : 'Unread'}
+          </button>
+        ) : onMarkUnread && (
           <button className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
             Unread
           </button>

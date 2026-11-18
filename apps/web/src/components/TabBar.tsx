@@ -77,7 +77,13 @@ export function TabBar({
   onClosePeek,
   onReorder,
   onAddUrl,
+  manualRead,
+  heldUnread,
 }: {
+  /** Items stay unread until marked Read: the open tab keeps its dot too. */
+  manualRead?: boolean;
+  /** The open item you just marked Unread: its dot shows straight away. */
+  heldUnread?: string | null;
   stream: WorkStream | null;
   items: StreamItem[];
   tab: string;
@@ -132,7 +138,7 @@ export function TabBar({
             onReorder?.(dragged, i.id, e.clientX > r.left + r.width / 2);
           }}
         >
-          {i.data.unread && tab !== i.id && <span className="dot" aria-label="new activity" />}
+          {i.data.unread && (tab !== i.id || manualRead || heldUnread === i.id) && <span className="dot" aria-label="new activity" />}
           {i.data.muted && <SilencedIcon />}
           <SourceBadge source={i.source} />
           <span className="tab-title">{i.data.ticket?.key ?? i.title}</span>

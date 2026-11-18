@@ -429,6 +429,10 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <Row label="Closing work streams" hint="Close stream asks for a second click, so a stray click doesn't close one. A closed stream can always be reopened.">
               <Toggle checked={s.ui.confirmClose !== false} onChange={(confirmClose) => up('ui', { confirmClose })} label="Click twice to close a work stream" />
             </Row>
+            <Row label="Read / unread" hint="Normally opening a work stream marks it read, and opening a work item's tab clears its dot. With these on, they stay unread until you click Read (the button then reads Unread).">
+              <Toggle checked={!!s.ui.manualStreamRead} onChange={(manualStreamRead) => up('ui', { manualStreamRead })} label="Mark work streams Read myself" />
+              <Toggle checked={!!s.ui.manualItemRead} onChange={(manualItemRead) => up('ui', { manualItemRead })} label="Mark work items Read myself" />
+            </Row>
             <Row label="Undo" hint="The arrow next to Settings (or ⌘Z) undoes your last three actions: moves, Pending, closing, edits, Accept and Decline, Gmail buttons and more">
               <Toggle checked={s.ui.undoToast !== false} onChange={(undoToast) => up('ui', { undoToast })} label="Show a message saying what was undone" />
             </Row>
