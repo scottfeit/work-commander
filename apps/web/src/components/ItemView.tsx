@@ -10,6 +10,7 @@ import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
 import { SnoozeMenu } from './SnoozeMenu';
+import { splitQuoted } from './quoted';
 import { DueLine, promisedOption } from './Due';
 import { EmailHtml } from './EmailHtml';
 
@@ -70,6 +71,31 @@ function MoveMessages({ item, m, onDone }: { item: StreamItem; m: ThreadMessage;
   );
 }
 
+/** A message's text, with the earlier quoted part ("On … wrote:" and below) folded behind a triangle. */
+function TextBody({ text, fold }: { text: string; fold: boolean }) {
+  const [open, setOpen] = useState(false);
+  const { visible, quoted } = fold ? splitQuoted(text) : { visible: text, quoted: null };
+  return (
+    <>
+      <div className="body">
+        <Linkified text={visible} />
+      </div>
+      {quoted && (
+        <div className="quoted">
+          <button type="button" className="disclosure quoted-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <span className="tri" aria-hidden="true">▸</span> Earlier messages
+          </button>
+          {open && (
+            <div className="body quoted-body">
+              <Linkified text={quoted} />
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function Message({ m, compact, html, defaultOriginal, item }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem }) {
   const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
   const [moving, setMoving] = useState(false);
@@ -103,9 +129,7 @@ function Message({ m, compact, html, defaultOriginal, item }: { m: ThreadMessage
       {original && html ? (
         <EmailHtml html={html} />
       ) : (
-        <div className="body">
-          <Linkified text={m.text} />
-        </div>
+        <TextBody text={m.text} fold={!compact} />
       )}
     </article>
   );
