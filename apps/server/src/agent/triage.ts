@@ -505,11 +505,22 @@ export class TriagePipeline {
       const stream = await this.repo.findOpenStreamMentioning(key, item.data.notRelevantTo);
       if (stream) found.set(stream.id, { stream, key });
     }
+    // No open stream tracks it: one that closed recently still does. The item joins it, and triage (which then sees it in a closed
+    // stream) reopens it when the activity needs the PU, as it does for any item already in a closed stream.
+    let closed = false;
+    if (found.size === 0) {
+      const days = (await this.settings()).claude.reopenClosedWithinDays ?? 14;
+      for (const key of keys) {
+        const stream = await this.repo.findRecentlyClosedStreamMentioning(key, days, item.data.notRelevantTo);
+        if (stream) found.set(stream.id, { stream, key });
+      }
+      closed = found.size > 0;
+    }
     if (found.size !== 1) return null; // none, or several candidates: leave it to triage
     const { stream, key } = [...found.values()][0];
     await this.repo.attachItem(item.id, stream.id);
-    await this.repo.updateStream(stream.id, { touch: true, pending: false });
-    await this.repo.addChat({ streamId: stream.id, role: 'system', content: `"${item.title}" added to this work stream: it references ${key}, which is already tracked here.` });
+    if (!closed) await this.repo.updateStream(stream.id, { touch: true, pending: false });
+    await this.repo.addChat({ streamId: stream.id, role: 'system', content: `"${item.title}" added to this ${closed ? 'closed ' : ''}work stream: it references ${key}, which ${closed ? 'this stream tracked' : 'is already tracked here'}.` });
     return (await this.repo.getItem(item.id)) ?? null;
   }
 
@@ -597,6 +608,10 @@ export class TriagePipeline {
         await this.repo.attachItem(item.id, home);
         await this.repo.updateStream(home, { touch: true, pending: false });
         await this.repo.addChat({ streamId: home, role: 'system', content: `"${item.title}" added to this work stream (no action needed).` });
+      } else if (home && !item.data.notRelevantTo?.includes(home) && (await this.repo.recentlyClosedStreams(s.claude.reopenClosedWithinDays ?? 14)).some((c) => c.id === home)) {
+        // It belongs with work that closed recently, but needs nothing from the PU: filed there, and the stream stays closed.
+        await this.repo.attachItem(item.id, home);
+        await this.repo.addChat({ streamId: home, role: 'system', content: `"${item.title}" added to this closed work stream (no action needed).` });
       }
       return;
     }
@@ -604,8 +619,15 @@ export class TriagePipeline {
     let streamId = item.streamId;
     if (!streamId) {
       const open = await this.repo.listStreams(false);
-      if (decision.stream.action === 'existing' && decision.stream.streamId && !item.data.notRelevantTo?.includes(decision.stream.streamId) && open.some((o) => o.id === decision.stream.streamId)) {
-        streamId = decision.stream.streamId;
+      const recentClosed = await this.repo.recentlyClosedStreams(s.claude.reopenClosedWithinDays ?? 14);
+      const named = decision.stream.action === 'existing' && decision.stream.streamId && !item.data.notRelevantTo?.includes(decision.stream.streamId) ? decision.stream.streamId : null;
+      if (named && open.some((o) => o.id === named)) {
+        streamId = named;
+      } else if (named && recentClosed.some((c) => c.id === named)) {
+        // Work that closed recently continues: this activity needs the PU (it is relevant here), so the stream reopens.
+        streamId = named;
+        await this.repo.updateStream(named, { status: 'open' });
+        await this.repo.addChat({ streamId: named, role: 'system', content: `Reopened: new activity on work this stream covered ("${item.title}").` });
       } else if (decision.stream.action !== 'none' && ask) {
         // "Ask me first": hold the new stream as a proposal on the item; acceptProposed() carries on from here.
         const title = decision.stream.title || inbound.title.slice(0, 80);
@@ -773,7 +795,8 @@ export class TriagePipeline {
       ? 'Recently skipped messages (last 24h, in no work stream). If this new message and any of them are about the same event or piece of work, list their ids in relatedItemIds:\n' +
         recentSkipped.map((x) => `- item ${x.id} [${x.source}] "${x.title}"${x.from ? ` from ${x.from}` : ''} (${timeAgo(x.updatedAt)}); skipped because: ${x.reason.slice(0, 160)}`).join('\n')
       : '';
-    return [puBlock(s.pu, { self, manager, reports }), playbookBlock(s.playbooks), streamsBlock(open), skippedBlock];
+    const closed = (await this.repo.recentlyClosedStreams(s.claude.reopenClosedWithinDays ?? 14)).filter((c) => !excluded.has(c.id)).slice(0, 12);
+    return [puBlock(s.pu, { self, manager, reports }), playbookBlock(s.playbooks), streamsBlock(open, closed.map((c) => ({ stream: c, ago: timeAgo(c.closedAt!) }))), skippedBlock];
   }
 
   /** One update's own details: people in it, its stream, hints, similar past work, and its messages. */

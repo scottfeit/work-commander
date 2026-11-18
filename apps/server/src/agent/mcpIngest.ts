@@ -184,6 +184,9 @@ export class McpPollIngestor implements Ingestor {
       // Search indexes lag and a miss would otherwise be permanent, so look back past the last run. Repeats are harmless: messages merge by id.
       const since = new Date(Math.min(Date.parse(lastRun) - OVERLAP_MS, Date.now())).toISOString();
       const started = new Date().toISOString();
+      // After a failed direct read, Claude still checks (it may find things), but that check is not trusted to have covered the window:
+      // the bookmark stays put so the next direct read covers it. Re-reading the same messages is harmless (they merge by id).
+      let directFailed = false;
       if (this.system === 'slack' && s.slack.mcpDirect !== false) {
         try {
           const n = await this.pollSlackDirectly(s, since);
@@ -191,7 +194,8 @@ export class McpPollIngestor implements Ingestor {
           this.status(true, `slack (MCP, read directly) synced: ${n} items`);
           return;
         } catch (e: any) {
-          console.warn(`[slack] direct MCP read failed, using Claude for this check: ${e.message}`);
+          directFailed = true;
+          console.warn(`[slack] direct MCP read failed, using Claude for this check (the window stays open for the next read): ${e.message}`);
         }
       }
       const config = await toSdkMcpConfig(m, (id) => this.secrets.get(id));
@@ -250,8 +254,8 @@ export class McpPollIngestor implements Ingestor {
           eventId: `${it.externalId}@${last?.id ?? started}`,
         });
       }
-      await this.repo.setSync(key, started);
-      this.status(true, `${this.system} (MCP) synced: ${r.items.length} items`);
+      if (!directFailed) await this.repo.setSync(key, started);
+      this.status(true, `${this.system} (MCP${directFailed ? ', via Claude: the direct read failed, so this window is read again next time' : ''}) synced: ${r.items.length} items`);
     } catch (e: any) {
       this.status(false, `${this.system} (MCP): ${e.message}`);
     } finally {

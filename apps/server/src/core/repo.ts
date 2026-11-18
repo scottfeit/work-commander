@@ -879,6 +879,23 @@ export class Repo {
     return open.length === 1 ? open[0] : null;
   }
 
+  /** Work streams closed within `days` days, newest first (0 or less: none). Activity on these can reopen them. */
+  async recentlyClosedStreams(days: number) {
+    if (!(days > 0)) return [];
+    const since = Date.now() - days * 86_400_000;
+    return (await this.listStreams(true)).filter((s) => s.status === 'closed' && s.closedAt && Date.parse(s.closedAt) >= since).sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''));
+  }
+
+  /** The single recently closed work stream that mentions `needle` (a ticket key) in its title, summary or items; null if none or several. */
+  async findRecentlyClosedStreamMentioning(needle: string, days: number, excluded: string[] = []) {
+    const n = needle.toLowerCase();
+    const like = `%${needle}%`;
+    const rows = await this.db.selectFrom('items').select('stream_id').where('stream_id', 'is not', null).where((eb) => eb.or([eb('title', 'like', like), eb('data', 'like', like)])).execute();
+    const ids = new Set(rows.map((r) => r.stream_id as string));
+    const hit = (await this.recentlyClosedStreams(days)).filter((s) => !excluded.includes(s.id) && (ids.has(s.id) || `${s.title} ${s.summary}`.toLowerCase().includes(n)));
+    return hit.length === 1 ? hit[0] : null;
+  }
+
   /** Move an item into another open work stream (from a stream, or from the skipped list). */
   async moveItem(itemId: string, toStreamId: string) {
     const it = await this.getItem(itemId);
