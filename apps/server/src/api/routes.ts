@@ -1,3 +1,4 @@
+import { refreshItem } from '../core/refreshItem.js';
 import { learnStyle } from '../core/writingStyle.js';
 import { parseTime } from '../core/parseTime.js';
 import type { FastifyInstance } from 'fastify';
@@ -289,6 +290,12 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.post('/api/items/:id/read', async (req) => {
     await repo.markItemRead((req.params as any).id);
     return { ok: true };
+  });
+  // Re-read a work item from its source now (no triage).
+  f.post('/api/items/:id/refresh', async (req) => {
+    const it = await repo.getItem((req.params as any).id);
+    if (!it) throw Object.assign(new Error('Item not found'), { statusCode: 404 });
+    return refreshItem({ repo, hub }, it);
   });
   // The item's own Unread button: its tab gets a dot again (even on a silenced item: you asked for it).
   f.post('/api/items/:id/unread', async (req) => {

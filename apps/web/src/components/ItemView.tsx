@@ -150,6 +150,7 @@ export function ItemView({
             Open ↗
           </a>
         )}
+        {!peek && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && <RefreshItem id={item.id} />}
         {!peek && onQuickReply && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && (
           <button
             className="btn small primary"
@@ -226,6 +227,30 @@ export function ItemView({
         <pre className="body block">{item.data.body ?? JSON.stringify(item.data.raw ?? item.data, null, 2)}</pre>
       )}
     </div>
+  );
+}
+
+/** Re-read this work item from Gmail, Slack or Jira now, instead of waiting for the next poll (no triage, no Claude call). */
+function RefreshItem({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => setErr(null), [id]);
+  const go = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await post(`/api/items/${id}/refresh`);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className={`btn small ghost refresh-btn${busy ? ' busy' : ''}`} disabled={busy} aria-busy={busy} aria-label="Refresh this work item" title={err ?? 'Check the source for anything new now, instead of waiting for the next poll'} onClick={() => void go()}>
+      <span className="refresh-icon" aria-hidden="true">↻</span>
+      {err && <span className="small error"> failed</span>}
+    </button>
   );
 }
 

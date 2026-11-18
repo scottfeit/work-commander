@@ -117,3 +117,17 @@ test('the Overview "Close stream" button also needs two clicks', async ({ page }
   await page.locator('.item-view.overview').getByRole('button', { name: 'Confirm close' }).click();
   await expect.poll(async () => (await api.get(`/api/streams?includeClosed=1`)).json.find((s: any) => s.id === id).status).toBe('closed');
 });
+
+test('each work item has a Refresh (↻) button that re-reads it from its source now', async ({ page }) => {
+  await api.waitPending(['ticket_create', 'email_reply']);
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  await page.locator('.tabbar [role=tab]').first().click();
+  const btn = page.locator('.top-pane .item-head').getByRole('button', { name: 'Refresh this work item' });
+  await expect(btn).toBeVisible();
+  const before = (await api.get('/api/audit')).json.filter((a: any) => a.action === 'item.refreshed').length;
+  await btn.click();
+  await expect.poll(async () => (await api.get('/api/audit')).json.filter((a: any) => a.action === 'item.refreshed').length).toBe(before + 1);
+  await expect(btn).toBeEnabled();
+  await expect(btn).not.toContainText('failed');
+});

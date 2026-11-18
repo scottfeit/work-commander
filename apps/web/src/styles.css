@@ -559,3 +559,7 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 .disclosure .tri { display: inline-block; transition: transform .12s; font-size: 1.15em; width: 1em; text-align: center; }
 .disclosure[aria-expanded='true'] .tri { transform: rotate(90deg); }
 .disclosure:hover { color: var(--text); }
+
+.refresh-btn { padding: 2px 8px; font-size: 15px; line-height: 1; }
+.refresh-btn.busy .refresh-icon { display: inline-block; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
