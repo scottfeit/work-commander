@@ -369,7 +369,7 @@ export class TriagePipeline {
         return null;
       }
     }
-    if (!item.streamId) item = (await this.autoLink(item)) ?? item;
+    if (!item.streamId) item = (await this.autoLink(item, newMessages)) ?? item;
     if (!item.streamId && item.data.proposalsMuted) {
       await this.repo.markInbound(inbound.source, inbound.eventId, false, { skipped: 'you dismissed and muted it' });
       return null;
@@ -495,10 +495,11 @@ export class TriagePipeline {
    * An item that references a ticket key (it is the ticket, or an email/Slack message mentioning it) joins the one open work stream
    * that already tracks that key, even when its only activity is the PU's own, which never reaches the model.
    */
-  private async autoLink(item: StreamItem): Promise<StreamItem | null> {
+  private async autoLink(item: StreamItem, only?: ThreadMessage[]): Promise<StreamItem | null> {
     const keys = new Set<string>();
     if (item.data.ticket?.key) keys.add(item.data.ticket.key);
-    const text = [item.title, ...(item.data.messages ?? []).map((m) => m.text)].join('\n');
+    // `only`: the new messages. A conversation that has run for months mentions many tickets; what it has just said is what links it.
+    const text = [item.title, ...(only ?? item.data.messages ?? []).map((m) => m.text)].join('\n');
     for (const k of text.match(/\b[A-Z][A-Z0-9]{1,9}-\d+\b/g) ?? []) if (keys.size < 6) keys.add(k);
     const found = new Map<string, { stream: { id: string }; key: string }>();
     for (const key of keys) {

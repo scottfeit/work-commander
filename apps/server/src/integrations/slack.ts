@@ -185,16 +185,19 @@ export class SlackWorkspace implements ChatApi {
   }
 
   /** A whole DM conversation as one item: recent history including the PU's own messages. */
-  async getDmConversation(channel: string, triggerTs?: string): Promise<InboundItem> {
+  async getDmConversation(channel: string, triggerTs?: string, after?: number): Promise<InboundItem> {
     const me = await this.selfUserId();
     const h = await this.web.conversations.history({ channel, limit: 50 });
-    const msgs = ((h.messages ?? []) as any[]).sort((a, b) => Number(a.ts) - Number(b.ts));
+    // With `after` (the poll's starting point), only what is newer: a DM seen for the first time must not bring months of history with it.
+    const newer = (m: any) => after === undefined || Number(m.ts) > after;
+    const msgs = ((h.messages ?? []) as any[]).filter(newer).sort((a, b) => Number(a.ts) - Number(b.ts));
+    const parents = ((h.messages ?? []) as any[]).sort((a, b) => Number(a.ts) - Number(b.ts));
     // Thread replies are not in channel history: read the recently active threads and fold their replies into the conversation.
     const recent = Date.now() / 1000 - 7 * 86_400;
-    const threaded = msgs.filter((m) => m.reply_count > 0 && Number(m.latest_reply ?? m.ts) > recent).slice(-8);
+    const threaded = parents.filter((m) => m.reply_count > 0 && Number(m.latest_reply ?? m.ts) > recent && (after === undefined || Number(m.latest_reply ?? m.ts) > after)).slice(-8);
     for (const parent of threaded) {
       const r = await this.web.conversations.replies({ channel, ts: parent.ts, limit: 100 });
-      for (const m of (r.messages ?? []) as any[]) if (m.ts !== parent.ts && !msgs.some((x) => x.ts === m.ts)) msgs.push(m);
+      for (const m of (r.messages ?? []) as any[]) if (m.ts !== parent.ts && newer(m) && !msgs.some((x) => x.ts === m.ts)) msgs.push(m);
     }
     msgs.sort((a, b) => Number(a.ts) - Number(b.ts));
     const messages: ThreadMessage[] = [];
@@ -402,7 +405,7 @@ export class SlackIngestor implements Ingestor {
           if (msgs.length && !seen.has(id)) {
             seen.add(id);
             const newest = msgs.reduce((a, b) => (activity(b) > activity(a) ? b : a));
-            await this.sink(await this.slack.getDmConversation(id, String(activity(newest))));
+            await this.sink(await this.slack.getDmConversation(id, String(activity(newest)), since));
           }
         } else for (const m of msgs) if (m.user !== me || Number(m.latest_reply ?? 0) > since) await emit(id, m.thread_ts ?? m.ts, String(activity(m)));
       }

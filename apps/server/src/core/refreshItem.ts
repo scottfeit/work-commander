@@ -19,10 +19,12 @@ export async function refreshItem(d: { repo: Repo; hub: IntegrationHub }, item: 
     fresh = await (await d.hub.api('email')).getThread(item.data.gmail?.threadId ?? item.externalId);
   } else if (item.source === 'slack') {
     const [channel, ts] = item.externalId.split(':');
-    const chat = (await d.hub.api('chat')) as Awaited<ReturnType<IntegrationHub['api']>> & { getDmConversation?: (c: string) => Promise<InboundItem> };
+    const chat = (await d.hub.api('chat')) as Awaited<ReturnType<IntegrationHub['api']>> & { getDmConversation?: (c: string, trigger?: string, after?: number) => Promise<InboundItem> };
     if (ts === 'dm' || !ts) {
       if (!chat.getDmConversation) throw new Error("This Slack conversation can't be refreshed here");
-      fresh = await chat.getDmConversation(channel);
+      // Only what is newer than what the item already holds: a refresh must not bring a long conversation's old history into a work stream.
+      const held = (item.data.messages ?? []).filter((m) => !m.id.startsWith('sent-')).map((m) => Number(m.id)).filter((n) => !Number.isNaN(n));
+      fresh = await chat.getDmConversation(channel, undefined, held.length ? Math.max(...held) : undefined);
     } else fresh = await (chat as any).getThread(channel, item.data.slack?.threadTs ?? ts);
   } else {
     fresh = await (await d.hub.api('tickets')).getIssue(item.data.ticket?.key ?? item.externalId);
