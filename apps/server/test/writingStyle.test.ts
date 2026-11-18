@@ -44,7 +44,7 @@ describe('writing style', () => {
     const backend = { structured: async (i: any) => (kinds.push(i.usage.kind), { email: ['Short and direct.'], slack: [], signoffs: ['Thanks,\nScott'] }) };
     const r = await learnStyle({ repo, backend: backend as any, email: null }, s);
     expect(kinds).toEqual(['writingStyle']);
-    expect(r.sample).toEqual({ email: 4, slack: 0 });
+    expect(r.sample).toEqual({ email: 4, slack: 0, skippedClaude: 0 });
     expect(r.guide).toBe('Email\n- Short and direct.\n\nSign-offs (" / " = new line)\n- Thanks, / Scott\n\nCopying people\n- You usually reply-all on group threads (4 of 4).');
     expect(styleBlock({ enabled: true, guide: r.guide })).toContain('must sound like them');
     expect(styleBlock({ enabled: false, guide: r.guide })).toBe('');
@@ -53,5 +53,28 @@ describe('writing style', () => {
 
   it('too few messages: says so instead of guessing', async () => {
     await expect(learnStyle({ repo, backend: { structured: async () => ({}) } as any, email: null }, defaultSettings())).rejects.toThrow(/Not enough/);
+  });
+});
+
+describe('writing style: what counts as your writing', () => {
+  it('leaves out Claude drafts sent unchanged; keeps edited drafts, Quick Replies and messages written directly', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const sent = async (kind: string, original: object, final: object, result: object) => {
+      const p = await repo.createProposal({ streamId: null, runId: 'r', kind, system: kind.startsWith('slack') ? 'slack' : 'gmail', title: 't', rationale: '', payload: original, editable: [], dependsOn: [] } as any);
+      await repo.db.updateTable('proposals').set({ status: 'executed', payload: JSON.stringify(final), result: JSON.stringify(result) }).where('id', '=', p.id).execute();
+    };
+    const claudeText = 'Thanks Dana, I have opened the access request and will follow up once Security approves it.';
+    await sent('email_reply', { body: claudeText }, { body: claudeText }, { messageId: 'm-claude', threadId: 't' }); // unchanged
+    await sent('email_reply', { body: 'Claude wording here.' }, { body: 'Done, ticket is OPS-12. Scott' }, { messageId: 'm-edited', threadId: 't' }); // edited
+    await sent('email_reply', { body: '', quick: true }, { body: 'On it.', quick: true }, { messageId: 'm-quick', threadId: 't' }); // Quick Reply
+    const slackText = 'Heads up: the deploy window moved to Thursday at 3pm, I will post here when it starts.';
+    await sent('slack_post', { text: slackText }, { text: slackText }, {}); // unchanged, no id recorded: matched by text
+    const mine = (id: string, text: string) => ({ ...m(id, me, ['dana@x.com'], [], text), isFromPU: true });
+    await repo.upsertItem({ source: 'gmail', kind: 'email_thread', externalId: 'g1', title: 'T', data: { messages: [m('q', 'dana@x.com', [me], [], 'question?'), mine('m-claude', claudeText), mine('m-edited', 'Done, ticket is OPS-12. Scott'), mine('m-quick', 'On it.'), mine('m-direct', 'Written in Gmail myself.')] } });
+    await repo.upsertItem({ source: 'slack', kind: 'slack_thread', externalId: 'C1:1', title: 'S', data: { messages: [mine('1.1', slackText + '\n'), mine('1.2', 'ok will do')] } });
+    const skipped = { n: 0 };
+    const got = (await collectSamples(repo, null, 60, skipped)).map((x) => x.msg.id).sort();
+    expect(got).toEqual(['1.2', 'm-direct', 'm-edited', 'm-quick']);
+    expect(skipped.n).toBe(2);
   });
 });

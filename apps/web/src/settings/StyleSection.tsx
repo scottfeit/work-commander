@@ -13,9 +13,10 @@ export function StyleSection({ s, setS }: { s: Settings; setS: (s: Settings) => 
     setBusy(true);
     setMsg(null);
     try {
-      const r = await post<{ guide: string; sample: { email: number; slack: number } }>('/api/style/learn');
+      const r = await post<{ guide: string; sample: { email: number; slack: number; skippedClaude?: number } }>('/api/style/learn');
       set({ guide: r.guide, learnedAt: new Date().toISOString() });
-      setMsg({ ok: true, text: `Learned from ${r.sample.email} email${r.sample.email === 1 ? '' : 's'} and ${r.sample.slack} Slack message${r.sample.slack === 1 ? '' : 's'} you wrote. Review it, then Save changes.` });
+      const sk = r.sample.skippedClaude ?? 0;
+      setMsg({ ok: true, text: `Learned from ${r.sample.email} email${r.sample.email === 1 ? '' : 's'} and ${r.sample.slack} Slack message${r.sample.slack === 1 ? '' : 's'} you wrote${sk ? ` (left out ${sk} Claude draft${sk === 1 ? '' : 's'} you sent unchanged)` : ''}. Review it, then Save changes.` });
     } catch (e: any) {
       setMsg({ ok: false, text: e.message });
     } finally {
@@ -26,8 +27,9 @@ export function StyleSection({ s, setS }: { s: Settings; setS: (s: Settings) => 
     <section>
       <h2>Writing style</h2>
       <p className="muted small">
-        Claude drafts replies, Slack messages and ticket comments the way you write: greeting, length, tone, sign-off, and who you usually copy. The guide below is learned from your own sent messages (one call to Claude; the
-        copying habits are counted, not guessed). Edit it freely.
+        Claude drafts replies, Slack messages and ticket comments the way you write: greeting, length, tone, sign-off, and who you usually copy. The guide below is learned from your own sent messages: what you wrote
+        yourself (in Gmail or Slack, or as a Quick Reply) and Claude drafts you edited before sending. Claude drafts you sent unchanged are left out. It takes one call to Claude; the copying habits are counted, not guessed.
+        Edit it freely.
       </p>
       <Row label="Drafts">
         <Toggle checked={style.enabled} onChange={(enabled) => set({ enabled })} label="Write drafts in my style" />
