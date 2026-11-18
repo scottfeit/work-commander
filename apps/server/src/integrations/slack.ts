@@ -272,6 +272,9 @@ export function slackMessageInvolvesPU(ev: { channel_type?: string; text?: strin
   return false;
 }
 
+/** Slack's answer for a thread that does not exist (deleted, or the timestamp is not a thread's parent). */
+const threadGone = (e: any) => e?.data?.error === 'thread_not_found' || /thread_not_found/.test(String(e?.message ?? ''));
+
 export class SlackIngestor implements Ingestor {
   private socket?: any;
   private timer?: NodeJS.Timeout;
@@ -334,19 +337,38 @@ export class SlackIngestor implements Ingestor {
    * Polling: (1) mentions of the PU via search, (2) direct and group DMs, (3) replies in threads
    * attached to open streams.
    */
+  /**
+   * Where a poll starts reading: the saved bookmark; else, when Slack was read through MCP until now, where that left off (so switching
+   * to API mode does not re-read days of old messages); else three days back (a first run).
+   */
+  private async startingPoint() {
+    const saved = await this.repo.getSync('slack.lastTs');
+    if (saved) return Number(saved);
+    const mcp = Date.parse((await this.repo.getSync('mcp.slack.since')) ?? '');
+    if (!Number.isNaN(mcp)) return mcp / 1000 - 10 * 60;
+    return Date.now() / 1000 - 3 * 86400;
+  }
+
   async pollOnce() {
     if (this.busy) return;
     this.busy = true;
     try {
       const me = await this.slack.selfUserId();
-      const since = Number((await this.repo.getSync('slack.lastTs')) || Date.now() / 1000 - 3 * 86400);
+      const since = await this.startingPoint();
       let maxTs = since;
       const seen = new Set<string>();
+      const unreadable: string[] = []; // threads Slack says do not exist (deleted, or not a thread): skipped, never a reason to stop polling
       const emit = async (channel: string, threadTs: string, ts: string) => {
         const k = `${channel}:${threadTs}`;
         if (seen.has(k)) return;
         seen.add(k);
-        await this.sink(await this.slack.getThread(channel, threadTs, ts));
+        try {
+          await this.sink(await this.slack.getThread(channel, threadTs, ts));
+        } catch (e: any) {
+          if (!threadGone(e)) throw e;
+          unreadable.push(k);
+          return;
+        }
         maxTs = Math.max(maxTs, Number(ts));
       };
       for (const m of await this.slack.search(`<@${me}>`, 20)) if (Number(m.ts) > since && m.channel) await emit(m.channel, m.threadTs ?? m.ts, m.ts);
@@ -387,12 +409,20 @@ export class SlackIngestor implements Ingestor {
       }
       for (const k of await this.trackedThreads()) {
         const [channel, threadTs] = k.split(':');
-        const r = await this.slack.web.conversations.replies({ channel, ts: threadTs, oldest: String(since), limit: 50 });
-        const fresh = ((r.messages ?? []) as any[]).filter((m) => Number(m.ts) > since);
-        if (fresh.length) await emit(channel, threadTs, fresh[fresh.length - 1].ts);
+        // A DM or group DM item is a whole conversation ("<channel>:dm", or "<channel>:dm@<stream>" when split), not a thread: the DM reads above cover it.
+        if (!/^\d+\.\d+$/.test(threadTs ?? '')) continue;
+        try {
+          const r = await this.slack.web.conversations.replies({ channel, ts: threadTs, oldest: String(since), limit: 50 });
+          const fresh = ((r.messages ?? []) as any[]).filter((m) => Number(m.ts) > since);
+          if (fresh.length) await emit(channel, threadTs, fresh[fresh.length - 1].ts);
+        } catch (e: any) {
+          if (!threadGone(e)) throw e; // a rate limit or a network error: stop here and look again next time, bookmark unmoved
+          unreadable.push(k);
+        }
       }
       await this.repo.setSync('slack.lastTs', String(maxTs));
-      this.status(true, 'Slack synced');
+      if (unreadable.length) console.warn(`[slack] skipped ${unreadable.length} thread(s) Slack could not read (thread_not_found): ${[...new Set(unreadable)].join(', ')}`);
+      this.status(true, unreadable.length ? `Slack synced (skipped ${new Set(unreadable).size} thread(s) Slack could not read: ${[...new Set(unreadable)].slice(0, 3).join(', ')}${new Set(unreadable).size > 3 ? ', …' : ''})` : 'Slack synced');
     } catch (e: any) {
       this.status(false, `Slack: ${e.message}`);
     } finally {
