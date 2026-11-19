@@ -317,7 +317,10 @@ export class JiraIngestor implements Ingestor {
       const minutes = Math.ceil((Date.now() - Date.parse(since)) / 60_000) + 2;
       const issues = await this.api.searchIssues(`${base} AND updated >= -${minutes}m ORDER BY updated ASC`, 50);
       for (const i of issues) await this.sink(this.api.toInbound(i));
-      await this.repo.setSync('jira.since', startedAt);
+      // A full page means there may be more: the bookmark only moves as far as what was read (oldest first), so the next poll
+      // carries on from there and nothing in a long gap is skipped.
+      const lastUpdated = issues[issues.length - 1]?.fields?.updated;
+      await this.repo.setSync('jira.since', issues.length >= 50 && lastUpdated ? new Date(Date.parse(lastUpdated) - 60_000).toISOString() : startedAt);
       this.status(true, 'Jira synced');
     } catch (e: any) {
       this.status(false, `Jira: ${e.message}`);

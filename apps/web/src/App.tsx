@@ -487,7 +487,23 @@ export function App() {
           )}
           {!polling.paused && polling.catchingUp && (
             <div className="usage-banner polling-banner" role="status">
-              <span>Catching up on what arrived while polling was paused…</span>
+              <span>
+                {!polling.progress
+                  ? 'Catching up on what arrived while polling was paused…'
+                  : polling.progress.phase === 'reading'
+                    ? `Catching up: reading what arrived while paused${polling.progress.round > 1 ? ` (pass ${polling.progress.round})` : ''}, ${polling.progress.found} found so far${polling.progress.retrying ? `; ${polling.progress.retrying}` : ''}…`
+                    : `Catching up: triaged ${polling.progress.done} of ${polling.progress.total}…`}
+              </span>
+              <div
+                className={`catchup-bar${!polling.progress || polling.progress.phase === 'reading' ? ' indeterminate' : ''}`}
+                role="progressbar"
+                aria-label="Catch-up progress"
+                aria-valuemin={0}
+                aria-valuemax={polling.progress?.phase === 'triaging' ? polling.progress.total : undefined}
+                aria-valuenow={polling.progress?.phase === 'triaging' ? polling.progress.done : undefined}
+              >
+                <div style={polling.progress?.phase === 'triaging' && polling.progress.total ? { width: `${(100 * polling.progress.done) / polling.progress.total}%` } : undefined} />
+              </div>
             </div>
           )}
           {usageAlert && (

@@ -33,9 +33,12 @@ export class IntegrationHub {
   /** Live updates that arrived while paused, newest per conversation; handled on Resume. */
   private held: InboundItem[] = [];
   private catchingUp = false;
+  private progress: PollingState['progress'];
+  /** Wait before re-reading a source that failed during a catch-up (5 s, 10 s, 20 s … up to a minute). */
+  retryDelay = (failures: number) => Math.min(60_000, 5_000 * 2 ** (failures - 1));
   /** While Resume catches up: what the polls bring in, triaged together afterwards. */
   private collected: InboundItem[] | null = null;
-  private sinkBatch?: (items: InboundItem[]) => Promise<void>;
+  private sinkBatch?: (items: InboundItem[], onDone?: () => void) => Promise<void>;
   /** The last moment polling was known to be running; a jump past the gap setting means the computer slept or the server was off. */
   private lastSeen = 0;
   private gapMs = 2 * 3600_000;
@@ -103,7 +106,7 @@ export class IntegrationHub {
     return x.mode === 'mcp' ? 'mcp' : 'api';
   }
 
-  async start(sink: InboundSink, sinkBatch?: (items: InboundItem[]) => Promise<void>) {
+  async start(sink: InboundSink, sinkBatch?: (items: InboundItem[], onDone?: () => void) => Promise<void>) {
     this.sink = sink;
     this.sinkBatch = sinkBatch;
     await this.loadPause();
@@ -131,7 +134,7 @@ export class IntegrationHub {
   }
 
   get pollingState(): PollingState {
-    return { paused: this.paused, held: this.held.length, catchingUp: this.catchingUp };
+    return { paused: this.paused, held: this.held.length, catchingUp: this.catchingUp, ...(this.progress ? { progress: this.progress } : {}) };
   }
 
   get isPaused() {
@@ -184,21 +187,48 @@ export class IntegrationHub {
     this.changed();
     void (async () => {
       try {
-        // The polls' updates are collected (not triaged one by one), with the held ones as they are now, then triaged as one batch.
+        // Read round after round until a round finds nothing new (a big backlog can take several), retrying a source whose read
+        // failed; then add the held updates as they are now, and triage the lot in batches.
         this.collected = [];
-        await this.pollAll();
+        this.progress = { phase: 'reading', round: 0, found: 0, done: 0, total: 0 };
+        const key = (i: InboundItem) => `${i.source}:${i.externalId}:${i.eventId}`;
+        const found = new Map<string, InboundItem>();
+        let failures = 0;
+        for (let round = 1; round <= 25; round++) {
+          const before = found.size;
+          const started = new Date().toISOString();
+          this.progress = { ...this.progress, round };
+          this.changed();
+          await this.pollAll();
+          for (const i of this.collected.splice(0)) found.set(key(i), i);
+          const failed = Object.entries(this.status).filter(([, v]) => v && !v.ok && v.at >= started).map(([k]) => k);
+          this.progress = { ...this.progress, found: found.size, retrying: failed.length ? `couldn't read ${failed.join(', ')}; trying again` : undefined };
+          this.changed();
+          if (failed.length) {
+            if (++failures > 8) break; // give up for now; the regular polls carry on from the bookmarks
+            await new Promise((r) => setTimeout(r, this.retryDelay(failures)));
+            continue;
+          }
+          if (found.size === before) break; // nothing new this round: all caught up
+        }
         for (const h of held) {
           const cur = await this.current(h).catch(() => (this.cleaned(h) ? null : h));
-          if (cur) this.collected.push(cur);
+          if (cur) found.set(key(cur), cur);
         }
-        const batch = this.collected;
         this.collected = null;
-        const latest = [...new Map(batch.map((i) => [`${i.source}:${i.externalId}:${i.eventId}`, i])).values()];
-        if (this.sinkBatch) await this.sinkBatch(latest).catch((e) => console.error('[resume]', e.message));
-        else for (const i of latest) await this.sink(i).catch((e) => console.error('[resume]', e.message));
+        const latest = [...found.values()];
+        this.progress = { phase: 'triaging', round: this.progress.round, found: latest.length, done: 0, total: latest.length };
+        this.changed();
+        const step = () => {
+          this.progress = this.progress && { ...this.progress, done: Math.min(this.progress.total, this.progress.done + 1) };
+          this.changed();
+        };
+        if (this.sinkBatch) await this.sinkBatch(latest, step).catch((e) => console.error('[resume]', e.message));
+        else for (const i of latest) await this.sink(i).then(step, (e) => console.error('[resume]', e.message));
       } finally {
         this.collected = null;
         this.catchingUp = false;
+        this.progress = undefined;
         this.changed();
       }
     })();

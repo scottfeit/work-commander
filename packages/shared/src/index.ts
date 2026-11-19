@@ -614,6 +614,8 @@ export interface PollingState {
   held: number;
   /** Resume is catching up on the gap. */
   catchingUp: boolean;
+  /** How the catch-up is going: reading the sources (round by round, until a round finds nothing new), then triaging what was found. */
+  progress?: { phase: 'reading' | 'triaging'; round: number; found: number; done: number; total: number; retrying?: string };
 }
 
 export interface Settings {

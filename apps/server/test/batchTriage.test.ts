@@ -117,3 +117,50 @@ describe('batch triage after a catch-up', () => {
     await hub.stop();
   });
 });
+
+describe('catching up reads until nothing new turns up', () => {
+  it('several rounds, a failed read retried, then one batch; progress is reported along the way', async () => {
+    const repo = new Repo((await openDatabase('sqlite::memory:')).db);
+    const s = defaultSettings();
+    const rounds: InboundItem[][] = [[mail('a', [['a1', 1]]), mail('b', [['b1', 2]])], [mail('c', [['c1', 3]])], []];
+    let n = 0;
+    let fail = true;
+    const hub = new IntegrationHub({ publicUrl: 'http://x' } as any, { get: async () => s, onChange: () => undefined } as any, {} as any, repo, {
+      apis: {},
+      ingestors: (sink) => [
+        {
+          start: async () => undefined,
+          stop: async () => undefined,
+          pollOnce: async () => {
+            if (n === 1 && fail) {
+              fail = false; // the second round fails once, and is retried
+              (hub as any).report('slack')(false, 'rate limited');
+              return;
+            }
+            for (const i of rounds[n++] ?? []) await sink(i);
+            (hub as any).report('slack')(true, 'ok');
+          },
+        },
+      ],
+    });
+    hub.retryDelay = () => 1;
+    const seen: string[] = [];
+    const { bus } = await import('../src/core/bus.js');
+    const off = bus.subscribe((e: any) => e.type === 'polling.changed' && e.polling.progress && seen.push(`${e.polling.progress.phase}:${e.polling.progress.found}:${e.polling.progress.done}/${e.polling.progress.total}${e.polling.progress.retrying ? ':retry' : ''}`));
+    const batches: string[][] = [];
+    await hub.start(async () => undefined, async (items, done) => {
+      batches.push(items.map((i) => i.externalId));
+      for (const _ of items) done?.();
+    });
+    await hub.pause('manual');
+    await hub.resume();
+    await expect.poll(() => hub.pollingState.catchingUp).toBe(false);
+    off?.();
+    expect(batches).toEqual([['a', 'b', 'c']]);
+    expect(seen).toContain('reading:2:0/0');
+    expect(seen.some((x) => x.endsWith(':retry'))).toBe(true);
+    expect(seen).toContain('triaging:3:3/3');
+    expect(hub.pollingState.progress).toBeUndefined();
+    await hub.stop();
+  });
+});

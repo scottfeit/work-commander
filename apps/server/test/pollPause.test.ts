@@ -55,7 +55,7 @@ describe('pausing polling and triage after a gap', () => {
     queue.push(mail('t1', inbox));
     await hub.resume();
     await expect.poll(() => hub.pollingState.catchingUp).toBe(false);
-    expect(polls).toBe(1);
+    expect(polls).toBe(2); // a second pass confirms nothing more turned up
     expect(triaged).toEqual(['t1']);
     await hub.stop();
   });

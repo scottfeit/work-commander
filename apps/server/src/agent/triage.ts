@@ -189,8 +189,8 @@ export class TriagePipeline {
   }
 
   /** InboundSink for a backlog (catching up after a pause): serialized like sink(). */
-  sinkBatch = (items: InboundItem[]) => {
-    const next = this.chain.catch(() => undefined).then(() => this.handleBatch(items));
+  sinkBatch = (items: InboundItem[], onDone?: () => void) => {
+    const next = this.chain.catch(() => undefined).then(() => this.handleBatch(items, onDone));
     this.chain = next;
     return next;
   };
@@ -199,18 +199,25 @@ export class TriagePipeline {
    * A backlog judged together: several updates to one conversation are judged once, with all their new messages, and the
    * rest share one call to Claude (in groups of BATCH), so the PU's details, playbooks and open work streams are sent once.
    */
-  async handleBatch(items: InboundItem[]) {
+  async handleBatch(items: InboundItem[], onDone?: () => void) {
     if (items.length <= 1) {
-      for (const i of items) await this.handle(i);
+      for (const i of items) {
+        await this.handle(i);
+        onDone?.();
+      }
       return;
     }
     const s = await this.settings();
     const pending: Pending[] = [];
+    // Progress (for the catch-up bar): each update counts as done once whatever it turned into has been decided and routed.
+    const weight = new Map<Pending, number>();
     for (const inbound of items) {
+      let owner: Pending | null = null;
       for (const [ib, part] of await this.store(inbound, s.silencing)) {
         const p = await this.prepare(ib, part, s.silencing);
         if (!p) continue;
         const same = pending.find((x) => x.item.id === p.item.id);
+        owner ??= same ?? p;
         if (!same) {
           pending.push(p);
           continue;
@@ -223,6 +230,8 @@ export class TriagePipeline {
         same.item = p.item;
         same.brokeThrough ||= p.brokeThrough;
       }
+      if (owner) weight.set(owner, (weight.get(owner) ?? 0) + 1);
+      else onDone?.(); // nothing to decide (a rule, a silenced item, nothing new): done already
     }
     const decided = new Map<Pending, TriageDecision>();
     const learn = new Map<Pending, (d: TriageDecision) => Promise<unknown>>();
@@ -248,8 +257,14 @@ export class TriagePipeline {
     // Route in arrival order; updates that start the same new piece of work share the stream the first one created.
     const madeBy = new Map<string, string>();
     for (const [n, p] of pending.entries()) {
+      const tick = () => {
+        for (let k = 0; k < (weight.get(p) ?? 0); k++) onDone?.();
+      };
       let d = decided.get(p) as BatchDecision | undefined;
-      if (!d) continue;
+      if (!d) {
+        tick();
+        continue;
+      }
       const first = d.sameNewStreamAs ? madeBy.get(d.sameNewStreamAs) : undefined;
       if (first && !p.item.streamId) d = { ...d, stream: { ...d.stream, action: 'existing', streamId: first } };
       await this.finish(p, d, s);
@@ -257,6 +272,7 @@ export class TriagePipeline {
         const home = (await this.repo.getItem(p.item.id))?.streamId;
         if (home) madeBy.set(keyOf(n), home);
       }
+      tick();
     }
   }
 

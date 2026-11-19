@@ -354,6 +354,32 @@ export class SlackIngestor implements Ingestor {
     return Date.now() / 1000 - 3 * 86400;
   }
 
+  /** Every message in a conversation after `oldest`, all pages (newest first, as Slack returns them). */
+  private async history(channel: string, oldest: string) {
+    const out: any[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const h = await this.slack.web.conversations.history({ channel, oldest, limit: 200, cursor });
+      out.push(...((h.messages ?? []) as any[]));
+      cursor = h.has_more ? h.response_metadata?.next_cursor || undefined : undefined;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
+  /** Every reply in a thread after `oldest`, all pages (oldest first). */
+  private async replies(channel: string, ts: string, oldest: string) {
+    const out: any[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const r = await this.slack.web.conversations.replies({ channel, ts, oldest, limit: 200, cursor });
+      out.push(...((r.messages ?? []) as any[]));
+      cursor = r.has_more ? r.response_metadata?.next_cursor || undefined : undefined;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
   async pollOnce() {
     if (this.busy) return;
     this.busy = true;
@@ -374,7 +400,12 @@ export class SlackIngestor implements Ingestor {
           unreadable.push(k);
         }
       };
-      for (const m of await this.slack.search(`<@${me}>`, 20)) if (Number(m.ts) > since && m.channel) await emit(m.channel, m.threadTs ?? m.ts, m.ts);
+      // Mentions: newest first, page by page until they're older than the bookmark (so a long gap loses none).
+      for (let page = 1; page <= 20; page++) {
+        const hits = await this.slack.search(`<@${me}>`, 100, page);
+        for (const m of hits) if (Number(m.ts) > since && m.channel) await emit(m.channel, m.threadTs ?? m.ts, m.ts);
+        if (hits.length < 100 || Number(hits[hits.length - 1]?.ts) <= since) break;
+      }
       // Direct and group DMs: found by searching for recent DM messages (the list of conversations has no order and is long), then each one's
       // history is read. If search is unavailable, fall back to walking the conversation list.
       const dms = new Set<string>();
@@ -396,8 +427,7 @@ export class SlackIngestor implements Ingestor {
       }
       for (const id of dms) {
         // Look back a week: a thread started earlier may have a new reply, which history shows only on its parent (reply_count, latest_reply).
-        const h = await this.slack.web.conversations.history({ channel: id, oldest: String(since - 7 * 86_400), limit: 30 });
-        const all = (h.messages ?? []) as any[];
+        const all = await this.history(id, String(since - 7 * 86_400));
         const activity = (m: any) => Math.max(Number(m.ts), Number(m.latest_reply ?? 0));
         const msgs = all.filter((m) => activity(m) > since);
         if (id.startsWith('D')) {
@@ -423,8 +453,7 @@ export class SlackIngestor implements Ingestor {
         for (const w of watched) {
           const id = /^[CG][A-Z0-9]{6,}$/.test(w) ? w : byName.get(w.toLowerCase());
           if (!id) continue;
-          const h = await this.slack.web.conversations.history({ channel: id, oldest: String(since), limit: 30 });
-          for (const m of (h.messages ?? []) as any[]) if (m.user !== me) await emit(id, m.thread_ts ?? m.ts, m.ts);
+          for (const m of await this.history(id, String(since))) if (m.user !== me) await emit(id, m.thread_ts ?? m.ts, m.ts);
         }
       }
       for (const k of await this.trackedThreads()) {
@@ -432,8 +461,7 @@ export class SlackIngestor implements Ingestor {
         // A DM or group DM item is a whole conversation ("<channel>:dm", or "<channel>:dm@<stream>" when split), not a thread: the DM reads above cover it.
         if (!/^\d+\.\d+$/.test(threadTs ?? '')) continue;
         try {
-          const r = await this.slack.web.conversations.replies({ channel, ts: threadTs, oldest: String(since), limit: 50 });
-          const fresh = ((r.messages ?? []) as any[]).filter((m) => Number(m.ts) > since);
+          const fresh = (await this.replies(channel, threadTs, String(since))).filter((m) => Number(m.ts) > since);
           if (fresh.length) await emit(channel, threadTs, fresh[fresh.length - 1].ts);
         } catch (e: any) {
           if (!threadGone(e)) throw e; // a rate limit or a network error: stop here and look again next time, bookmark unmoved

@@ -604,3 +604,9 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .quick-slots { display: flex; gap: 6px; }
 .quick-slot { width: 36px; height: 32px; justify-content: center; font-size: 18px; }
 .quick-slot .emoji { font-size: 18px; }
+
+/* Catch-up progress on the yellow bar */
+.catchup-bar { flex: 0 0 220px; height: 6px; border-radius: 3px; background: rgba(0, 0, 0, .1); overflow: hidden; position: relative; }
+.catchup-bar > div { height: 100%; background: var(--attn); border-radius: 3px; transition: width .3s; width: 0; }
+.catchup-bar.indeterminate > div { width: 35%; position: absolute; animation: catchup-slide 1.2s ease-in-out infinite; }
+@keyframes catchup-slide { from { left: -35%; } to { left: 100%; } }
