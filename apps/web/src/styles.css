@@ -665,3 +665,8 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .send-to label.on { font-weight: 600; }
 .cc-protections { margin: 6px 0 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .cc-protections ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+
+.skills-picker { display: grid; gap: 6px; }
+.skills-picker .inline { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.skills-list { display: grid; gap: 4px; max-height: 260px; overflow: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.skill-row { display: flex; gap: 8px; align-items: baseline; font-size: 13px; cursor: pointer; }

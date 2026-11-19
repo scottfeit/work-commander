@@ -695,7 +695,17 @@ export interface Settings {
    * Claude Code inside WC (local only, off by default): runs in the hand-off folder in the OS sandbox; commands, edits, reading
    * outside the folder and web fetches wait for your Allow. Network only to the allow-listed sites.
    */
-  claudeCode?: { enabled: boolean; allowedDomains: string[]; maxMinutes: number; maxTurns: number; maxBudgetUsd: number };
+  claudeCode?: {
+    enabled: boolean;
+    allowedDomains: string[];
+    maxMinutes: number;
+    maxTurns: number;
+    maxBudgetUsd: number;
+    /** Read CLAUDE.md instructions (yours and the project's) into it. Settings files are never read. Default off. */
+    loadClaudeMd?: boolean;
+    /** Skills it may use: 'all' (yours and the project's) or the names you picked. Default none. */
+    skills?: 'all' | string[];
+  };
   /** Calendar meetings linked to work streams: a brief before, a follow-up after. */
   meetings?: { enabled: boolean; /** Minutes before the start to post the brief (0 = no brief). */ briefMinutes: number; followUp: 'offer' | 'draft' | 'off' };
   /** Drafts written the way the PU writes: a guide learned from their sent messages, which they can edit. */

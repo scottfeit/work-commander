@@ -1,5 +1,50 @@
+import { useEffect, useState } from 'react';
 import type { Settings } from '@wc/shared';
+import { get } from '../api';
 import { Row, Toggle } from './parts';
+
+/** Pick the skills Claude Code may use: none, all, or ticked ones (yours, from ~/.claude/skills). */
+function SkillsPicker({ value, onChange }: { value: 'all' | string[]; onChange: (v: 'all' | string[]) => void }) {
+  const [skills, setSkills] = useState<{ name: string; description: string }[] | null>(null);
+  useEffect(() => {
+    get<{ name: string; description: string }[]>('/api/claude-code/skills').then(setSkills, () => setSkills([]));
+  }, []);
+  // (ticking nothing under "only the ones I tick" saves the same as None, so the choice itself is kept here)
+  const [mode, setMode] = useState<'none' | 'all' | 'some'>(value === 'all' ? 'all' : value.length ? 'some' : 'none');
+  const picked = value === 'all' ? [] : value;
+  return (
+    <div className="skills-picker">
+      <div className="inline" role="radiogroup" aria-label="Skills">
+        {(['none', 'all', 'some'] as const).map((m) => (
+          <label key={m} className="small">
+            <input type="radio" name="cc-skills" checked={mode === m} onChange={() => (setMode(m), onChange(m === 'all' ? 'all' : m === 'none' ? [] : picked))} />{' '}
+            {m === 'none' ? 'None' : m === 'all' ? "All (yours and the project's)" : 'Only the ones I tick'}
+          </label>
+        ))}
+      </div>
+      {mode === 'some' && (
+        <div className="skills-list" aria-label="Your skills">
+          {skills === null && <p className="muted small">Looking for your skills…</p>}
+          {skills?.length === 0 && <p className="muted small">No skills found in ~/.claude/skills.</p>}
+          {skills?.map((k) => (
+            <label key={k.name} className="skill-row">
+              <input
+                type="checkbox"
+                aria-label={`Skill ${k.name}`}
+                checked={picked.includes(k.name)}
+                onChange={(e) => onChange(e.target.checked ? [...picked, k.name] : picked.filter((x) => x !== k.name))}
+              />
+              <span>
+                <b>{k.name}</b>
+                {k.description && <span className="muted small"> — {k.description}</span>}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Settings → Claude Code: run Claude Code inside WC (off by default), and its limits. */
 export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: Settings) => void; local: boolean }) {
@@ -33,6 +78,12 @@ export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: S
           placeholder={'github.com\nregistry.npmjs.org'}
           onChange={(e) => set({ allowedDomains: e.target.value.split(/[\s,]+/).map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean) })}
         />
+      </Row>
+      <Row label="CLAUDE.md" hint="Your ~/.claude/CLAUDE.md and the project's CLAUDE.md files (and what they import), as standing instructions. Only these text files are read: never settings.json, hooks or permission rules.">
+        <Toggle checked={!!cc.loadClaudeMd} onChange={(loadClaudeMd) => set({ loadClaudeMd })} label="Give Claude Code my CLAUDE.md instructions" />
+      </Row>
+      <Row label="Skills" hint="Copies of the chosen skills are handed to Claude Code for each session. Anything in a skill that could pre-approve tools or run commands on its own (allowed-tools, hooks, inline commands) is taken out, so what a skill does still asks you first. 'All' also includes the project folder's .claude/skills.">
+        <SkillsPicker value={cc.skills ?? []} onChange={(skills) => set({ skills })} />
       </Row>
       <Row label="Limits" hint="Each time it runs (a reply carries on with fresh limits).">
         <div className="inline">

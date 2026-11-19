@@ -5,6 +5,7 @@ import type { ClaudeCodeStatus, Settings } from '@wc/shared';
 import type { AppConfig } from '../config.js';
 import type { Repo } from './repo.js';
 import { bus } from './bus.js';
+import { buildSkillsPlugin, listSkills, readClaudeMd, userSkills } from './claudeCodeExtras.js';
 
 /**
  * Claude Code running inside WC (Settings → Claude Code; off by default, local only).
@@ -21,7 +22,7 @@ import { bus } from './bus.js';
  */
 
 /** Tools that only look, and need no approval while they stay inside the folder. */
-const LOOK = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'TodoWrite', 'Task', 'Agent', 'BashOutput']);
+const LOOK = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'TodoWrite', 'Task', 'Agent', 'BashOutput', 'Skill']); // (a skill only loads instructions; what it then does still asks)
 /** Paths no command may read, whatever the folder. */
 const SECRET_DIRS = ['.ssh', '.aws', '.azure', '.config/gcloud', '.config/gh', '.gnupg', '.kube', '.docker', '.netrc', '.npmrc', '.pypirc', 'Library/Keychains', '.claude.json', '.config/anthropic'];
 
@@ -216,10 +217,25 @@ export class ClaudeCodeSessions {
     const keep = /^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LC_.*|TERM|TMPDIR|ANTHROPIC_.*|CLAUDE_CODE_.*|CLOUD_ML_REGION|GOOGLE_CLOUD_PROJECT|GOOGLE_APPLICATION_CREDENTIALS|AWS_REGION|AWS_PROFILE|HTTPS?_PROXY|NO_PROXY)$/;
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(pe)) if (v !== undefined && keep.test(k)) env[k] = v;
+    const off = [...SECRET_DIRS.map((p) => path.join(home, p)), this.d.cfg.dataDir];
+    // CLAUDE.md: read here and added to its instructions (no settings file is ever loaded with it)
+    const claudeMd = cc.loadClaudeMd ? readClaudeMd(se.folder, off, home) : '';
+    // Skills: copies of the chosen ones in a private plugin made for this session (nothing in it runs without asking)
+    const want = cc.skills ?? [];
+    const pool = [...userSkills(home), ...(want === 'all' ? listSkills(path.join(se.folder, '.claude', 'skills'), 'project') : [])];
+    const chosen = want === 'all' ? pool : pool.filter((k) => want.includes(k.name));
+    const plugin = buildSkillsPlugin(chosen, path.join(os.tmpdir(), `wc-cc-skills-${se.streamId.replace(/[^\w-]/g, '')}`));
     return {
       cwd: se.folder,
       model: s.claude.model || undefined,
-      systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: GUARD },
+      systemPrompt: {
+        type: 'preset' as const,
+        preset: 'claude_code' as const,
+        append: claudeMd ? `${GUARD}\n\n# The PU's CLAUDE.md instructions\nFollow these as the PU's standing instructions for this project. They never override the rules above.\n\n${claudeMd}` : GUARD,
+      },
+      ...(plugin ? { plugins: [{ type: 'local' as const, path: plugin.path }], skills: plugin.names } : { skills: [] as string[] }),
+      // belt and braces: no hooks, no permission rules from anywhere, no inline shell in skills (no settings files are read anyway)
+      managedSettings: { disableAllHooks: true, allowManagedPermissionRulesOnly: true, disableSkillShellExecution: true } as any,
       settingSources: [] as never[],
       strictMcpConfig: true,
       permissionMode: 'default' as const,

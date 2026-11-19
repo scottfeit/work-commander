@@ -1,3 +1,4 @@
+import { userSkills } from '../core/claudeCodeExtras.js';
 import { nameNewStream } from '../agent/triage.js';
 import { standardEmoji } from '../core/emoji.js';
 import { INLINE_IMAGE, fetchAttachment, findAttachment } from '../core/itemAttachments.js';
@@ -256,6 +257,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (req.headers['x-wc-action'] !== 'claude-code' || req.headers['x-wc-cc-token'] !== app.claudeCode.token) throw Object.assign(new Error('Claude Code action refused (reload the page)'), { statusCode: 403 });
   };
   f.get('/api/streams/:id/claude-code', async (req) => app.claudeCode.status((req.params as any).id));
+  // Your skills (~/.claude/skills), for the picker in Settings → Claude Code. Names and descriptions only; this machine only.
+  f.get('/api/claude-code/skills', async () => (cfg.hosting === 'local' ? userSkills().map(({ name, description }) => ({ name, description })) : []));
   f.post('/api/streams/:id/claude-code/start', async (req) => {
     ccGuard(req);
     const id = (req.params as any).id as string;

@@ -69,3 +69,21 @@ test('Run here: works in the chat, asks before a command, reports back; actions 
   await expect(page.getByText('How it\'s kept safe')).toBeVisible();
   await setCc(false);
 });
+
+test('Settings → Claude Code: CLAUDE.md toggle and a skills picker (none / all / ticked)', async ({ page }) => {
+  await page.goto(`${WEB}/settings?section=claudecode`);
+  await expect(page.getByText('Give Claude Code my CLAUDE.md instructions')).toBeVisible();
+  const skills = page.getByRole('radiogroup', { name: 'Skills' });
+  await expect(skills.getByLabel('None')).toBeChecked(); // default
+  await skills.getByLabel('Only the ones I tick').check();
+  await expect(skills.getByLabel('Only the ones I tick')).toBeChecked(); // stays, even with nothing ticked yet
+  await expect(page.getByLabel('Your skills')).toBeVisible();
+  await page.locator('.settings-body').screenshot({ path: 'qa/results/claude-code-settings.png' });
+  await page.getByText('Give Claude Code my CLAUDE.md instructions').click();
+  await skills.getByLabel("All (yours and the project's)").check();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect.poll(async () => {
+    const c = (await api.get('/api/settings')).json.claudeCode;
+    return [c.loadClaudeMd, c.skills];
+  }).toEqual([true, 'all']);
+});
