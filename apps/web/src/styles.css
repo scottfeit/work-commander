@@ -107,7 +107,9 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
   padding: 8px 10px; cursor: pointer; margin: 1px 0;
 }
 .stream:hover { background: var(--panel); border-color: var(--line); }
-.stream.active { background: var(--panel); border-color: var(--line-2); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+/* The selected work stream stands out: a thick accent bar down its left edge and an accent-tinted background. */
+.stream.active { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent), 0 1px 3px rgba(0,0,0,.08); }
+.stream.active:hover { background: var(--accent-soft); }
 .stream.closed { opacity: .65; }
 .stream.general { display: flex; justify-content: space-between; margin: 0 6px; width: calc(100% - 12px); }
 .stream-head { display: flex; align-items: center; gap: 6px; }
