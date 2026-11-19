@@ -652,6 +652,8 @@ export interface Settings {
     confirmClose?: boolean;
     /** After Undo, show a short message saying what was undone. Default on. */
     undoToast?: boolean;
+    /** When you close the work stream you're on: keep showing it, open the next one in the list (default), or go to All open work. */
+    afterClose?: 'stay' | 'next' | 'all';
     /** Show the newest message first in work items, per kind (default oldest first). */
     newestFirst?: { email?: boolean; slack?: boolean; tickets?: boolean };
     /** Work streams stay unread until you click Read (opening one doesn't mark it read). Default off. */

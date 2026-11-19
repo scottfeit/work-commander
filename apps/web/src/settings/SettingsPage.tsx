@@ -438,6 +438,17 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               <Toggle checked={!!s.ui.newestFirst?.slack} onChange={(slack) => up('ui', { newestFirst: { ...s.ui.newestFirst, slack } })} label="Slack: newest at the top" />
               <Toggle checked={!!s.ui.newestFirst?.tickets} onChange={(tickets) => up('ui', { newestFirst: { ...s.ui.newestFirst, tickets } })} label="Jira / JSM comments: newest at the top" />
             </Row>
+            <Row label="When I close a work stream" hint="What the screen shows after you close the work stream you're on.">
+              <Select
+                value={s.ui.afterClose ?? 'next'}
+                onChange={(afterClose) => up('ui', { afterClose })}
+                options={[
+                  { value: 'next', label: 'Open the next one in the list' },
+                  { value: 'stay', label: 'Keep showing it' },
+                  { value: 'all', label: 'Go to All open work' },
+                ]}
+              />
+            </Row>
             <Row label="Read / unread" hint="Normally opening a work stream marks it read, and opening a work item's tab clears its dot. With these on, they stay unread until you click Read (the button then reads Unread).">
               <Toggle checked={!!s.ui.manualStreamRead} onChange={(manualStreamRead) => up('ui', { manualStreamRead })} label="Mark work streams Read myself" />
               <Toggle checked={!!s.ui.manualItemRead} onChange={(manualItemRead) => up('ui', { manualItemRead })} label="Mark work items Read myself" />

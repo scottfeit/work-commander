@@ -10,6 +10,7 @@ import { DraftPane } from './components/DraftPane';
 import { Toasts, type Toast } from './components/Toasts';
 import { Shortcuts } from './components/Shortcuts';
 import { Search } from './components/Search';
+import { dueRank } from './components/Due';
 import { SettingsPage } from './settings/SettingsPage';
 
 function usePath() {
@@ -41,6 +42,7 @@ export function App() {
   const [confirmClose, setConfirmClose] = useState(true);
   // Settings → Display: things stay unread until you click Read.
   const [manualStreamRead, setManualStreamRead] = useState(false);
+  const afterCloseRef = useRef<'stay' | 'next' | 'all'>('next');
   const [manualItemRead, setManualItemRead] = useState(false);
   const [newestFirst, setNewestFirst] = useState<{ email?: boolean; slack?: boolean; tickets?: boolean }>({});
   const manualStreamReadRef = useRef(false);
@@ -132,6 +134,7 @@ export function App() {
         setRecentTabFirst(!!s.ui?.recentTabFirst);
         setConfirmClose(s.ui?.confirmClose !== false);
         setManualStreamRead(!!s.ui?.manualStreamRead);
+        afterCloseRef.current = s.ui?.afterClose ?? 'next';
         manualStreamReadRef.current = !!s.ui?.manualStreamRead;
         setManualItemRead(!!s.ui?.manualItemRead);
         setNewestFirst(s.ui?.newestFirst ?? {});
@@ -230,13 +233,25 @@ export function App() {
     (e: ServerEvent) => {
       const cur = selRef.current;
       switch (e.type) {
-        case 'stream.updated':
+        case 'stream.updated': {
+          // The stream you're on was just closed (any Close button, the c key, or approving Claude's "close it"):
+          // Settings → Display decides whether it stays on screen, the next one in the Open list opens, or All open work.
+          const closedHere = e.stream.id === cur && e.stream.status === 'closed' && openOrderRef.current.includes(e.stream.id);
+          const how = afterCloseRef.current;
+          if (closedHere && how === 'all') setSelected(GENERAL_STREAM);
+          else if (closedHere && how === 'next') {
+            const order = openOrderRef.current;
+            const i = order.indexOf(e.stream.id);
+            setSelected(order[i + 1] ?? order[i - 1] ?? GENERAL_STREAM);
+          }
           setStreams((xs) => {
             const without = xs.filter((x) => x.id !== e.stream.id);
-            if (e.stream.status === 'closed' && !showClosed) return without;
+            // (the stream you're on stays in the list when closed, so "Keep showing it" can show it)
+            if (e.stream.status === 'closed' && !showClosed && !(e.stream.id === selRef.current && how === 'stay')) return without;
             return [e.stream, ...without].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
           });
           break;
+        }
         case 'stream.deleted':
           setStreams((xs) => xs.filter((x) => x.id !== e.streamId));
           // You emptied the stream you were looking at: follow the item to where it went.
@@ -464,6 +479,10 @@ export function App() {
     window.addEventListener('mouseup', up);
   };
   const showOverview = !!stream && selected !== GENERAL_STREAM;
+  // The Open list's order (as shown), kept for "open the next one" when the stream you're on is closed.
+  const openOrder = useMemo(() => streams.filter((s) => s.status === 'open' && !s.pending).sort((a, b) => dueRank(a) - dueRank(b) || b.lastActivityAt.localeCompare(a.lastActivityAt)).map((s) => s.id), [streams]);
+  const openOrderRef = useRef<string[]>([]);
+  openOrderRef.current = openOrder;
 
   if (path.startsWith('/settings')) return <SettingsPage env={env} onBack={() => nav('/')} />;
 

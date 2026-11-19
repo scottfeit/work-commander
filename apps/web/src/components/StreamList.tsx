@@ -61,7 +61,8 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   const [skipped, setSkipped] = useState<SkippedItem[]>([]);
   const loadSkipped = () => get<SkippedItem[]>('/api/items/skipped?dismissed=1').then(setSkipped).catch(() => undefined);
   useEffect(() => void loadSkipped(), [streams.length, moved, skippedVersion]);
-  const shown = streams.filter((s) => (showClosed || s.status === 'open') && (!q || `${s.title} ${s.summary}`.toLowerCase().includes(q.toLowerCase())));
+  // (a closed stream you're on stays listed, e.g. "Keep showing it" after closing, even with Show closed off)
+  const shown = streams.filter((s) => (showClosed || s.status === 'open' || s.id === selected) && (!q || `${s.title} ${s.summary}`.toLowerCase().includes(q.toLowerCase())));
   const open = shown.filter((s) => s.status === 'open' && !s.pending);
   const pendingStreams = shown.filter((s) => s.status === 'open' && s.pending);
   const closed = shown.filter((s) => s.status === 'closed');
@@ -287,6 +288,9 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         {showClosed && (closedEntries.length > 0 || !showOpen) && <div className="section-label">Closed · {closedEntries.length}</div>}
         {showClosed && !showOpen && closedEntries.length === 0 && <div className="muted small pad">No closed work streams.</div>}
         {showClosed && closedEntries.map(entry)}
+        {/* With Show closed off, a closed stream you're on (e.g. "Keep showing it" after closing) still shows, on its own */}
+        {!showClosed && closedEntries.length > 0 && <div className="section-label">Closed</div>}
+        {!showClosed && closedEntries.map(entry)}
         {showDismissed && <div className="section-label">Declined · {dismissedEntries.length}</div>}
         {showDismissed && dismissedEntries.length === 0 && <div className="muted small pad">Nothing declined in the last 14 days.</div>}
         {showDismissed && dismissedEntries.map(entry)}
