@@ -55,6 +55,7 @@ async function main() {
   await app.repo.mergeSlackDmItems().then((n) => n && f.log.info(`merged ${n} duplicate Slack DM item(s)`)).catch((e) => f.log.warn(`DM merge: ${e.message}`));
   await app.repo.fillSlackUrls().then((n) => n && f.log.info(`added an Open-in-Slack link to ${n} Slack conversation item(s)`)).catch((e) => f.log.warn(`slack links: ${e.message}`));
   await app.hub.start(app.triage.sink, app.triage.sinkBatch);
+  await app.claudeCode.recover().catch((e) => f.log.warn(`claude code recovery: ${e.message}`));
 
   // Claude Code hand-offs: bring RESULT.md back into the stream automatically (local only: the folders live on this machine).
   if (cfg.hosting === 'local') {

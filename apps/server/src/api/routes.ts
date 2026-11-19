@@ -240,6 +240,46 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.addChat({ streamId: id, role: 'system', content: `Handed off to Claude Code: ${folder}/BRIEF.md` });
     return { folder, command: handoffCommand(folder), opened };
   };
+  // ---------- Claude Code inside WC (off by default; local only) ----------
+  // Beyond the usual guard (this machine's host names only; foreign origins refused), every action needs: the page's own
+  // Origin header (no Origin, no action), a custom header (other sites can't send one without CORS, which WC never allows),
+  // and the per-start token that only WC's own pages can read from the status call.
+  const ccGuard = (req: any) => {
+    const o = req.headers.origin;
+    let host = '';
+    try {
+      host = new URL(o).hostname;
+    } catch {
+      /* missing or unreadable: refused */
+    }
+    if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(host)) throw Object.assign(new Error('Claude Code actions are only accepted from Work Commander itself'), { statusCode: 403 });
+    if (req.headers['x-wc-action'] !== 'claude-code' || req.headers['x-wc-cc-token'] !== app.claudeCode.token) throw Object.assign(new Error('Claude Code action refused (reload the page)'), { statusCode: 403 });
+  };
+  f.get('/api/streams/:id/claude-code', async (req) => app.claudeCode.status((req.params as any).id));
+  f.post('/api/streams/:id/claude-code/start', async (req) => {
+    ccGuard(req);
+    const id = (req.params as any).id as string;
+    const b = z.object({ folder: z.string().min(1), task: z.string().max(5000).optional() }).parse(req.body);
+    const st = await handoffStream(id);
+    const folder = resolveHandoffFolder(b.folder.trim());
+    const brief = buildBrief(st, await repo.listItems(id), await repo.listChat(id), b.task);
+    writeHandoff(folder, brief);
+    return app.claudeCode.start(id, folder, brief);
+  });
+  f.post('/api/streams/:id/claude-code/message', async (req) => {
+    ccGuard(req);
+    const b = z.object({ text: z.string().min(1).max(20_000) }).parse(req.body);
+    return app.claudeCode.send((req.params as any).id, b.text);
+  });
+  f.post('/api/streams/:id/claude-code/stop', async (req) => {
+    ccGuard(req);
+    return app.claudeCode.stop((req.params as any).id);
+  });
+  f.post('/api/claude-code/approvals/:id', async (req) => {
+    ccGuard(req);
+    const b = z.object({ allow: z.boolean() }).parse(req.body);
+    return { ok: await app.claudeCode.decide((req.params as any).id, b.allow) };
+  });
   f.post('/api/streams/:id/handoff', async (req) => {
     const b = z.object({ folder: z.string().min(1), openTerminal: z.boolean().default(true), task: z.string().max(5000).optional() }).parse(req.body);
     return startHandoff((req.params as any).id, b);

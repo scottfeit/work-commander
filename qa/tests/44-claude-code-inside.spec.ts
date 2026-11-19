@@ -1,0 +1,71 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test, expect, freshApp, api, stream, WEB } from './helpers';
+
+freshApp();
+// Run here writes BRIEF.md into the QA hand-off folder: clear it afterwards, as the other hand-off tests do
+test.afterAll(() => fs.rmSync(path.join(os.homedir(), '.wc-qa-handoffs'), { recursive: true, force: true }));
+
+const setCc = async (enabled: boolean) => {
+  const s = (await api.get('/api/settings')).json;
+  await api.call('PUT', '/api/settings', { ...s, claudeCode: { ...s.claudeCode, enabled, allowedDomains: ['github.com'] } });
+};
+
+test('off by default: no Run here, and its actions are refused', async ({ page }) => {
+  expect((await api.get('/api/settings')).json.claudeCode.enabled).toBe(false);
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  await page.locator('.overview-pane').getByRole('button', { name: 'Hand off to Claude Code' }).click();
+  await expect(page.locator('.overview-pane').getByRole('button', { name: 'Run here' })).toHaveCount(0);
+  await expect(page.locator('.overview-pane').getByRole('button', { name: 'Hand off', exact: true })).toBeVisible(); // Terminal hand-off as before
+  const sid = (await api.streams()).find((s) => /contractor access/i.test(s.title))!.id;
+  expect((await api.get(`/api/streams/${sid}/claude-code`)).json).toMatchObject({ enabled: false, unavailable: expect.stringMatching(/off/) });
+});
+
+test('Run here: works in the chat, asks before a command, reports back; actions need WC\'s own page and its token', async ({ page }) => {
+  await setCc(true);
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  const sid = (await api.streams()).find((s) => /contractor access/i.test(s.title))!.id;
+
+  // refused without the page's Origin and token, even from this machine
+  expect((await api.post(`/api/streams/${sid}/claude-code/stop`, {})).status).toBe(403);
+  const noToken = await page.evaluate(async (id) => (await fetch(`/api/streams/${id}/claude-code/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-WC-Action': 'claude-code' }, body: '{}' })).status, sid);
+  expect(noToken).toBe(403);
+
+  const ov = page.locator('.overview-pane');
+  await ov.getByRole('button', { name: 'Hand off to Claude Code' }).click();
+  await expect(ov.getByRole('button', { name: 'Open in Terminal' })).toBeVisible();
+  await ov.getByLabel('What should Claude Code do?').fill('List the folder');
+  await ov.getByRole('button', { name: 'Run here' }).click();
+
+  const chatPane = page.locator('.chat');
+  await expect(chatPane).toContainText('Claude Code started in');
+  const ask = chatPane.getByRole('group', { name: /Claude Code asks: Run a command/ });
+  await expect(ask).toContainText('ls -la');
+  await expect(chatPane.locator('.cc-state')).toContainText('waiting for you');
+  await page.locator('.bottom').screenshot({ path: 'qa/results/claude-code-ask.png' });
+  await ask.getByRole('button', { name: 'Allow' }).click();
+  await expect(ask).toContainText('Allowed');
+  await expect(chatPane).toContainText('Listed the folder (sandboxed: writes only here). Read BRIEF.md: allow. Done.');
+  await expect(chatPane.locator('.cc-state')).toHaveCount(0);
+  await expect.poll(async () => (await api.get(`/api/streams/${sid}/claude-code`)).json.session.state).toBe('done');
+
+  // carry on in the same session from the chat
+  const to = page.getByRole('radiogroup', { name: 'Send to' });
+  await to.getByLabel('Claude Code').check();
+  await page.getByPlaceholder(/Message Claude Code to carry on/).fill('Now deny the next one');
+  await chatPane.getByRole('button', { name: 'Send', exact: true }).click();
+  const ask2 = chatPane.getByRole('group', { name: /Claude Code asks/ }).last();
+  await expect(ask2.getByRole('button', { name: 'Deny' })).toBeVisible();
+  await ask2.getByRole('button', { name: 'Deny' }).click();
+  await expect(chatPane).toContainText('You declined the command, so I stopped there.');
+  await page.locator('.bottom').screenshot({ path: 'qa/results/claude-code-chat.png' });
+
+  // its usage counts for the stream
+  await expect.poll(async () => ((await api.get('/api/audit')).json as any[]).filter((a) => a.action === 'claudecode.denied').length).toBe(1);
+  await page.goto(`${WEB}/settings?section=claudecode`);
+  await expect(page.getByText('How it\'s kept safe')).toBeVisible();
+  await setCc(false);
+});

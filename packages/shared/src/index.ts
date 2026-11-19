@@ -267,8 +267,23 @@ export interface ChatMessage {
     selectedItemId?: string;
     toolCalls?: { name: string; input: unknown }[];
     runId?: string;
+    /** Written by a Claude Code session running inside WC (Settings → Claude Code), not WC's own Claude. */
+    claudeCode?: boolean;
+    /** Claude Code asks to use a tool (run a command, edit a file, fetch a site); waits here for Allow / Deny. */
+    ccApproval?: { id: string; tool: string; summary: string; detail: string; status: 'waiting' | 'allowed' | 'denied' | 'expired' };
   };
   createdAt: string;
+}
+
+/** A Claude Code session running inside WC for a work stream. */
+export interface ClaudeCodeStatus {
+  /** Settings → Claude Code is on, WC runs on this machine and listens only on it. */
+  enabled: boolean;
+  /** Why it can't run here, when it can't. */
+  unavailable?: string;
+  /** Sent back with every Claude Code request (only WC's own pages can read it). */
+  token?: string;
+  session?: { state: 'running' | 'waiting' | 'done' | 'stopped' | 'failed' | 'interrupted'; folder: string; startedAt: string; error?: string } | null;
 }
 
 // ---------- Settings ----------
@@ -676,6 +691,11 @@ export interface Settings {
   /** When snoozed (Pending) work streams are surfaced again. */
   reminders: ReminderSettings;
   usage: UsageSettings;
+  /**
+   * Claude Code inside WC (local only, off by default): runs in the hand-off folder in the OS sandbox; commands, edits, reading
+   * outside the folder and web fetches wait for your Allow. Network only to the allow-listed sites.
+   */
+  claudeCode?: { enabled: boolean; allowedDomains: string[]; maxMinutes: number; maxTurns: number; maxBudgetUsd: number };
   /** Calendar meetings linked to work streams: a brief before, a follow-up after. */
   meetings?: { enabled: boolean; /** Minutes before the start to post the brief (0 = no brief). */ briefMinutes: number; followUp: 'offer' | 'draft' | 'off' };
   /** Drafts written the way the PU writes: a guide learned from their sent messages, which they can edit. */
@@ -741,7 +761,8 @@ export type ServerEvent =
   | { type: 'laya.status'; status: LayaStatus }
   | { type: 'undo.changed'; undo: UndoInfo }
   | { type: 'ingest.status'; system: SystemId; ok: boolean; message: string; at: string }
-  | { type: 'polling.changed'; polling: PollingState };
+  | { type: 'polling.changed'; polling: PollingState }
+  | { type: 'claudecode.state'; streamId: string; session: ClaudeCodeStatus['session'] };
 
 export const GENERAL_STREAM = '__general__';
 

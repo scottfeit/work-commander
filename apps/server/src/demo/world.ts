@@ -256,6 +256,17 @@ export function demoOverrides(): AppOverrides {
       };
     },
     backend: (app) => new ScriptedBackend(app.repo),
+    // Claude Code inside WC, scripted: it asks to run one command, then reports (or carries on without it).
+    claudeCodeQuery: ({ prompt, options }) =>
+      (async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'demo-cc-session' };
+        yield { type: 'assistant', session_id: 'demo-cc-session', message: { content: [{ type: 'text', text: `Looking at the task: ${String(prompt).split('\n')[0].slice(0, 80)}` }] } };
+        const ok = await options.canUseTool('Bash', { command: 'ls -la' }, { signal: options.abortController.signal });
+        const read = await options.canUseTool('Read', { file_path: 'BRIEF.md' }, { signal: options.abortController.signal });
+        const report = ok.behavior === 'allow' ? `Listed the folder (sandboxed: writes ${options.sandbox.filesystem.allowWrite[0] === options.cwd ? 'only here' : 'elsewhere?!'}). Read BRIEF.md: ${read.behavior}. Done.` : 'You declined the command, so I stopped there.';
+        yield { type: 'assistant', session_id: 'demo-cc-session', message: { content: [{ type: 'text', text: report }] } };
+        yield { type: 'result', subtype: 'success', session_id: 'demo-cc-session', result: report, modelUsage: { 'claude-opus-5-5': { inputTokens: 1200, outputTokens: 300, cacheReadInputTokens: 5000, cacheCreationInputTokens: 0, costUSD: 0.0128 } } };
+      })(),
     onePassword: async () => demoOnePassword(),
     grantFetch: demoFetch,
   };

@@ -8,7 +8,7 @@ import { IntegrationHub, type WorldOverride } from './integrations/hub.js';
 import { GrantService } from './onepassword/grants.js';
 import type { OnePasswordClient } from './onepassword/client.js';
 import { Executor } from './core/executor.js';
-import { ClaudeAgentBackend, type AgentBackend } from './agent/backend.js';
+import { ClaudeAgentBackend, providerEnv, type AgentBackend } from './agent/backend.js';
 import { StreamAgentRunner } from './agent/runner.js';
 import { TriagePipeline } from './agent/triage.js';
 import { McpPollIngestor } from './agent/mcpIngest.js';
@@ -19,6 +19,8 @@ import { UsageLog } from './core/usage.js';
 import { LayaManager } from './laya/manager.js';
 import { LayaService } from './laya/service.js';
 import { UndoLog } from './core/undo.js';
+import { ClaudeCodeSessions } from './core/claudeCodeLive.js';
+import { handoffResultPrompt, reportHasDraft } from './core/handoff.js';
 import { gmailThreadAction } from './core/gmailActions.js';
 
 export interface App {
@@ -39,10 +41,14 @@ export interface App {
   laya: LayaService;
   /** System-wide Undo of the PU's last three actions. */
   undo: UndoLog;
+  /** Claude Code running inside WC (Settings → Claude Code; off by default, local only). */
+  claudeCode: ClaudeCodeSessions;
 }
 
 export interface AppOverrides {
-  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya' | 'undo'>) => AgentBackend;
+  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya' | 'undo' | 'claudeCode'>) => AgentBackend;
+  /** For tests and the demo: stands in for the Agent SDK's query() in built-in Claude Code sessions. */
+  claudeCodeQuery?: (args: any) => AsyncIterable<any>;
   world?: (repo: Repo) => WorldOverride;
   onePassword?: () => Promise<OnePasswordClient>;
   grantFetch?: typeof fetch;
@@ -92,5 +98,15 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   hub.mcpIngestorFactory = (system, sink, report) => new McpPollIngestor(system, backend, get, secrets, repo, sink, report);
   await executor.recoverInterrupted();
   const undo = new UndoLog({ repo, gmail: (itemId, action, opts) => gmailThreadAction({ repo, hub }, itemId, action, opts), layaChanged: () => laya.examplesRestored() });
-  return { ...partial, backend, runner, triage, laya, undo };
+  const claudeCode = new ClaudeCodeSessions({
+    cfg,
+    repo,
+    settings: get,
+    providerEnv: async () => providerEnv(await get(), cfg, secrets),
+    recordUsage: (e) => usage.record({ kind: 'claudeCode', ...e }),
+    onReport: (streamId, folder, report) =>
+      void runner.run({ streamId, origin: 'system', purpose: 'handoff', allowDrafts: reportHasDraft(report), prompt: handoffResultPrompt(folder, report) }),
+    query: o.claudeCodeQuery,
+  });
+  return { ...partial, backend, runner, triage, laya, undo, claudeCode };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, EnvironmentInfo, PollingState, SearchHit, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
+import type { ChatMessage, ClaudeCodeStatus, EnvironmentInfo, PollingState, SearchHit, Proposal, ServerEvent, StreamItem, UndoInfo, WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, patch, post, useServerEvents } from './api';
 import { StreamList } from './components/StreamList';
@@ -72,6 +72,8 @@ export function App() {
   const [undoInfo, setUndoInfo] = useState<UndoInfo>({ next: null, count: 0 });
   const [polling, setPolling] = useState<PollingState>({ paused: null, held: 0, catchingUp: false });
   const [search, setSearch] = useState<{ open: boolean; q?: string }>({ open: false });
+  /** Claude Code inside WC, for the selected work stream (null when off or on All open work). */
+  const [cc, setCc] = useState<ClaudeCodeStatus | null>(null);
   /** A tab to show once the work stream being opened has loaded (from a search result). */
   const wantTabRef = useRef<string | null>(null);
   const undoToastRef = useRef(true);
@@ -288,6 +290,9 @@ export function App() {
         case 'run.state':
           if (sidOf(e.streamId) === cur && e.state !== 'running') setLive(null);
           break;
+        case 'claudecode.state':
+          if (e.streamId === cur) setCc((c) => (c ? { ...c, session: e.session } : c));
+          break;
         case 'undo.changed':
           setUndoInfo(e.undo);
           break;
@@ -460,6 +465,14 @@ export function App() {
   }, [drafts.length]);
   useEffect(() => setDraftsAutoOpen(false), [selected]);
   const draftsCollapsed = draftsHidden && !draftsAutoOpen;
+  useEffect(() => {
+    if (selected === GENERAL_STREAM) return setCc(null);
+    let live = true;
+    get<ClaudeCodeStatus>(`/api/streams/${selected}/claude-code`).then((x) => live && setCc(x), () => live && setCc(null));
+    return () => {
+      live = false;
+    };
+  }, [selected, path]);
   const bottomRef = useRef<HTMLElement>(null);
   const startDraftDrag = (ev: React.MouseEvent) => {
     ev.preventDefault();
@@ -595,7 +608,7 @@ export function App() {
             <>
               <div className="divider-v" role="separator" aria-orientation="vertical" aria-label="Resize the Overview pane" onMouseDown={startOvDrag} onDoubleClick={() => { setOvSplit(1 / 3); localStorage.removeItem('wc.ovSplit'); }} title="Drag to resize the Overview (double-click to reset)" />
               <aside className="overview-pane" aria-label="Overview">
-                <StreamOverview confirmClose={confirmClose} manualRead={manualStreamRead} onSetRead={(read) => void patch(`/api/streams/${stream!.id}`, { unread: !read })} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
+                <StreamOverview cc={cc} confirmClose={confirmClose} manualRead={manualStreamRead} onSetRead={(read) => void patch(`/api/streams/${stream!.id}`, { unread: !read })} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
               </aside>
             </>
           )}
@@ -607,6 +620,7 @@ export function App() {
           style={draftsCollapsed ? undefined : { gridTemplateColumns: `minmax(0, ${1 - draftSplit}fr) 6px minmax(0, ${draftSplit}fr)` }}
         >
           <ChatPane
+            cc={selected !== GENERAL_STREAM ? cc : null}
             streamId={selected}
             streamTitle={stream?.title ?? 'All open work'}
             selectedItem={selectedItem}

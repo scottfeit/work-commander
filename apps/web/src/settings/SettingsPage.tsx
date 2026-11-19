@@ -6,6 +6,7 @@ import { TriageSection } from './TriageSection';
 import { RulesSection } from './RulesSection';
 import { StyleSection } from './StyleSection';
 import { MeetingsSection } from './MeetingsSection';
+import { ClaudeCodeSection } from './ClaudeCodeSection';
 import { QuickReactions } from './QuickReactions';
 import { get, post, put } from '../api';
 import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
@@ -23,6 +24,7 @@ const SECTIONS = [
   ['playbooks', 'Playbooks'],
   ['style', 'Writing style'],
   ['meetings', 'Meetings'],
+  ['claudecode', 'Claude Code'],
   ['display', 'Display'],
   ['secrets', 'Secrets'],
   ['backup', 'Backup'],
@@ -405,6 +407,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
         {section === 'rules' && <RulesSection s={s} setS={setS} />}
         {section === 'style' && <StyleSection s={s} setS={setS} />}
         {section === 'meetings' && <MeetingsSection s={s} setS={setS} />}
+        {section === 'claudecode' && <ClaudeCodeSection s={s} setS={setS} local={env.hosting === 'local'} />}
         {section === 'usage' && <UsageSection s={s} up={up} />}
 
         {section === 'display' && (

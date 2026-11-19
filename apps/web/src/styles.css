@@ -646,3 +646,22 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .lightbox figcaption .link { color: #fff; }
 .lightbox-x { position: fixed; top: 14px; right: 18px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .15); color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
 .lightbox-x:hover, .lightbox-x:focus-visible { background: rgba(255, 255, 255, .3); }
+
+/* ---------- Claude Code inside WC ---------- */
+.cc-state { margin-left: auto; display: inline-flex; flex: none; align-items: center; gap: 6px; white-space: nowrap; }
+.chat .pane-head { min-width: 0; }
+.composer textarea { flex: 1 1 200px; min-width: 0; }
+.cc-tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .03em; color: #6a3fb5; margin-bottom: 2px; }
+@media (prefers-color-scheme: dark) { .cc-tag { color: #b69bf0; } }
+.bubble.cc { border-left: 3px solid #8a63d2; }
+.cc-note { color: #6a3fb5; }
+.cc-approval { margin: 6px 0; padding: 8px 10px; border: 1px solid #8a63d2; border-radius: var(--radius); background: var(--panel); display: grid; gap: 6px; font-size: 13px; }
+.cc-approval.allowed, .cc-approval.denied, .cc-approval.expired { opacity: .75; border-color: var(--line); }
+.cc-approval .row { display: flex; gap: 6px; align-items: center; }
+.cc-detail { margin: 0; max-height: 220px; overflow: auto; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+.composer { flex-wrap: wrap; }
+.send-to { display: flex; flex-basis: 100%; gap: 10px; align-items: center; font-size: 12px; }
+.send-to label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+.send-to label.on { font-weight: 600; }
+.cc-protections { margin: 6px 0 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.cc-protections ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }

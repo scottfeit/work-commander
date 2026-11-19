@@ -67,6 +67,7 @@ export function defaultSettings(): Settings {
     rules: [],
     style: { enabled: true, guide: '' },
     meetings: { enabled: true, briefMinutes: 30, followUp: 'offer' },
+    claudeCode: { enabled: false, allowedDomains: [], maxMinutes: 30, maxTurns: 80, maxBudgetUsd: 5 },
     triage: { engine: 'claude', newStreams: 'create', agreeThreshold: 0.95, minMessages: 200 },
     playbooks: '',
     setupComplete: false,

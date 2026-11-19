@@ -70,3 +70,12 @@ export function fmtTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+
+/** A Claude Code action: carries the custom header and the per-start token the server requires (other sites can't send either). */
+export async function ccPost<T = any>(path: string, token: string, body: unknown = {}): Promise<T> {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-WC-Action': 'claude-code', 'X-WC-CC-Token': token }, body: JSON.stringify(body) });
+  const text = await r.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!r.ok) throw new Error(data?.error ?? `${r.status} ${r.statusText}`);
+  return data as T;
+}

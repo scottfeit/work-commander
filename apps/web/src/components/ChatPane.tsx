@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ChatMessage, StreamItem } from '@wc/shared';
-import { post, fmtTime } from '../api';
+import type { ChatMessage, ClaudeCodeStatus, StreamItem } from '@wc/shared';
+import { ccPost, post, fmtTime } from '../api';
 import { ThinkingMark } from './ThinkingMark';
 
 interface Props {
@@ -10,10 +10,17 @@ interface Props {
   messages: ChatMessage[];
   live: string | null;
   running: boolean;
+  /** Claude Code inside WC for this stream, when it's on. */
+  cc?: ClaudeCodeStatus | null;
 }
 
-export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, running }: Props) {
+export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, running, cc }: Props) {
   const [text, setText] = useState('');
+  // Who a message goes to: WC's Claude, or the stream's Claude Code session (the default while it's working).
+  const ccSession = cc?.enabled ? cc.session : null;
+  const ccWorking = ccSession?.state === 'running' || ccSession?.state === 'waiting';
+  const [toCc, setToCc] = useState(false);
+  useEffect(() => setToCc(ccWorking), [ccWorking, streamId]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -27,7 +34,8 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
     setBusy(true);
     setErr(null);
     try {
-      await post(`/api/streams/${streamId}/chat`, { text: t.trim(), selectedItemId: selectedItem?.id, answersQuestionId });
+      if (toCc && ccSession && cc?.token) await ccPost(`/api/streams/${streamId}/claude-code/message`, cc.token, { text: t.trim() });
+      else await post(`/api/streams/${streamId}/chat`, { text: t.trim(), selectedItemId: selectedItem?.id, answersQuestionId });
       setText('');
     } catch (e: any) {
       setErr(e.message);
@@ -44,11 +52,19 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
           {streamTitle}
           {selectedItem ? ` › ${selectedItem.data.ticket?.key ?? selectedItem.title}` : ''}
         </span>
+        {ccWorking && cc?.token && (
+          <span className="cc-state">
+            <span className="chip running" title={ccSession!.state === 'waiting' ? 'Claude Code is waiting for your Allow / Deny below' : 'Claude Code is working'}>{ccSession!.state === 'waiting' ? 'Claude Code: waiting for you' : 'Claude Code: working'}</span>
+            <button type="button" className="btn small" onClick={() => void ccPost(`/api/streams/${streamId}/claude-code/stop`, cc.token!)}>
+              Stop
+            </button>
+          </span>
+        )}
       </div>
       <div className="chat-scroll" ref={scroller}>
         {messages.length === 0 && !live && <div className="muted pad">Ask about this work stream, or tell Claude what to do next. Claude also sees every other open stream.</div>}
         {messages.map((m) => (
-          <ChatBubble key={m.id} m={m} onAnswer={(a) => send(a, m.id)} />
+          <ChatBubble key={m.id} m={m} onAnswer={(a) => send(a, m.id)} ccToken={cc?.token} />
         ))}
         {live !== null && (
           <div className="bubble assistant streaming">
@@ -69,9 +85,20 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
           void send();
         }}
       >
+        {ccSession && (
+          <div className="send-to" role="radiogroup" aria-label="Send to">
+            <span className="muted small">To</span>
+            <label className={!toCc ? 'on' : ''}>
+              <input type="radio" name={`send-to-${streamId}`} checked={!toCc} onChange={() => setToCc(false)} /> Claude
+            </label>
+            <label className={toCc ? 'on' : ''}>
+              <input type="radio" name={`send-to-${streamId}`} checked={toCc} onChange={() => setToCc(true)} /> Claude Code
+            </label>
+          </div>
+        )}
         <textarea
           rows={2}
-          placeholder={openQuestion ? 'Answer Claude…' : 'Message Claude (Enter to send, Shift+Enter for newline)'}
+          placeholder={toCc && ccSession ? (ccWorking ? 'Message Claude Code (it reads this when it next can)' : 'Message Claude Code to carry on (same session)') : openQuestion ? 'Answer Claude…' : 'Message Claude (Enter to send, Shift+Enter for newline)'}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -89,7 +116,57 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
   );
 }
 
-function ChatBubble({ m, onAnswer }: { m: ChatMessage; onAnswer: (a: string) => void }) {
+/** Claude Code asks to use a tool: what exactly, and Allow / Deny (answered right away, in Claude Code). */
+function CcApproval({ m, token }: { m: ChatMessage; token?: string }) {
+  const a = m.meta.ccApproval!;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const answer = async (allow: boolean) => {
+    if (!token) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await ccPost(`/api/claude-code/approvals/${a.id}`, token, { allow });
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={`cc-approval ${a.status}`} role="group" aria-label={`Claude Code asks: ${a.summary}`}>
+      <div className="cc-approval-head">
+        <span className="cc-tag">Claude Code</span> asks to <b>{a.summary.charAt(0).toLowerCase() + a.summary.slice(1)}</b>
+      </div>
+      {a.detail && <pre className="cc-detail">{a.detail}</pre>}
+      {a.status === 'waiting' ? (
+        <div className="row">
+          <button type="button" className="btn small primary" disabled={busy || !token} onClick={() => void answer(true)}>
+            Allow
+          </button>
+          <button type="button" className="btn small" disabled={busy || !token} onClick={() => void answer(false)}>
+            Deny
+          </button>
+          {err && <span className="small error">{err}</span>}
+        </div>
+      ) : (
+        <div className="muted small">{a.status === 'allowed' ? 'Allowed' : a.status === 'denied' ? 'Denied' : 'No longer waiting'}</div>
+      )}
+    </div>
+  );
+}
+
+function ChatBubble({ m, onAnswer, ccToken }: { m: ChatMessage; onAnswer: (a: string) => void; ccToken?: string }) {
+  if (m.meta.ccApproval) return <CcApproval m={m} token={ccToken} />;
+  if (m.meta.claudeCode && m.role === 'system') return <div className="sys-note cc-note">{m.content}</div>;
+  if (m.meta.claudeCode && (m.role === 'assistant' || m.role === 'user'))
+    return (
+      <div className={`bubble ${m.role} cc`}>
+        <div className="cc-tag">{m.role === 'assistant' ? 'Claude Code' : 'You → Claude Code'}</div>
+        <div className="body">{m.content}</div>
+        <div className="meta muted small">{fmtTime(m.createdAt)}</div>
+      </div>
+    );
   if (m.role === 'suggestion' && m.meta.handoffOffer) return <HandoffOfferBubble m={m} />;
   if (m.role === 'suggestion' && m.meta.chatOffer) return <ChatOfferBubble m={m} />;
   if (m.role === 'suggestion') {

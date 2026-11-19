@@ -1,8 +1,8 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
-import type { GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
+import type { ClaudeCodeStatus, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
-import { fmtTime, get, patch, post, timeAgo } from '../api';
+import { ccPost, fmtTime, get, patch, post, timeAgo } from '../api';
 import { UsagePie } from './usageViz';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
@@ -540,7 +540,23 @@ function MeetingView({ m }: { m: NonNullable<StreamItem['data']['meeting']> }) {
 /** Coding work goes to Claude Code: Work Commander's agent has no shell or file tools by design. */
 type HandoffInfo = { folder: string; canOpenTerminal: boolean; last: { folder: string; createdAt: string; returnedAt: string | null } | null };
 
-function Handoff({ streamId, updatedAt, open, onClose, onAvailable }: { streamId: string; updatedAt: string; open: boolean; onClose: () => void; onAvailable: (ok: boolean) => void }) {
+function Handoff({ cc, streamId, updatedAt, open, onClose, onAvailable }: { cc?: ClaudeCodeStatus | null; streamId: string; updatedAt: string; open: boolean; onClose: () => void; onAvailable: (ok: boolean) => void }) {
+  const [running, setRunning] = useState(false);
+  // Run here: Claude Code works inside WC, in this stream's Claude chat (sandboxed; asks before commands, edits and web requests).
+  const runHere = async () => {
+    if (!cc?.token) return;
+    setRunning(true);
+    setErr(null);
+    try {
+      await ccPost(`/api/streams/${streamId}/claude-code/start`, cc.token, { folder, task: task.trim() || undefined });
+      onClose();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setRunning(false);
+    }
+  };
+  const ccBusy = cc?.session?.state === 'running' || cc?.session?.state === 'waiting';
   const [info, setInfo] = useState<HandoffInfo | null>(null);
   const setOpen = (v: boolean) => !v && onClose();
   const [folder, setFolder] = useState('');
@@ -610,8 +626,13 @@ function Handoff({ streamId, updatedAt, open, onClose, onAvailable }: { streamId
             </label>
           )}
           <div className="row-form">
-            <button className="btn small primary" disabled={busy || !folder.trim()} onClick={go}>
-              {busy ? 'Handing off…' : done ? 'Hand off again' : 'Hand off'}
+            {cc?.enabled && (
+              <button className="btn small primary" disabled={running || ccBusy || !folder.trim()} title={ccBusy ? 'Claude Code is already working on this stream (see the chat)' : 'Run Claude Code here, in this stream\'s chat: sandboxed, and it asks you before commands, edits and web requests'} onClick={() => void runHere()}>
+                {running ? 'Starting…' : 'Run here'}
+              </button>
+            )}
+            <button className={`btn small ${cc?.enabled ? '' : 'primary'}`} disabled={busy || !folder.trim()} onClick={go}>
+              {busy ? 'Handing off…' : done ? 'Hand off again' : cc?.enabled ? 'Open in Terminal' : 'Hand off'}
             </button>
             <button className="btn small ghost" onClick={() => setOpen(false)}>
               Close
@@ -666,7 +687,7 @@ function RefreshOverview({ streamId, disabled }: { streamId: string; disabled: b
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead, manualRead, onTogglePending, confirmClose = true }: { stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onSetRead?: (read: boolean) => void; manualRead?: boolean; onTogglePending?: () => void; confirmClose?: boolean }) {
+export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetRead, manualRead, onTogglePending, confirmClose = true }: { cc?: ClaudeCodeStatus | null; stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onSetRead?: (read: boolean) => void; manualRead?: boolean; onTogglePending?: () => void; confirmClose?: boolean }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -755,7 +776,7 @@ export function StreamOverview({ stream, items, onOpen, onMarkUnread, onSetRead,
         )}
         </div>
       </div>
-      <Handoff streamId={stream.id} updatedAt={stream.updatedAt} open={handoffOpen} onClose={() => setHandoffOpen(false)} onAvailable={setCanHandoff} />
+      <Handoff cc={cc} streamId={stream.id} updatedAt={stream.updatedAt} open={handoffOpen} onClose={() => setHandoffOpen(false)} onAvailable={setCanHandoff} />
       {stream.status === 'open' && <DueLine stream={stream} />}
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="overview-foot">
