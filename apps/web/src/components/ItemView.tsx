@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import type { GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { fmtTime, get, patch, post, timeAgo } from '../api';
@@ -100,22 +101,56 @@ function TextBody({ text, fold }: { text: string; fold: boolean }) {
 const INLINE_IMAGE = /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i;
 const fileSize = (n?: number) => (n == null ? '' : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
+/** A larger view of an image over the page: Esc, the × or a click outside the image closes it. */
+function Lightbox({ src, name, download, onClose }: { src: string; name: string; download: string; onClose: () => void }) {
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', esc, true);
+    close.current?.focus();
+    return () => window.removeEventListener('keydown', esc, true);
+  }, [onClose]);
+  return createPortal(
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={name} onClick={onClose}>
+      <figure onClick={(e) => e.stopPropagation()}>
+        <img src={src} alt={name} />
+        <figcaption>
+          <span>{name}</span>
+          <a href={download} download={name} className="link small">
+            Download
+          </a>
+        </figcaption>
+      </figure>
+      <button ref={close} type="button" className="lightbox-x" aria-label="Close" onClick={onClose}>
+        ×
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 /** A message's (or ticket's) attachments: images inline (click for full size), other files as chips that download. */
 function Attachments({ itemId, list }: { itemId: string; list: MessageAttachment[] }) {
   const url = (a: MessageAttachment, inline = false) => `/api/items/${encodeURIComponent(itemId)}/attachments/${encodeURIComponent(a.id)}${inline ? '?inline=1' : ''}`;
   const images = list.filter((a) => INLINE_IMAGE.test(a.mimeType));
   const files = list.filter((a) => !INLINE_IMAGE.test(a.mimeType));
+  const [big, setBig] = useState<MessageAttachment | null>(null);
   return (
     <div className="attachments">
       {images.length > 0 && (
         <div className="att-images">
           {images.map((a) => (
-            <a key={a.id} href={url(a, true)} target="_blank" rel="noreferrer" title={`${a.name} (${fileSize(a.size)}): open full size`}>
+            <button key={a.id} type="button" className="att-thumb" title={`${a.name} (${fileSize(a.size)}): click to enlarge`} aria-label={`Enlarge ${a.name}`} onClick={() => setBig(a)}>
               <img src={url(a, true)} alt={a.name} loading="lazy" />
-            </a>
+            </button>
           ))}
         </div>
       )}
+      {big && <Lightbox src={url(big, true)} name={big.name} download={url(big)} onClose={() => setBig(null)} />}
       {files.length > 0 && (
         <div className="att-files">
           {files.map((a) => (

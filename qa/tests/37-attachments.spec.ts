@@ -27,6 +27,21 @@ test('attachments show in the work item: images inline, other files as chips tha
   const img = att.locator('img[alt="chart.png"]');
   await expect(img).toBeVisible();
   await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0); // the bytes came through
+  // clicking it enlarges it over the page (no new window); Esc, the × or a click outside closes it
+  const pages = page.context().pages().length;
+  await img.click();
+  const box = page.getByRole('dialog', { name: 'chart.png' });
+  await expect(box.locator('img')).toBeVisible();
+  expect(page.context().pages().length).toBe(pages);
+  await page.screenshot({ path: 'qa/results/lightbox.png' });
+  await page.keyboard.press('Escape');
+  await expect(box).toHaveCount(0);
+  await img.click();
+  await box.getByRole('button', { name: 'Close' }).click();
+  await expect(box).toHaveCount(0);
+  await img.click();
+  await page.mouse.click(10, 10);
+  await expect(box).toHaveCount(0);
   // the PDF and the SVG are download chips (SVG never inline)
   await expect(att.locator('.att-file')).toHaveText([/2026 financials\.pdf\s*51 KB/, /logo\.svg/]);
   await page.locator('.top-pane').screenshot({ path: 'qa/results/attachments.png' });

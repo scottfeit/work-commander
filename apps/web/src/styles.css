@@ -581,6 +581,7 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 /* Attachments on a message or ticket */
 .attachments { display: grid; gap: 6px; margin-top: 8px; }
 .att-images { display: flex; flex-wrap: wrap; gap: 6px; }
+.att-thumb { padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 6px; }
 .att-images img { display: block; max-height: 220px; max-width: min(100%, 360px); border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .att-files { display: flex; flex-wrap: wrap; gap: 6px; }
 .att-file { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--text); text-decoration: none; background: var(--panel-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -636,3 +637,12 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .mention-pop { position: absolute; z-index: 40; left: 8px; top: 100%; margin: 2px 0 0; padding: 4px; list-style: none; min-width: 240px; max-width: 360px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .15); }
 .mention-pop li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; }
 .mention-pop li.on { background: var(--accent-soft); }
+
+/* An image enlarged over the page */
+.lightbox { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .72); display: grid; place-items: center; padding: 32px; cursor: zoom-out; }
+.lightbox figure { margin: 0; display: grid; gap: 8px; max-width: 100%; max-height: 100%; cursor: default; }
+.lightbox img { max-width: min(92vw, 1600px); max-height: calc(100vh - 110px); min-width: min(480px, 92vw); height: auto; object-fit: contain; background: #fff; border-radius: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); }
+.lightbox figcaption { display: flex; justify-content: space-between; gap: 12px; color: #fff; font-size: 13px; }
+.lightbox figcaption .link { color: #fff; }
+.lightbox-x { position: fixed; top: 14px; right: 18px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .15); color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
+.lightbox-x:hover, .lightbox-x:focus-visible { background: rgba(255, 255, 255, .3); }
