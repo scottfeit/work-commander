@@ -239,7 +239,10 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
-.toast { background: var(--panel); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 8px 12px; width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,.12); cursor: pointer; }
+.toast { position: relative; background: var(--panel); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 8px 30px 8px 12px; width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,.12); cursor: pointer; }
+.toast-x { position: absolute; top: 4px; right: 6px; width: 22px; height: 22px; border: 0; border-radius: 4px; background: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.toast-x:hover { background: var(--panel-2); color: var(--text); }
+.toast-open { margin-top: 4px; }
 .toast.ok { border-left-color: var(--ok); }
 .toast.error { border-left-color: var(--err); }
 
