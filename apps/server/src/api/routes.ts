@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { safeEqual } from '../core/safeEqual.js';
 import { isOwnOrigin } from '../auth/guard.js';
 import { userSkills } from '../core/claudeCodeExtras.js';
 import { nameNewStream } from '../agent/triage.js';
@@ -745,14 +747,24 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const s = await settings.get();
     if (!s.google.oauth.clientId || !s.google.oauth.clientSecretId) throw new Error('Save the OAuth client id and secret first');
     const c = oauthClient(s.google.oauth.clientId, await secrets.get(s.google.oauth.clientSecretId), hub.redirectUri);
-    const state = Math.random().toString(36).slice(2);
-    await repo.setSync('google.oauthState', state);
+    // unguessable, single-use and short-lived: checked and cleared on the callback
+    const state = randomBytes(24).toString('hex');
+    await repo.setSync('google.oauthState', JSON.stringify({ state, at: Date.now() }));
     return reply.redirect(c.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: GOOGLE_SCOPES, state, login_hint: s.pu.email || undefined }));
   });
   f.get('/api/oauth/google/callback', async (req, reply) => {
     const q = req.query as { code?: string; state?: string; error?: string };
+    // the state is used once: cleared before anything else, so a replayed callback (or a second tab) is refused
+    const raw = await repo.getSync('google.oauthState');
+    await repo.setSync('google.oauthState', '');
     if (q.error) return reply.redirect(`${cfg.webUrl}/settings?google=${encodeURIComponent(q.error)}`);
-    if (!q.state || q.state !== (await repo.getSync('google.oauthState'))) return reply.code(400).send('Invalid OAuth state');
+    let st: { state?: string; at?: number } = {};
+    try {
+      st = JSON.parse(raw || '{}');
+    } catch {
+      /* none */
+    }
+    if (!safeEqual(q.state, st.state) || !st.at || Date.now() - st.at > 15 * 60_000) return reply.code(400).send('Invalid or expired OAuth state. Start the sign-in again from Settings.');
     const s = await settings.get();
     const c = oauthClient(s.google.oauth.clientId, await secrets.get(s.google.oauth.clientSecretId!), hub.redirectUri);
     const { tokens } = await c.getToken(q.code!);
@@ -923,7 +935,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const s = await settings.get();
     const expected = s.atlassian.api.webhookSecretId ? await secrets.get(s.atlassian.api.webhookSecretId) : null;
     const given = (req.query as any).secret ?? req.headers['x-wc-secret'];
-    if (!expected || given !== expected) return reply.code(401).send({ error: 'bad secret' });
+    if (!expected || !safeEqual(given, expected)) return reply.code(401).send({ error: 'bad secret' });
     void hub.jiraWebhook(req.body).catch((e) => console.error('[jira webhook]', e.message));
     return { ok: true };
   });

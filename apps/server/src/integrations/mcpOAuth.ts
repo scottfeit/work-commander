@@ -150,8 +150,12 @@ export class McpOAuth {
     if (!p) throw new Error('Sign-in expired or was already used; start it again from Settings');
     const s = await current(p.system);
     if (!s?.url || s.url !== p.url) throw new Error('The MCP server URL changed during sign-in; start it again');
-    const r = await auth(this.provider(s, state, () => undefined), { serverUrl: s.url, authorizationCode: code, scope: s.oauth?.scope || undefined });
-    await this.d.sync.set(`mcp.oauth.pending.${state}`, '');
+    let r;
+    try {
+      r = await auth(this.provider(s, state, () => undefined), { serverUrl: s.url, authorizationCode: code, scope: s.oauth?.scope || undefined });
+    } finally {
+      await this.d.sync.set(`mcp.oauth.pending.${state}`, ''); // single use, whether or not it worked
+    }
     if (r !== 'AUTHORIZED') throw new Error('The MCP server did not issue a token');
     return p.system;
   }

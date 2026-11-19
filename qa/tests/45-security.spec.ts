@@ -65,6 +65,30 @@ test.describe('network access', () => {
   });
 });
 
+test.describe('sign-in', () => {
+  test('the Google sign-in state is unguessable, used once, and expires', async () => {
+    const { default: SQLite } = await import('better-sqlite3');
+    const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+    const put = (v: string) => db.prepare("insert into sync_state (key, value) values ('google.oauthState', ?) on conflict(key) do update set value = excluded.value").run(v);
+    const cb = (state: string) => rawRequest({ path: `/api/oauth/google/callback?state=${state}&code=x`, headers: local });
+    // a wrong guess is refused, and burns the real one too
+    put(JSON.stringify({ state: 'a'.repeat(48), at: Date.now() }));
+    expect((await cb('b'.repeat(48))).status).toBe(400);
+    expect((await cb('a'.repeat(48))).status).toBe(400);
+    // the right one works once (here it then fails for lack of a Google client): a replay is refused
+    put(JSON.stringify({ state: 'c'.repeat(48), at: Date.now() }));
+    expect((await cb('c'.repeat(48))).status).not.toBe(400);
+    expect((await cb('c'.repeat(48))).status).toBe(400);
+    // an old one has expired
+    put(JSON.stringify({ state: 'd'.repeat(48), at: Date.now() - 20 * 60_000 }));
+    expect((await cb('d'.repeat(48))).status).toBe(400);
+    // the old plain-text format (or anything unreadable) is refused
+    put('e'.repeat(48));
+    expect((await cb('e'.repeat(48))).status).toBe(400);
+    db.close();
+  });
+});
+
 test.describe('server-side requests', () => {
   test('a pasted link to an internal address is refused without any request being made', async () => {
     let hits = 0;
