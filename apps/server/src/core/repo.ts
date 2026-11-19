@@ -152,6 +152,7 @@ export class Repo {
       set.closed_at = patch.status === 'closed' ? t : null;
       if (patch.status === 'closed') {
         set.pending = 0; // a closed stream is done, not waiting
+        if (patch.unread === undefined) set.unread = 0; // and read, whatever the read settings (new activity reopens it as unread)
         set.reminder_at = null;
         set.snooze_until = null;
         set.back_at = null;
