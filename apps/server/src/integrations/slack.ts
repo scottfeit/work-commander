@@ -1,5 +1,6 @@
 import { slackMessageUrl } from './slackUrl.js';
-import { WebClient } from '@slack/web-api';
+import type { WebClient } from '@slack/web-api';
+import { slackClient } from './slackClient.js';
 import type { MessageAttachment, SlackSettings, ThreadMessage } from '@wc/shared';
 import type { ChatApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import type { Repo } from '../core/repo.js';
@@ -34,7 +35,7 @@ export class SlackWorkspace implements ChatApi {
   private teamUrl?: string;
   private names = new Map<string, { name: string; email?: string }>();
   constructor(private token: string) {
-    this.web = new WebClient(token);
+    this.web = slackClient(token);
   }
 
   /** Add (or take back) the PU's emoji reaction on a message. Reacting twice, or removing one that isn't there, is fine. */
@@ -283,6 +284,8 @@ export class SlackIngestor implements Ingestor {
   private socket?: any;
   private timer?: NodeJS.Timeout;
   private busy = false;
+  private lastNotFound = '';
+  private watchedIds?: { key: string; at: number; ids: Map<string, string | null> };
   constructor(
     private slack: SlackWorkspace,
     private s: SlackSettings,
@@ -341,6 +344,47 @@ export class SlackIngestor implements Ingestor {
    * Polling: (1) mentions of the PU via search, (2) direct and group DMs, (3) replies in threads
    * attached to open streams.
    */
+  /**
+   * Channel ids for the watched names. Names are looked up among the channels the PU is in (a short list), and only the ones not found
+   * there among every channel in the workspace (a long list that Slack does not order and that may be cut short). Kept for ten minutes.
+   */
+  private async resolveWatched(watched: string[]) {
+    const key = watched.join('|');
+    if (this.watchedIds && this.watchedIds.key === key && Date.now() - this.watchedIds.at < 10 * 60_000) return this.watchedIds.ids;
+    const ids = new Map<string, string | null>();
+    const byName = new Map<string, string>();
+    for (const w of watched) if (/^[CG][A-Z0-9]{6,}$/.test(w)) ids.set(w, w);
+    const need = () => watched.filter((w) => !ids.has(w));
+    const lookup = (name: string) => byName.get(name.toLowerCase().replace(/^#/, ''));
+    if (need().length) {
+      let cursor: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const r = await this.slack.web.users.conversations({ types: 'public_channel,private_channel', exclude_archived: true, limit: 200, cursor });
+        for (const c of r.channels ?? []) if (c.name && c.id) byName.set(c.name.toLowerCase(), c.id);
+        cursor = r.response_metadata?.next_cursor || undefined;
+        if (!cursor) break;
+      }
+      for (const w of need()) {
+        const id = lookup(w);
+        if (id) ids.set(w, id);
+      }
+    }
+    if (need().length) {
+      let cursor: string | undefined;
+      for (let page = 0; page < 5; page++) {
+        const r = await this.slack.web.conversations.list({ types: 'public_channel,private_channel', exclude_archived: true, limit: 1000, cursor });
+        for (const c of r.channels ?? []) if (c.name && c.id && !byName.has(c.name.toLowerCase())) byName.set(c.name.toLowerCase(), c.id);
+        cursor = r.response_metadata?.next_cursor || undefined;
+        if (!cursor) break;
+      }
+    }
+    for (const w of watched) if (!ids.has(w)) ids.set(w, lookup(w) ?? null);
+    // A name that could not be found is looked for again on the next poll; only complete answers are kept.
+    if (![...ids.values()].includes(null)) this.watchedIds = { key, at: Date.now(), ids };
+    else this.watchedIds = undefined;
+    return ids;
+  }
+
   /**
    * Where a poll starts reading: the saved bookmark; else, when Slack was read through MCP until now, where that left off (so switching
    * to API mode does not re-read days of old messages); else three days back (a first run).
@@ -441,20 +485,27 @@ export class SlackIngestor implements Ingestor {
       }
       // Watched channels: new messages there, even when they don't mention the PU.
       const watched = parseWatchedChannels(this.s.watchedChannels);
+      const notFound: string[] = [];
+      const readFrom: string[] = [];
+      const label = (w: string) => (/^[CG][A-Z0-9]{6,}$/.test(w) ? w : `#${w}`);
       if (watched.length) {
-        const byName = new Map<string, string>();
-        let cursor: string | undefined;
-        for (let page = 0; page < 5; page++) {
-          const r = await this.slack.web.conversations.list({ types: 'public_channel,private_channel', exclude_archived: true, limit: 1000, cursor });
-          for (const c of r.channels ?? []) if (c.name && c.id) byName.set(c.name.toLowerCase(), c.id);
-          cursor = r.response_metadata?.next_cursor || undefined;
-          if (!cursor) break;
-        }
+        const ids = await this.resolveWatched(watched);
         for (const w of watched) {
-          const id = /^[CG][A-Z0-9]{6,}$/.test(w) ? w : byName.get(w.toLowerCase());
-          if (!id) continue;
-          for (const m of await this.history(id, String(since))) if (m.user !== me) await emit(id, m.thread_ts ?? m.ts, m.ts);
+          const id = ids.get(w);
+          if (!id) {
+            notFound.push(label(w));
+            continue;
+          }
+          const msgs = await this.history(id, String(since));
+          if (msgs.length) readFrom.push(`${label(w)} ${msgs.length}`);
+          for (const m of msgs) if (m.user !== me) await emit(id, m.thread_ts ?? m.ts, m.ts);
         }
+      }
+      if (readFrom.length) console.log(`[slack] watched channels with messages since the last check: ${readFrom.join(', ')}`);
+      const missing = notFound.join(', ');
+      if (missing !== this.lastNotFound) {
+        this.lastNotFound = missing;
+        if (missing) console.warn(`[slack] could not find these watched channels, so they are not being read: ${missing}`);
       }
       for (const k of await this.trackedThreads()) {
         const [channel, threadTs] = k.split(':');
@@ -470,7 +521,12 @@ export class SlackIngestor implements Ingestor {
       }
       await this.repo.setSync('slack.lastTs', String(startedAt));
       if (unreadable.length) console.warn(`[slack] skipped ${unreadable.length} thread(s) Slack could not read (thread_not_found): ${[...new Set(unreadable)].join(', ')}`);
-      this.status(true, unreadable.length ? `Slack synced (skipped ${new Set(unreadable).size} thread(s) Slack could not read: ${[...new Set(unreadable)].slice(0, 3).join(', ')}${new Set(unreadable).size > 3 ? ', …' : ''})` : 'Slack synced');
+      const uniq = [...new Set(unreadable)];
+      const notes = [
+        ...(uniq.length ? [`skipped ${uniq.length} thread(s) Slack could not read: ${uniq.slice(0, 3).join(', ')}${uniq.length > 3 ? ', …' : ''}`] : []),
+        ...(notFound.length ? [`could not find watched channel(s): ${notFound.join(', ')}`] : []),
+      ];
+      this.status(true, notes.length ? `Slack synced (${notes.join('; ')})` : 'Slack synced');
     } catch (e: any) {
       this.status(false, `Slack: ${e.message}`);
     } finally {

@@ -865,7 +865,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     }
     if (system === 'slack') {
       const sl = new SlackWorkspace(await secrets.get(s.slack.api.userTokenId!));
-      const uid = await sl.selfUserId();
+      // (a client that gives up quickly, but say so plainly if Slack cannot be reached at all)
+      const uid = await Promise.race([
+        sl.selfUserId(),
+        new Promise<never>((_, no) => setTimeout(() => no(new Error("Slack did not answer within 30 seconds. Check this computer's network connection (and VPN), then try again.")), 30_000).unref?.()),
+      ]);
       await settings.update({ pu: { ...s.pu, slackUserId: uid } });
       return { ok: true, detail: `Connected as Slack user ${uid}` };
     }

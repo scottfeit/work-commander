@@ -20,6 +20,12 @@ describe('the Slack API poll', () => {
       dmHits?: string[];
       searchFails?: boolean;
       listed?: string[];
+      /** Watched channels, and which channels each of Slack's lists returns (name -> id). */
+      watched?: string;
+      member?: Record<string, string>;
+      workspace?: Record<string, string>;
+      /** Messages per channel id for the watched-channel history reads. */
+      channelMsgs?: Record<string, any[]>;
     } = {},
   ) => {
     const slack: any = {
@@ -35,14 +41,15 @@ describe('the Slack API poll', () => {
       getThread: async (c: string, t: string) => ({ source: 'slack', kind: 'slack_thread', externalId: `${c}:${t}`, title: 't', data: { messages: [] }, eventId: `${c}:${t}` }),
       getDmConversation: async (c: string) => ({ source: 'slack', kind: 'slack_thread', externalId: `${c}:dm`, title: 'dm', data: { messages: [] }, eventId: `${c}:dm` }),
       web: {
+        users: { conversations: async (a: any) => (calls.push({ fn: 'member', args: a }), { channels: Object.entries(opts.member ?? {}).map(([name, id]) => ({ id, name })) }) },
         conversations: {
-          list: async (a: any) => (calls.push({ fn: 'list', args: a }), { channels: (opts.listed ?? []).map((id) => ({ id })) }),
-          history: async (a: any) => (calls.push({ fn: 'history', args: a }), { messages: [{ ts: String(NOW() - 5), user: 'U2' }] }),
+          list: async (a: any) => (calls.push({ fn: 'list', args: a }), { channels: opts.workspace ? Object.entries(opts.workspace).map(([name, id]) => ({ id, name })) : (opts.listed ?? []).map((id) => ({ id })) }),
+          history: async (a: any) => (calls.push({ fn: 'history', args: a }), { messages: opts.channelMsgs?.[a.channel] ?? [{ ts: String(NOW() - 5), user: 'U2' }] }),
           replies: async (a: any) => (calls.push({ fn: 'replies', args: a }), opts.replies ? opts.replies(a) : { messages: [{ ts: String(NOW() + 5), user: 'U2' }] }),
         },
       },
     };
-    return new SlackIngestor(slack, { ingestion: 'polling', pollSeconds: 30, watchedChannels: '' } as any, null, repo, async () => new Set(opts.tracked ?? []), async (i) => void sunk.push(i.externalId), (ok, m) => statuses.push(`${ok}:${m}`));
+    return new SlackIngestor(slack, { ingestion: 'polling', pollSeconds: 30, watchedChannels: opts.watched ?? '' } as any, null, repo, async () => new Set(opts.tracked ?? []), async (i) => void sunk.push(i.externalId), (ok, m) => statuses.push(`${ok}:${m}`));
   };
   const historyOldest = () => Number(calls.find((c) => c.fn === 'history')!.args.oldest) + 7 * 86_400; // a poll looks a week before its starting point
   beforeEach(async () => {
@@ -94,6 +101,40 @@ describe('the Slack API poll', () => {
       await make({ searchFails: true, listed: ['D7', 'C0GROUP0002'] }).pollOnce();
       expect(calls.filter((c) => c.fn === 'history').map((c) => c.args.channel).sort()).toEqual(['C0GROUP0002', 'D7']);
       expect(statuses[0]).toBe('true:Slack synced');
+    });
+  });
+
+  describe('watched channels', () => {
+    const msg = (user: string, text = 'hi') => ({ ts: String(NOW() - 5), user, text });
+    it('finds a channel among the ones you are in, without walking the workspace list', async () => {
+      await make({ watched: '#sys-eng, #helpdesk', member: { 'sys-eng': 'C0274PW81B6', helpdesk: 'C0CFGV9BFT3' }, channelMsgs: { C0274PW81B6: [msg('URF3APG1W')], C0CFGV9BFT3: [] } }).pollOnce();
+      expect(calls.some((c) => c.fn === 'list')).toBe(false);
+      expect(calls.filter((c) => c.fn === 'history').map((c) => c.args.channel)).toEqual(['C0274PW81B6', 'C0CFGV9BFT3']);
+      expect(sunk.some((x) => x.startsWith('C0274PW81B6:'))).toBe(true); // Jaron's message was taken in
+      expect(statuses[0]).toBe('true:Slack synced');
+    });
+    it('a channel you are not in is looked for in the workspace list', async () => {
+      await make({ watched: 'announcements-global', member: { 'sys-eng': 'C0274PW81B6' }, workspace: { 'announcements-global': 'C024FDXFL' }, channelMsgs: { C024FDXFL: [msg('U2')] } }).pollOnce();
+      expect(calls.some((c) => c.fn === 'list')).toBe(true);
+      expect(calls.some((c) => c.fn === 'history' && c.args.channel === 'C024FDXFL')).toBe(true);
+    });
+    it('your own messages in a watched channel are not new work', async () => {
+      await make({ watched: 'sys-eng', member: { 'sys-eng': 'C0274PW81B6' }, channelMsgs: { C0274PW81B6: [msg('UME', 'my own note')] } }).pollOnce();
+      expect(sunk).toEqual([]);
+    });
+    it('a name found nowhere is said so in the status, and is looked for again next poll', async () => {
+      const ing = make({ watched: 'ghost, sys-eng', member: { 'sys-eng': 'C0274PW81B6' }, workspace: {}, channelMsgs: { C0274PW81B6: [] } });
+      await ing.pollOnce();
+      expect(statuses[0]).toBe('true:Slack synced (could not find watched channel(s): #ghost)');
+      const lists = calls.filter((c) => c.fn === 'member').length;
+      await ing.pollOnce();
+      expect(calls.filter((c) => c.fn === 'member').length).toBe(lists + 1);
+    });
+    it('once every name is found, they are remembered for a while', async () => {
+      const ing = make({ watched: 'sys-eng', member: { 'sys-eng': 'C0274PW81B6' }, channelMsgs: { C0274PW81B6: [] } });
+      await ing.pollOnce();
+      await ing.pollOnce();
+      expect(calls.filter((c) => c.fn === 'member')).toHaveLength(1);
     });
   });
 
