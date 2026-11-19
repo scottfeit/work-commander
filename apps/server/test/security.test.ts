@@ -27,8 +27,7 @@ describe('paths: nothing reaches outside where it should', () => {
     expect(resolveHandoffFolder('~/WorkCommander/x')).toBe(path.join(os.homedir(), 'WorkCommander', 'x'));
   });
 
-  // KNOWN ISSUE (found by this suite): folders are checked as text, not with symlinks resolved.
-  it.fails('a symlink inside the home folder that points outside it is refused', () => {
+  it('a symlink inside the home folder that points outside it is refused', () => {
     const link = path.join(os.homedir(), `.wc-sec-link-${process.pid}`);
     made.push(link);
     fs.symlinkSync('/tmp', link);
@@ -47,8 +46,7 @@ describe('paths: nothing reaches outside where it should', () => {
     expect(md).not.toMatch(/root:.*:0:0/);
   });
 
-  // KNOWN ISSUE (found by this suite): imports are checked as text, not with symlinks resolved.
-  it.fails('CLAUDE.md imports cannot follow a symlink out of the home folder or into a forbidden folder', () => {
+  it('CLAUDE.md imports cannot follow a symlink out of the home folder or into a forbidden folder', () => {
     const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wc-sec-home-')));
     const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wc-sec-out-')));
     made.push(home, outside);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { realPath } from './handoff.js';
 
 /**
  * What a built-in Claude Code session may bring along (Settings → Claude Code), without loading any Claude Code settings file:
@@ -15,10 +16,10 @@ const SAFE_KEYS = new Set(['name', 'description', 'license', 'version', 'metadat
 
 const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
 
-/** Is this path somewhere WC never lets Claude Code read? */
+/** Is this path somewhere WC never lets Claude Code read? (Symlinks resolved on both sides.) */
 export function forbidden(p: string, off: string[]) {
-  const abs = path.resolve(p);
-  return off.some((o) => inside(abs, o));
+  const abs = realPath(p);
+  return off.some((o) => inside(abs, realPath(o)) || inside(path.resolve(p), path.resolve(o)));
 }
 
 /**
@@ -34,9 +35,10 @@ export function readClaudeMd(folder: string, off: string[], home = os.homedir())
   files.push(path.join(folder, 'CLAUDE.local.md'));
   const seen = new Set<string>();
   let total = 0;
+  const realHome = realPath(home);
   const read = (file: string, depth: number): string => {
-    const abs = path.resolve(file);
-    if (seen.has(abs) || forbidden(abs, off) || !inside(abs, home)) return '';
+    const abs = realPath(file); // a symlink can't lead outside the home folder or into a forbidden one
+    if (seen.has(abs) || forbidden(abs, off) || !inside(abs, realHome)) return '';
     seen.add(abs);
     let text: string;
     try {

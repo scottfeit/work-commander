@@ -26,10 +26,30 @@ export function defaultHandoffFolder(stream: WorkStream) {
   return path.join(process.env.WC_HANDOFF_ROOT || path.join('~', 'WorkCommander'), slug); // WC_HANDOFF_ROOT: tests keep hand-offs out of the real folder
 }
 
-/** Resolve "~/x" and require the result to stay inside the user's home directory. */
+/**
+ * A path with symlinks resolved, for one that may not exist yet: the nearest existing ancestor's real path plus the rest.
+ * (Checking the text of a path isn't enough: a symlink inside the home folder can point anywhere.)
+ */
+export function realPath(p: string) {
+  const abs = path.resolve(p);
+  const rest: string[] = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...rest.reverse());
+    } catch {
+      const up = path.dirname(cur);
+      if (up === cur) return abs;
+      rest.push(path.basename(cur));
+      cur = up;
+    }
+  }
+}
+
+/** Resolve "~/x" and require the result, symlinks resolved, to stay inside the user's home directory. Returns the real path. */
 export function resolveHandoffFolder(input: string) {
-  const home = os.homedir();
-  const p = path.resolve(input.startsWith('~') ? path.join(home, input.slice(1)) : input);
+  const home = realPath(os.homedir());
+  const p = realPath(input.startsWith('~') ? path.join(os.homedir(), input.slice(1)) : input);
   if (!path.isAbsolute(input) && !input.startsWith('~')) throw Object.assign(new Error('Use an absolute path or one starting with ~'), { statusCode: 400 });
   if (p !== home && !p.startsWith(home + path.sep)) throw Object.assign(new Error('The folder must be inside your home directory'), { statusCode: 400 });
   if (p === home) throw Object.assign(new Error('Choose a project folder, not your home directory itself'), { statusCode: 400 });

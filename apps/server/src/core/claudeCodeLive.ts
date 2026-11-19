@@ -6,6 +6,7 @@ import type { AppConfig } from '../config.js';
 import type { Repo } from './repo.js';
 import { bus } from './bus.js';
 import { buildSkillsPlugin, listSkills, readClaudeMd, userSkills } from './claudeCodeExtras.js';
+import { realPath } from './handoff.js';
 
 /**
  * Claude Code running inside WC (Settings → Claude Code; off by default, local only).
@@ -87,7 +88,9 @@ export class ClaudeCodeSessions {
     const cur = this.sessions.get(streamId);
     if (cur && (cur.state === 'running' || cur.state === 'waiting')) throw new Error('Claude Code is already working on this work stream');
     const home = os.homedir();
-    for (const off of [this.d.cfg.dataDir, ...SECRET_DIRS.map((p) => path.join(home, p))]) {
+    folder = realPath(folder);
+    for (const raw of [this.d.cfg.dataDir, ...SECRET_DIRS.map((p) => path.join(home, p))]) {
+      const off = realPath(raw);
       if (folder === off || folder.startsWith(off + path.sep) || off.startsWith(folder + path.sep)) throw Object.assign(new Error(`Choose a project folder that doesn't contain or sit inside ${off}`), { statusCode: 400 });
     }
     const se: Session = { streamId, folder, state: 'running', startedAt: new Date().toISOString(), queue: [], pending: new Map() };

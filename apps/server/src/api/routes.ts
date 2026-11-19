@@ -1,3 +1,4 @@
+import { isOwnOrigin } from '../auth/guard.js';
 import { userSkills } from '../core/claudeCodeExtras.js';
 import { nameNewStream } from '../agent/triage.js';
 import { standardEmoji } from '../core/emoji.js';
@@ -246,14 +247,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   // Origin header (no Origin, no action), a custom header (other sites can't send one without CORS, which WC never allows),
   // and the per-start token that only WC's own pages can read from the status call.
   const ccGuard = (req: any) => {
-    const o = req.headers.origin;
-    let host = '';
-    try {
-      host = new URL(o).hostname;
-    } catch {
-      /* missing or unreadable: refused */
-    }
-    if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(host)) throw Object.assign(new Error('Claude Code actions are only accepted from Work Commander itself'), { statusCode: 403 });
+    if (!isOwnOrigin(req.headers.origin, cfg)) throw Object.assign(new Error('Claude Code actions are only accepted from Work Commander itself'), { statusCode: 403 });
     if (req.headers['x-wc-action'] !== 'claude-code' || req.headers['x-wc-cc-token'] !== app.claudeCode.token) throw Object.assign(new Error('Claude Code action refused (reload the page)'), { statusCode: 403 });
   };
   f.get('/api/streams/:id/claude-code', async (req) => app.claudeCode.status((req.params as any).id));

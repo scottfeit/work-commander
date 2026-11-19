@@ -15,8 +15,6 @@ const json = (origin?: string) => ({ ...local, 'content-type': 'application/json
 
 test.describe('network access', () => {
   test('a page served from another port on this machine cannot change anything', async () => {
-    // KNOWN ISSUE (found by this suite): the Origin check compares host names only, so http://localhost:<any port> passes.
-    test.fail();
     for (const origin of ['http://localhost:9999', 'http://127.0.0.1:3000', 'https://localhost', `http://localhost:${API_PORT + 1}`]) {
       const r = await rawRequest({ method: 'POST', path: '/api/streams', headers: json(origin), body: JSON.stringify({ title: `other-port ${origin}`, summary: '' }) });
       expect(r.status, `Origin ${origin}`).toBe(403);
@@ -134,8 +132,6 @@ test.describe('script injection in the page', () => {
 
 test.describe('Claude Code inside WC', () => {
   test('its actions are refused without WC\'s own page and token, even when it is on', async ({ page }) => {
-    // KNOWN ISSUE (found by this suite): a hand-off folder reached through a symlink inside the home folder can point anywhere.
-    test.fail();
     const s = (await api.get('/api/settings')).json;
     await api.call('PUT', '/api/settings', { ...s, claudeCode: { ...s.claudeCode, enabled: true } });
     const sid = (await api.post('/api/streams', { title: 'CC guard', summary: '' })).json.id;

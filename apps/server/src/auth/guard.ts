@@ -5,6 +5,43 @@ import type { SettingsStore } from '../core/settings.js';
 
 const PUBLIC = [/^\/api\/webhooks\//, /^\/healthz$/];
 
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * The exact origins (scheme, host and port) WC's own pages are served from: its public URL and its web front-end, under any of
+ * this machine's names. (Host names alone aren't enough: a page on another port of this machine is another site.) Names in
+ * WC_ALLOWED_HOSTS (e.g. a reverse proxy) are trusted on any port.
+ */
+export function allowedOrigins(cfg: Pick<AppConfig, 'publicUrl' | 'webUrl'>) {
+  const out = new Set<string>();
+  for (const raw of [cfg.publicUrl, cfg.webUrl]) {
+    if (!raw) continue;
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      continue;
+    }
+    out.add(u.origin);
+    if (LOOPBACK.includes(u.hostname)) for (const h of LOOPBACK) out.add(`${u.protocol}//${h}${u.port ? `:${u.port}` : ''}`);
+  }
+  return out;
+}
+
+/** Is this Origin header one of WC's own pages? Missing, "null" and unparsable values are not. */
+export function isOwnOrigin(origin: string | undefined, cfg: Pick<AppConfig, 'publicUrl' | 'webUrl'>) {
+  if (!origin) return false;
+  let u: URL;
+  try {
+    u = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (allowedOrigins(cfg).has(u.origin)) return true;
+  const extra = (process.env.WC_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+  return extra.includes(u.hostname);
+}
+
 /**
  * Dashboard access control.
  *  - local: the server binds to 127.0.0.1; we additionally reject requests whose Host isn't
@@ -24,15 +61,10 @@ export function installGuard(app: FastifyInstance, cfg: AppConfig, settings: Set
     if (cfg.authMode === 'local') {
       const host = (req.headers.host ?? '').replace(/:\d+$/, '');
       if (!localHosts.includes(host)) return reply.code(403).send({ error: 'Forbidden host' });
-      if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== undefined) {
-        // "null" (sandboxed iframes, file://) and unparsable values are treated as foreign origins.
-        let o = '';
-        try {
-          o = new URL(req.headers.origin).hostname;
-        } catch {
-          /* fall through: not allowed */
-        }
-        if (!localHosts.includes(o)) return reply.code(403).send({ error: 'Cross-origin request blocked' });
+      // A request that changes something must come from WC's own page (exact origin, port included). "null" (sandboxed
+      // iframes, file://) and unparsable values count as foreign. No Origin at all = not a browser page (curl, scripts).
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== undefined && !isOwnOrigin(req.headers.origin, cfg)) {
+        return reply.code(403).send({ error: 'Cross-origin request blocked' });
       }
       return;
     }
