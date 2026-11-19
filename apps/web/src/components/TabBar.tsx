@@ -112,6 +112,7 @@ export function TabBar({
   const droppable = (id: string) => !!draggingItem && draggingItem !== id && items.some((i) => i.id === draggingItem);
   return (
     <div className="tabbar" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(null)}>
+      {/* + (new work item from a link) sits at the left end of the bar */}
       <div className="tablist" role="tablist">
       {items.map((i) => (
         <button
@@ -158,10 +159,10 @@ function AddByUrl({ onAdd }: { onAdd: (url: string) => Promise<void> }) {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0 });
   const toggle = () => {
     const r = btn.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 388)) });
     setOpen((o) => !o);
     setErr(null);
   };
@@ -198,7 +199,7 @@ function AddByUrl({ onAdd }: { onAdd: (url: string) => Promise<void> }) {
         +
       </button>
       {open && (
-        <div className="add-url-pop" role="dialog" aria-label="New work item from a link" style={{ top: pos.top, right: pos.right }}>
+        <div className="add-url-pop" role="dialog" aria-label="New work item from a link" style={{ top: pos.top, left: pos.left }}>
           <label className="small" htmlFor="add-url-input">
             Paste a link to a Slack message, Gmail message, Google Doc or Jira issue
           </label>

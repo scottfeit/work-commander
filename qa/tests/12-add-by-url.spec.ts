@@ -10,13 +10,14 @@ test('the + opens a popover under it; a pasted link becomes a work item and bad 
   const plus = page.getByRole('button', { name: 'New work item from a link' });
   const bar = (await page.locator('.tabbar').boundingBox())!;
   const pb = (await plus.boundingBox())!;
-  expect(pb.x + pb.width).toBeGreaterThan(bar.x + bar.width - 60); // on the right-hand side of the tab bar
+  expect(pb.x).toBeLessThan(bar.x + 40); // at the left end of the tab bar
 
   await plus.click();
   const pop = page.getByRole('dialog', { name: 'New work item from a link' });
   await expect(pop).toBeVisible();
   const pp = (await pop.boundingBox())!;
   expect(pp.y).toBeGreaterThanOrEqual(pb.y + pb.height); // just below the button
+  expect(Math.abs(pp.x - pb.x)).toBeLessThan(10); // and lined up with it
   await expect(pop.getByRole('textbox')).toBeFocused();
 
   // an unsupported link is explained and keeps the popover open

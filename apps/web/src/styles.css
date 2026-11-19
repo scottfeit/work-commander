@@ -382,7 +382,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .silenced-icon { display: inline-flex; align-items: center; flex: none; color: var(--muted); }
 
 /* + at the right of the tab bar, and its popover */
-.add-url-btn { position: sticky; right: 0; margin-left: auto; flex: none; align-self: center; width: 26px; height: 26px; margin-bottom: 5px; border: 1px solid var(--line); border-radius: 50%; background: var(--panel); color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; }
+.add-url-btn { position: sticky; left: 0; z-index: 1; margin-right: 6px; flex: none; align-self: center; width: 26px; height: 26px; margin-bottom: 5px; border: 1px solid var(--line); border-radius: 50%; background: var(--panel); color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; }
 .add-url-btn:hover, .add-url-btn[aria-expanded=true] { color: var(--text); border-color: var(--line-2); }
 .add-url-pop { position: fixed; z-index: 30; width: 380px; max-width: calc(100vw - 16px); display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
 .add-url-pop .row-form { display: flex; gap: 6px; }
