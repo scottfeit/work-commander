@@ -542,6 +542,7 @@ export function App() {
         peekId={peek?.id ?? null}
         onMarkUnread={(id) => void markUnread(id)}
         onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
+        onReopenStream={(id) => void patch(`/api/streams/${id}`, { status: 'open' })}
         onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
         onSnooze={(id, snoozeUntil) => void patch(`/api/streams/${id}`, { pending: true, snoozeUntil })}
         undoNext={undoInfo.next}

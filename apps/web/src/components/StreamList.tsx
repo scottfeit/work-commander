@@ -32,6 +32,7 @@ interface Props {
   onSetRead?: (id: string, read: boolean) => void;
   /** Close a work stream (the selected tile's Close stream button, after its second click). */
   onCloseStream: (id: string) => void;
+  onReopenStream: (id: string) => void;
   /** Mark a work stream Pending (waiting on others) or put it back in Open. */
   onTogglePending: (id: string, pending: boolean) => void;
   onSnooze: (id: string, until: string) => void;
@@ -46,7 +47,7 @@ interface Props {
   onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -178,6 +179,11 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           ) : (
             <button type="button" className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={() => onMarkUnread(s.id)}>
               Unread
+            </button>
+          )}
+          {s.status === 'closed' && (
+            <button type="button" className="btn small" aria-label="Reopen stream" title="Reopen this work stream (back in Open)" onClick={() => onReopenStream(s.id)}>
+              Reopen
             </button>
           )}
           {s.status === 'open' && (

@@ -30,3 +30,17 @@ test('pop-up messages close with their × or a click anywhere on them', async ({
   await toast.locator('strong').click();
   await expect(toast).toHaveCount(0);
 });
+
+test('a closed work stream has a Reopen button on its card', async ({ page }) => {
+  const { api } = await import('./helpers');
+  const id = (await api.post('/api/streams', { title: 'Reopen card stream', summary: '' })).json.id;
+  await api.call('PATCH', `/api/streams/${id}`, { status: 'closed' });
+  await page.goto(WEB);
+  await page.locator('.sidebar').getByRole('checkbox', { name: /Show closed/ }).check();
+  await stream(page, /reopen card stream/i).click();
+  const card = page.locator('.sidebar .stream.active');
+  await expect(card.getByRole('button', { name: 'Close stream' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'Reopen stream' }).click();
+  await expect.poll(async () => (await api.get('/api/streams?includeClosed=1')).json.find((s: any) => s.id === id).status).toBe('open');
+  await expect(page.locator('.sidebar .stream.active').getByRole('button', { name: 'Close stream' })).toBeVisible();
+});
