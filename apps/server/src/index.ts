@@ -1,3 +1,4 @@
+import { claudeCodeUsage } from './core/claudeCodeUsage.js';
 import { MeetingWatcher } from './core/meetings.js';
 import fs from 'node:fs';
 import Fastify from 'fastify';
@@ -63,6 +64,8 @@ async function main() {
         await app.repo.addChat({ streamId: h.streamId, role: 'system', content: `Claude Code finished: results from ${h.folder}/${RESULT_FILE}` });
         await app.repo.updateStream(h.streamId, { unread: true, touch: true, pending: false });
         bus.publish({ type: 'notify', streamId: h.streamId, title: 'Claude Code finished', body: 'Results are back in the work stream.' });
+        // Claude Code's own token usage for this hand-off (from its transcripts), counted once, in the stream's usage.
+        await recordClaudeCodeUsage(app, h).catch((e) => f.log.warn(`Claude Code usage: ${e.message}`));
         // Google Docs/Sheets/Slides it reports having edited become work items in this stream (the same file may be in several streams).
         const docs = await app.hub.api('docs').catch(() => null);
         for (const link of googleFileLinks(report)) await attachDriveFile(app.repo, docs, h.streamId, link).catch((e) => f.log.warn(`attach ${link.id}: ${e.message}`));
@@ -160,3 +163,17 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+/** Add what Claude Code used on a hand-off (since it started, or since last counted) to the work stream's usage, by model. */
+async function recordClaudeCodeUsage(app: Awaited<ReturnType<typeof createApp>>, h: { id: string; streamId: string; folder: string }) {
+  const key = `handoff.ccUsage.${h.id}`;
+  const row = (await app.repo.listHandoffs()).find((x) => x.id === h.id);
+  const since = (await app.repo.getSync(key)) || row?.created_at;
+  if (!since) return;
+  const until = new Date().toISOString();
+  for (const u of await claudeCodeUsage(h.folder, since, until)) {
+    await app.usage.record({ kind: 'claudeCode', model: u.model, streamId: h.streamId, inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheReadTokens: u.cacheReadTokens, cacheWriteTokens: u.cacheWriteTokens, costUsd: u.costUsd, durationMs: 0, ok: true });
+  }
+  await app.repo.setSync(key, until);
+}
+

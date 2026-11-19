@@ -54,6 +54,12 @@ export function UsagePie({ parts }: { parts: { id: UsageCategory; label: string;
   return (
     <div className="usage-pie">
       <svg viewBox="0 0 120 120" width="132" height="132" role="img" aria-label={`Estimated cost ${dollars(total)}: ${shown.map((p) => `${p.label} ${dollars(p.t.costUsd)}`).join(', ')}`}>
+        <defs>
+          <pattern id="usage-hatch-claudeCode" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect className="usage-hatch-bg" width="5" height="5" />
+            <line className="usage-hatch-fg" x1="1.5" y1="0" x2="1.5" y2="5" />
+          </pattern>
+        </defs>
         {slices.map(({ p, d }) =>
           d ? (
             <path key={p.id} d={d} className={`c-${p.id} ${hot && hot !== p.id ? 'dim' : ''}`} onMouseEnter={() => setHot(p.id)} onMouseLeave={() => setHot(null)}>

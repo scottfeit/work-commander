@@ -22,6 +22,7 @@ test.beforeAll(async () => {
     [0, 'overview', streamId, 0.01],
     [0, 'mcpIngest', '', 0.4],
     [1, 'agentHandoff', streamId, 0.09],
+    [1, 'claudeCode', streamId, 0.5], // Claude Code's own work on the hand-off
     [1, 'mcpIngest', '', 0.55],
     [2, 'agent', '', 0.2],
   ];
@@ -34,9 +35,11 @@ test("A work stream's Overview shows its estimated cost by category", async ({ p
   await stream(page, /usage chart stream/i).click();
   const legend = page.locator('.usage-pie-legend');
   await expect(legend).toBeVisible();
-  await expect(legend.locator('tbody tr td:first-child')).toHaveText(['Triage', 'Drafting messages', 'Claude Code hand-offs', 'Chatting with you', 'Keeping streams up to date', 'Overview refreshes']);
-  await expect(legend.locator('tfoot')).toContainText('$0.64');
-  await expect(page.locator('.usage-pie svg path')).toHaveCount(6);
+  await expect(legend.locator('tbody tr td:first-child')).toHaveText(['Triage', 'Drafting messages', 'Claude Code hand-offs', 'Claude Code (hand-off work)', 'Chatting with you', 'Keeping streams up to date', 'Overview refreshes']);
+  await expect(legend.locator('tfoot')).toContainText('$1.14');
+  await expect(page.locator('.usage-pie svg path')).toHaveCount(7);
+  // shown in the hand-off hue, hatched
+  await expect(page.locator('.usage-pie svg path.c-claudeCode')).toHaveCount(1);
   await page.locator('.stream-usage').screenshot({ path: 'qa/results/usage-pie.png' });
 });
 
@@ -47,5 +50,6 @@ test('Settings → Usage: the by-day bars are split by the same categories', asy
   await expect(bars.first().locator('.usage-bar i')).toHaveCount(6); // today: triage, reading, drafting, chat, review, overview
   await expect(page.locator('.usage-legend')).toContainText('Reading Slack and other sources');
   await expect(page.locator('.usage-legend')).toContainText('Other');
+  await expect(page.locator('.usage-legend')).toContainText('Claude Code (hand-off work)');
   await page.locator('section', { has: page.getByRole('heading', { name: 'Usage', exact: true }) }).screenshot({ path: 'qa/results/usage-settings.png' });
 });

@@ -401,7 +401,7 @@ export type TaskModels = Record<BackgroundTask, ModelChoice>;
 
 /** Every kind of call usage is recorded for. */
 /** 'agent' is Claude's stream work before turns were told apart (chat, drafting, hand-offs, keeping streams current). */
-export type UsageKind = BackgroundTask | 'agent' | 'agentChat' | 'agentDraft' | 'agentHandoff' | 'agentReview' | 'newStream' | 'overview' | 'test' | 'laya';
+export type UsageKind = BackgroundTask | 'agent' | 'agentChat' | 'agentDraft' | 'agentHandoff' | 'agentReview' | 'newStream' | 'overview' | 'test' | 'laya' | 'claudeCode';
 export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   triage: 'Triage',
   topicSplit: 'Slack topic splitting',
@@ -411,6 +411,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   writingStyle: 'Learning your writing style',
   meetingLink: 'Linking meetings',
   deadlines: 'Spotting deadlines',
+  claudeCode: 'Claude Code (hand-off work)',
   agent: 'Agent (before categories)',
   agentChat: 'Chatting with you',
   agentDraft: 'Drafting messages',
@@ -423,12 +424,13 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
 };
 
 /** What usage is shown by (Settings → Usage, and each work stream's Overview). Fixed order: it is also the colour order. */
-export type UsageCategory = 'triage' | 'reading' | 'drafting' | 'handoff' | 'chat' | 'review' | 'overview' | 'other';
+export type UsageCategory = 'triage' | 'reading' | 'drafting' | 'handoff' | 'claudeCode' | 'chat' | 'review' | 'overview' | 'other';
 export const USAGE_CATEGORIES: { id: UsageCategory; label: string; hint: string; kinds: UsageKind[] }[] = [
   { id: 'triage', label: 'Triage', hint: 'Deciding whether new activity needs you and which work stream it belongs to, naming new streams, sorting Slack conversations by topic', kinds: ['triage', 'newStream', 'topicSplit', 'deadlines'] },
   { id: 'reading', label: 'Reading Slack and other sources', hint: 'Checking for new activity through MCP servers, and finding the later Slack messages a linked one leads to', kinds: ['mcpIngest', 'slackContext', 'meetingLink'] },
   { id: 'drafting', label: 'Drafting messages', hint: "Claude's turns that prepared replies, messages or ticket changes for you to approve", kinds: ['agentDraft'] },
   { id: 'handoff', label: 'Claude Code hand-offs', hint: 'Taking in what Claude Code reports back', kinds: ['agentHandoff'] },
+  { id: 'claudeCode', label: 'Claude Code (hand-off work)', hint: "Claude Code's own work on hand-offs, read from its session transcripts when the results come back (cost estimated at API list prices)", kinds: ['claudeCode'] },
   { id: 'chat', label: 'Chatting with you', hint: 'Your messages to Claude and its answers (when it drafted something, that turn counts as drafting)', kinds: ['agentChat'] },
   { id: 'review', label: 'Keeping streams up to date', hint: 'Claude reviewing new items, your direct replies and finished drafts, and updating the work stream', kinds: ['agentReview'] },
   { id: 'overview', label: 'Overview refreshes', hint: 'Refresh overview, and overviews for streams you start by dropping an item on "+"', kinds: ['overview'] },

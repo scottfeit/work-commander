@@ -447,6 +447,10 @@ input.num.wide { width: 120px; }
 .c-reading { background: var(--c-reading); fill: var(--c-reading); }
 .c-drafting { background: var(--c-drafting); fill: var(--c-drafting); }
 .c-handoff { background: var(--c-handoff); fill: var(--c-handoff); }
+/* Claude Code's own hand-off work: the hand-off hue, hatched (the 8-hue palette is validated; a 9th category shares a hue with a texture). */
+.c-claudeCode { background: repeating-linear-gradient(45deg, var(--c-handoff) 0 3px, var(--panel) 3px 5px); fill: url(#usage-hatch-claudeCode); }
+.usage-hatch-bg { fill: var(--panel); }
+.usage-hatch-fg { stroke: var(--c-handoff); stroke-width: 3; }
 .c-chat { background: var(--c-chat); fill: var(--c-chat); }
 .c-review { background: var(--c-review); fill: var(--c-review); }
 .c-overview { background: var(--c-overview); fill: var(--c-overview); }
