@@ -44,3 +44,19 @@ test('a closed work stream has a Reopen button on its card', async ({ page }) =>
   await expect.poll(async () => (await api.get('/api/streams?includeClosed=1')).json.find((s: any) => s.id === id).status).toBe('open');
   await expect(page.locator('.sidebar .stream.active').getByRole('button', { name: 'Close stream' })).toBeVisible();
 });
+
+test('a stream reopened by new activity shows a "Reopened" chip', async ({ page }) => {
+  const { api, demoDataDir } = await import('./helpers');
+  const path = await import('node:path');
+  const id = (await api.post('/api/streams', { title: 'Reopened chip stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  db.prepare('update streams set reopened_at = ? where id = ?').run(new Date().toISOString(), id);
+  db.close();
+  await page.goto(WEB);
+  const card = page.locator('.sidebar .stream', { hasText: 'Reopened chip stream' });
+  await expect(card.locator('.reopened-chip')).toHaveText('Reopened');
+  await card.screenshot({ path: 'qa/results/reopened-chip.png' });
+  await api.call('PATCH', `/api/streams/${id}`, { pending: true }); // your next move clears it
+  await expect(page.locator('.sidebar .stream', { hasText: 'Reopened chip stream' }).locator('.reopened-chip')).toHaveCount(0);
+});

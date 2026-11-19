@@ -127,7 +127,8 @@ export class Executor {
       const result = await this.run(p, payload);
       await this.repo.updateProposal(p.id, { status: 'executed', result, payload });
       await this.repo.audit('executor', 'proposal.executed', { id: p.id, kind: p.kind, result });
-      if (p.streamId) await this.repo.updateStream(p.streamId, { touch: true });
+      // a reply you approved is your next move on it: a "Reopened" stream isn't any more
+      if (p.streamId) await this.repo.updateStream(p.streamId, { touch: true, ...(/reply|send|post|comment/.test(p.kind) ? { reopened: false } : {}) });
     } catch (e: any) {
       await this.repo.updateProposal(p.id, { status: 'failed', error: e.message });
       await this.repo.audit('executor', 'proposal.failed', { id: p.id, kind: p.kind, error: e.message });

@@ -486,7 +486,7 @@ export class TriagePipeline {
     }
     const st = rule.streamId ? await this.repo.getStream(rule.streamId) : null;
     if (!st) return false; // the stream is gone: triage as usual
-    if (st.status === 'closed') await this.repo.updateStream(st.id, { status: 'open' });
+    if (st.status === 'closed') await this.repo.updateStream(st.id, { status: 'open', reopened: true });
     await this.repo.attachItem(item.id, st.id);
     await this.repo.updateStream(st.id, { touch: true, unread: true, pending: false });
     await this.repo.addChat({ streamId: st.id, role: 'system', content: `"${item.title}" filed here by ${why}.` });
@@ -513,6 +513,7 @@ export class TriagePipeline {
   private async noteDirectReply(item: StreamItem, mine: ThreadMessage[]) {
     const streamId = item.streamId;
     if (!streamId || !mine.length) return;
+    if ((await this.repo.getStream(streamId))?.reopenedAt) await this.repo.updateStream(streamId, { reopened: false }); // you replied: no longer "Reopened"
     const drafts = await this.repo.pendingDraftsForItem(streamId, item);
     if (drafts.length) await this.repo.withdrawProposals(drafts.map((d) => d.id), 'you replied yourself outside Work Commander');
     await this.repo.supersedeQuestions(streamId);
@@ -660,7 +661,7 @@ export class TriagePipeline {
       } else if (named && recentClosed.some((c) => c.id === named)) {
         // Work that closed recently continues: this activity needs the PU (it is relevant here), so the stream reopens.
         streamId = named;
-        await this.repo.updateStream(named, { status: 'open' });
+        await this.repo.updateStream(named, { status: 'open', reopened: true });
         await this.repo.addChat({ streamId: named, role: 'system', content: `Reopened: new activity on work this stream covered ("${item.title}").` });
       } else if (decision.stream.action !== 'none' && ask) {
         // "Ask me first": hold the new stream as a proposal on the item; acceptProposed() carries on from here.
@@ -679,7 +680,7 @@ export class TriagePipeline {
         const days = s.claude.reopenClosedWithinDays ?? 14;
         const closedAt = prev.closedAt ? Date.parse(prev.closedAt) : 0;
         if (Date.now() - closedAt <= days * 86_400_000) {
-          await this.repo.updateStream(streamId, { status: 'open' }); // recent: carry on in the same stream
+          await this.repo.updateStream(streamId, { status: 'open', reopened: true }); // recent: carry on in the same stream
         } else {
           // Closed too long ago: this is new work. Start a fresh stream and move the thread over to it.
           const fresh = await this.repo.createStream({

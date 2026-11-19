@@ -161,6 +161,11 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
           {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}
           {s.backAt && <span className="chip reminder" title="Back from snooze">Back</span>}
+          {s.reopenedAt && s.status === 'open' && (
+            <span className="chip reopened-chip" title={`Reopened by new activity ${new Date(s.reopenedAt).toLocaleString()}. Goes away when you reply, mark it Pending, or close it again.`}>
+              Reopened
+            </span>
+          )}
           {s.status === 'open' && s.due && <DueChip due={s.due} />}
           {s.pending && s.snoozeUntil && (
             <span className="chip snooze-chip" title={`Snoozed: comes back ${new Date(s.snoozeUntil).toLocaleString()}, or earlier if someone writes`}>

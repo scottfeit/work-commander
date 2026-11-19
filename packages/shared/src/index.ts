@@ -74,6 +74,8 @@ export interface WorkStream {
   snoozeUntil?: string | null;
   /** Set while the stream is back from a snooze that ran out. Cleared like reminderAt. */
   backAt?: string | null;
+  /** New activity reopened this closed stream at this moment. Cleared by your next move on it: a reply, Pending, closing it again. */
+  reopenedAt?: string | null;
   /** When the PU must deliver ("I need this by Friday"). */
   due?: StreamDeadline | null;
   /** When someone else said they'd deliver to the PU ("I'll get it to you by Friday"): offered in the Pending ▾ menu. */

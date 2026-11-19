@@ -84,6 +84,7 @@ export class Repo {
       reminderAt: r.reminder_at,
       snoozeUntil: r.snooze_until ?? null,
       backAt: r.back_at ?? null,
+      reopenedAt: r.reopened_at ?? null,
       ...(() => {
         const d = pj<{ due?: StreamDeadline | null; promised?: StreamDeadline | null }>(r.deadlines ?? null, {});
         return { deadlines: d, due: d.due ?? null, promised: d.promised ?? null };
@@ -125,6 +126,7 @@ export class Repo {
       snooze_until: null,
       back_at: null,
       deadlines: null,
+      reopened_at: null,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -139,7 +141,7 @@ export class Repo {
 
   async updateStream(
     id: string,
-    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; pending: boolean; snoozeUntil: string | null; agentSessionId: string | null; touch: boolean }>,
+    patch: Partial<{ title: string; summary: string; status: 'open' | 'closed'; labels: string[]; ticketTarget: TicketTarget | null; unread: boolean; pending: boolean; snoozeUntil: string | null; agentSessionId: string | null; touch: boolean; reopened: boolean }>,
     by: SummaryAuthor = 'claude',
   ) {
     const t = now();
@@ -168,6 +170,10 @@ export class Repo {
       set.back_at = null;
       set.snooze_until = patch.pending ? (patch.snoozeUntil ?? null) : null; // plain Pending, or Pending until a date
     }
+    // "Reopened" (by new activity) lasts until the PU's next move: marking it Pending, or closing it again. (New activity takes a
+    // stream out of Pending too; that doesn't count.)
+    if (patch.pending === true || patch.status === 'closed') set.reopened_at = null;
+    if (patch.reopened !== undefined) set.reopened_at = patch.reopened ? t : null;
     if (patch.agentSessionId !== undefined) set.agent_session_id = patch.agentSessionId;
     if (patch.touch) set.last_activity_at = t;
     await this.db.updateTable('streams').set(set).where('id', '=', id).execute();

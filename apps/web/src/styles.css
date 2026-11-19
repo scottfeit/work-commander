@@ -626,3 +626,6 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .bulk-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; margin: 0 0 8px; background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
 .bulk-n { font-weight: 600; font-size: 13px; margin-right: 4px; }
 .bulk-bar select { max-width: 260px; }
+
+.chip.reopened-chip { background: #e3edfb; border-color: transparent; color: #1f5fbf; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .chip.reopened-chip { background: #1d2c44; color: #8db8ff; } }
