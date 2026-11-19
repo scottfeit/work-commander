@@ -170,13 +170,115 @@ function Reactions({ item, m, quick }: { item: StreamItem; m: ThreadMessage; qui
   );
 }
 
-function Message({ m, compact, html, defaultOriginal, item, itemId, quick }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem; itemId?: string; quick?: string[] }) {
+/** The checkbox on a Slack message: ticked or not, and what a click does (shift-click ticks the whole range). */
+type Pick = { checked: boolean; onClick: (shift: boolean) => void };
+
+/**
+ * Ticking Slack messages to act on several at once: move them to another work stream, or take them out of this one. Shift-click
+ * ticks every message between the last one clicked and this one.
+ */
+function SlackSelection({ item, enabled, order, children }: { item: StreamItem; enabled: boolean; order: ThreadMessage[]; children: (order: ThreadMessage[], pick?: (m: ThreadMessage) => Pick) => React.ReactNode }) {
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [streams, setStreams] = useState<WorkStream[]>([]);
+  const [dest, setDest] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    setSel(new Set());
+    setAnchor(null);
+    setDest('');
+    setErr('');
+  }, [item.id]);
+  // messages that left the item drop out of the selection
+  const ids = order.map((m) => m.id).join(',');
+  useEffect(() => {
+    const have = new Set(ids.split(','));
+    setSel((s) => ([...s].every((id) => have.has(id)) ? s : new Set([...s].filter((id) => have.has(id)))));
+  }, [ids]);
+  useEffect(() => {
+    if (enabled && sel.size) get<WorkStream[]>('/api/streams').then((x) => setStreams(x.filter((s) => s.status === 'open' && s.id !== item.streamId))).catch(() => undefined);
+  }, [enabled, sel.size > 0, item.streamId]);
+  if (!enabled) return <>{children(order)}</>;
+  const pick = (m: ThreadMessage): Pick => ({
+    checked: sel.has(m.id),
+    onClick: (shift) => {
+      setSel((cur) => {
+        const next = new Set(cur);
+        if (shift && anchor && anchor !== m.id) {
+          const a = order.findIndex((x) => x.id === anchor);
+          const b = order.findIndex((x) => x.id === m.id);
+          if (a >= 0 && b >= 0) for (const x of order.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(x.id);
+        } else if (next.has(m.id)) next.delete(m.id);
+        else next.add(m.id);
+        return next;
+      });
+      setAnchor(m.id);
+    },
+  });
+  const act = async (streamId: string | null) => {
+    setBusy(true);
+    setErr('');
+    try {
+      await post(`/api/items/${item.id}/move-messages`, { messageIds: [...sel], streamId });
+      setSel(new Set());
+      setDest('');
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      {sel.size > 0 && (
+        <div className="bulk-bar" role="toolbar" aria-label="Selected messages">
+          <span className="bulk-n">{sel.size} selected</span>
+          <select aria-label="Move selected to" value={dest} onChange={(e) => setDest(e.target.value)}>
+            <option value="">Move to…</option>
+            {streams.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.title}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn small primary" disabled={busy || !dest} onClick={() => void act(dest)}>
+            Move
+          </button>
+          {item.streamId && (
+            <button type="button" className="btn small" disabled={busy} title="Take these messages out of this work stream (into the conversation's 'no work stream' item)" onClick={() => void act(null)}>
+              Remove from work stream
+            </button>
+          )}
+          <button type="button" className="btn small ghost" onClick={() => setSel(new Set())}>
+            Clear
+          </button>
+          {err && <span className="small error">{err}</span>}
+        </div>
+      )}
+      {children(order, pick)}
+    </>
+  );
+}
+
+function Message({ m, compact, html, defaultOriginal, item, itemId, quick, pick }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem; itemId?: string; quick?: string[]; pick?: Pick }) {
   const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
   const [moving, setMoving] = useState(false);
   const original = choice ?? !!defaultOriginal;
   return (
-    <article className={`msg ${m.isFromPU ? 'from-pu' : ''} ${compact ? 'compact' : ''}`}>
+    <article className={`msg ${m.isFromPU ? 'from-pu' : ''} ${compact ? 'compact' : ''}${pick?.checked ? ' picked' : ''}`}>
       <header>
+        {pick && (
+          <input
+            type="checkbox"
+            className="msg-pick"
+            aria-label={`Select message from ${m.author.name ?? m.author.email ?? 'someone'}`}
+            title="Select (shift-click to select a range)"
+            checked={pick.checked}
+            onChange={() => undefined}
+            onClick={(e) => pick.onClick(e.shiftKey)}
+          />
+        )}
         <strong>{m.author.name ?? m.author.email ?? m.author.slackUserId}</strong>
         {!compact && m.author.email && <span className="muted"> &lt;{m.author.email}&gt;</span>}
         <span className="muted small right">
@@ -333,11 +435,15 @@ export function ItemView({
       ) : item.data.meeting ? (
         <MeetingView m={item.data.meeting} />
       ) : item.data.messages ? (
-        <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
-          {((item.source === 'gmail' && newestFirst.email) || (item.source === 'slack' && newestFirst.slack) ? [...item.data.messages].reverse() : item.data.messages).map((m) => (
-            <Message key={m.id} m={m} itemId={item.id} quick={quick} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} />
-          ))}
-        </div>
+        <SlackSelection item={item} enabled={!peek && item.source === 'slack'} order={((item.source === 'gmail' && newestFirst.email) || (item.source === 'slack' && newestFirst.slack) ? [...item.data.messages].reverse() : item.data.messages)}>
+          {(order, pick) => (
+            <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
+              {order.map((m) => (
+                <Message key={m.id} m={m} itemId={item.id} quick={quick} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} pick={pick?.(m)} />
+              ))}
+            </div>
+          )}
+        </SlackSelection>
       ) : (
         <pre className="body block">{item.data.body ?? JSON.stringify(item.data.raw ?? item.data, null, 2)}</pre>
       )}

@@ -619,3 +619,10 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .catchup-bar > div { height: 100%; background: var(--attn); border-radius: 3px; transition: width .3s; width: 0; }
 .catchup-bar.indeterminate > div { width: 35%; position: absolute; animation: catchup-slide 1.2s ease-in-out infinite; }
 @keyframes catchup-slide { from { left: -35%; } to { left: 100%; } }
+
+/* Ticking Slack messages for bulk actions */
+.msg-pick { margin: 0 6px 0 0; vertical-align: -2px; cursor: pointer; }
+.msg.picked { border-color: var(--accent); background: var(--accent-soft); }
+.bulk-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; margin: 0 0 8px; background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+.bulk-n { font-weight: 600; font-size: 13px; margin-right: 4px; }
+.bulk-bar select { max-width: 260px; }
