@@ -34,11 +34,16 @@ test('A Slack message can be moved out of a work stream into a new one', async (
   await msg.getByRole('button', { name: 'Move…' }).click();
   const box = page.getByRole('group', { name: 'Move message' });
   await box.getByLabel('Move to').selectOption('__new');
-  await box.getByLabel('New work stream title').fill('Split-off topic');
+  // no title box: Claude names the new stream from the messages
+  await expect(box.getByRole('textbox')).toHaveCount(0);
+  await expect(box).toContainText('Claude reads the messages');
+  const before = (await api.streams()).map((s) => s.id);
   await box.getByRole('button', { name: 'Move' }).click();
 
-  await expect.poll(async () => (await api.streams()).some((s) => s.title === 'Split-off topic')).toBe(true);
-  const created = (await api.streams()).find((s) => s.title === 'Split-off topic');
+  await expect.poll(async () => (await api.streams()).some((s) => !before.includes(s.id))).toBe(true);
+  const created = (await api.streams()).find((s) => !before.includes(s.id))!;
+  expect(created.title).toMatch(/^About: /); // the demo's stand-in for Claude's title
+  expect(created.summary).toBe('Moved here from a Slack conversation.');
   const moved = ((await api.get(`/api/streams/${created.id}/items`)).json as any[]).find((i) => i.source === 'slack');
   expect(moved.data.messages.map((m: any) => m.id)).toContain(first.id);
   expect(moved.title).toBe(slack.title);

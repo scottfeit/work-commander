@@ -20,7 +20,6 @@ function MoveMessages({ item, m, onDone }: { item: StreamItem; m: ThreadMessage;
   const [streams, setStreams] = useState<WorkStream[]>([]);
   const [scope, setScope] = useState<'one' | 'later'>('one');
   const [dest, setDest] = useState('');
-  const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => {
@@ -32,7 +31,7 @@ function MoveMessages({ item, m, onDone }: { item: StreamItem; m: ThreadMessage;
     try {
       await post(`/api/items/${item.id}/move-messages`, {
         ...(scope === 'one' ? { messageIds: [m.id] } : { fromMessageId: m.id }),
-        ...(dest === '__new' ? { newStreamTitle: title.trim() } : { streamId: dest === '__none' ? null : dest }),
+        ...(dest === '__new' ? { newStream: true } : { streamId: dest === '__none' ? null : dest }),
       });
       onDone();
     } catch (e: any) {
@@ -55,14 +54,14 @@ function MoveMessages({ item, m, onDone }: { item: StreamItem; m: ThreadMessage;
             {s.title}
           </option>
         ))}
-        <option value="__new">A new work stream…</option>
+        <option value="__new">A new work stream (Claude names it)</option>
         {item.streamId && <option value="__none">No work stream (not relevant)</option>}
       </select>
-      {dest === '__new' && <input aria-label="New work stream title" placeholder="Title of the new work stream" value={title} onChange={(e) => setTitle(e.target.value)} />}
+      {dest === '__new' && <div className="muted small">Claude reads the messages and gives the new work stream a title and overview. You can rename it afterwards.</div>}
       {err && <div className="error small">{err}</div>}
       <div className="row">
-        <button className="btn small primary" disabled={busy || !dest || (dest === '__new' && !title.trim())} onClick={() => void go()}>
-          Move
+        <button className="btn small primary" disabled={busy || !dest} onClick={() => void go()}>
+          {busy && dest === '__new' ? 'Naming it…' : 'Move'}
         </button>
         <button className="btn ghost small" onClick={onDone}>
           Cancel

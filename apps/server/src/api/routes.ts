@@ -1,3 +1,4 @@
+import { nameNewStream } from '../agent/triage.js';
 import { standardEmoji } from '../core/emoji.js';
 import { INLINE_IMAGE, fetchAttachment, findAttachment } from '../core/itemAttachments.js';
 import { refreshItem } from '../core/refreshItem.js';
@@ -502,10 +503,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
         /** Move this message and every later one in the item. */
         fromMessageId: z.string().optional(),
         streamId: z.string().nullable().optional(),
-        newStreamTitle: z.string().min(1).max(200).optional(),
+        /** Into a new work stream, which Claude names from the messages (you don't pick the title). */
+        newStream: z.literal(true).optional(),
       })
       .refine((x) => (x.messageIds?.length ? 1 : 0) + (x.fromMessageId ? 1 : 0) === 1, 'Say which messages to move')
-      .refine((x) => (x.newStreamTitle ? 1 : 0) + (x.streamId !== undefined ? 1 : 0) === 1, 'Say where to move them')
+      .refine((x) => (x.newStream ? 1 : 0) + (x.streamId !== undefined ? 1 : 0) === 1, 'Say where to move them')
       .parse(req.body);
     const item = await repo.getItem((req.params as any).id);
     if (!item) throw notFound('Item');
@@ -516,15 +518,16 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     if (!messages.length) throw new Error('None of those messages are in this item');
     // Undoable until a new message arrives in this conversation (then the move drops out of the Undo history).
     const nMsgs = `${messages.length} message${messages.length === 1 ? '' : 's'}`;
-    const where = b.newStreamTitle ? `a new work stream ${q(b.newStreamTitle)}` : b.streamId ? q(await streamTitle(b.streamId)) : 'out of every work stream';
+    const named = b.newStream ? await nameNewStream(app.backend, `Slack messages from "${item.title}"`, messages) : null;
+    const where = named ? `a new work stream ${q(named.title)}` : b.streamId ? q(await streamTitle(b.streamId)) : 'out of every work stream';
     return undo.capture(
       `move ${nMsgs} from ${q(item.title)} to ${where}`,
       { slackChannel: Repo.slackChannelOf(item)!, items: [item.id], streams: [item.streamId, b.streamId] },
       async () => {
       let toStreamId: string | null = b.streamId ?? null;
       let created = false;
-      if (b.newStreamTitle) {
-        toStreamId = (await repo.createStream({ title: b.newStreamTitle, summary: '' }, 'you')).id;
+      if (named) {
+        toStreamId = (await repo.createStream({ title: named.title, summary: named.summary })).id;
         created = true;
       } else if (toStreamId) {
         const to = await repo.getStream(toStreamId);

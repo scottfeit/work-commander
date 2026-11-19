@@ -18,6 +18,11 @@ export class ScriptedBackend implements AgentBackend {
     // Match on the incoming message only, not on the list of recently skipped items.
     // Splitting a conversation by topic: the demo keeps every message where it is.
     if (/Answer with one assignment per NEW message id/.test(i.prompt)) return { assignments: [] } as T;
+    // Naming a new work stream made from moved Slack messages.
+    if (/^Slack messages from "/.test(i.prompt)) {
+      const text = i.prompt.match(/<message[^>]*>\n([^\n]*)/)?.[1] ?? 'messages';
+      return { title: `About: ${text.slice(0, 40)}`, summary: 'Moved here from a Slack conversation.', labels: null } as T;
+    }
     // Learning the PU's writing style.
     if (/^The PU: /.test(i.prompt)) return { email: ['Short and direct; no greeting beyond the first name.'], slack: ['Lower-case, brief, no sign-off.'], signoffs: ['Thanks,\nAlex'] } as T;
     // Reading a typed time: the demo answers "three days from now, 2pm" for anything with a word in it, and nothing for "never".
