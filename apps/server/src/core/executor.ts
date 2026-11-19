@@ -212,7 +212,7 @@ export class Executor {
       }
       case 'slack_post': {
         const chat = await this.hub.api('chat');
-        const r = await chat.postMessage({ channel: x.channel, userEmail: x.recipient_email, text: x.text, threadTs: x.thread_ts, files });
+        const r = await chat.postMessage({ channel: x.channel, userEmail: x.recipient_email, text: await slackMentions(chat, String(x.text ?? ''), x.mentions), threadTs: x.thread_ts, files });
         // Track the thread so replies flow back into this stream.
         await this.attachInbound(p.streamId, await chat.getThread(r.channel, x.thread_ts ?? r.ts));
         return { ...r, ...attached };
@@ -230,7 +230,7 @@ export class Executor {
       case 'ticket_comment': {
         const t = await this.hub.api('tickets');
         const issue = await t.getIssue(x.key);
-        const r = await t.comment({ key: x.key, body: x.body, public: x.visibility !== 'internal', flavor: issue.data.ticket?.flavor ?? 'jira', files });
+        const r = await t.comment({ key: x.key, body: x.body, public: x.visibility !== 'internal', flavor: issue.data.ticket?.flavor ?? 'jira', files, mentions: Array.isArray(x.mentions) ? x.mentions : undefined });
         await this.attachInbound(p.streamId, await t.getIssue(x.key));
         return { ...r, key: x.key, ...attached };
       }
@@ -295,3 +295,16 @@ export class Executor {
     }
   }
 }
+
+/** "@Name" in a Slack message becomes a real mention (<@U…>) for everyone the draft @-mentioned whom Slack knows. */
+export async function slackMentions(chat: { lookupUserByEmail(email: string): Promise<{ id: string } | null> }, text: string, mentions: unknown): Promise<string> {
+  if (!Array.isArray(mentions)) return text;
+  let out = text;
+  for (const m of mentions as { name?: string; email?: string; slackUserId?: string }[]) {
+    if (!m?.name || !out.includes(`@${m.name}`)) continue;
+    const id = m.slackUserId || (m.email ? (await chat.lookupUserByEmail(m.email).catch(() => null))?.id : undefined);
+    if (id) out = out.split(`@${m.name}`).join(`<@${id}>`);
+  }
+  return out;
+}
+

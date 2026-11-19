@@ -69,7 +69,7 @@ export interface TicketApi {
   search(jql: string, max?: number): Promise<{ key: string; summary: string; status: string; updated: string }[]>;
   createJsmRequest(input: { serviceDeskId: string; requestTypeId: string; summary: string; description: string; requesterEmail: string; assignToSelf: boolean }): Promise<{ key: string; url: string }>;
   createJiraIssue(input: { projectKey: string; issueType: string; summary: string; description: string; requesterEmail?: string; assignToSelf: boolean }): Promise<{ key: string; url: string }>;
-  comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[] }): Promise<{ id: string }>;
+  comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[]; mentions?: { name: string; email?: string }[] }): Promise<{ id: string }>;
   /** Attach files to an issue (used after creating a ticket). */
   attach(input: { key: string; files: OutFile[] }): Promise<{ count: number }>;
   transition(input: { key: string; to: string; resolution?: string }): Promise<{ status: string }>;

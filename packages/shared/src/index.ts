@@ -195,6 +195,13 @@ export type ProposalKind =
   | 'mcp_tool_call'
   | 'read_approval';
 
+/** Someone @-mentioned in a draft. On sending it becomes a real mention where the tool has them (Slack, Jira/JSM). */
+export interface DraftMention {
+  name: string;
+  email?: string;
+  slackUserId?: string;
+}
+
 /** A file attached to a draft. The bytes live server-side; drafts carry only this reference in payload.attachments. */
 export interface AttachmentRef {
   id: string;

@@ -17,16 +17,26 @@ export function adfToText(node: any): string {
   return inner;
 }
 
-export function textToAdf(text: string) {
+/** Plain text to Atlassian Document Format. `mentions` turns each "@Name" into a real mention of that account. */
+export function textToAdf(text: string, mentions: { text: string; accountId: string }[] = []) {
+  const ms = mentions.filter((m) => m.text && m.accountId).sort((a, b) => b.text.length - a.text.length);
+  const re = ms.length ? new RegExp(`(${ms.map((m) => m.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`) : null;
+  const inline = (line: string): any[] => {
+    if (!re) return line ? [{ type: 'text', text: line }] : [];
+    return line
+      .split(re)
+      .filter(Boolean)
+      .map((part) => {
+        const m = ms.find((x) => x.text === part);
+        return m ? { type: 'mention', attrs: { id: m.accountId, text: m.text } } : { type: 'text', text: part };
+      });
+  };
   return {
     type: 'doc',
     version: 1,
     content: text.split(/\n{2,}/).map((para) => ({
       type: 'paragraph',
-      content: para.split('\n').flatMap((line, i, arr) => [
-        ...(line ? [{ type: 'text', text: line }] : []),
-        ...(i < arr.length - 1 ? [{ type: 'hardBreak' }] : []),
-      ]),
+      content: para.split('\n').flatMap((line, i, arr) => [...inline(line), ...(i < arr.length - 1 ? [{ type: 'hardBreak' }] : [])]),
     })),
   };
 }
@@ -193,7 +203,14 @@ export class AtlassianCloud implements TicketApi {
     return { key: r.key as string, url: this.issueUrl(r.key) };
   }
 
-  async comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[] }) {
+  async comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[]; mentions?: { name: string; email?: string }[] }) {
+    // "@Name" mentions become real ones: JSM's plain-text body takes [~accountid:…], a Jira comment takes ADF mention nodes.
+    const found: { text: string; accountId: string }[] = [];
+    for (const m of input.mentions ?? []) {
+      const id = m.email ? await this.accountIdForEmail(m.email).catch(() => null) : null;
+      if (id && input.body.includes(`@${m.name}`)) found.push({ text: `@${m.name}`, accountId: id });
+    }
+    if (input.flavor === 'jsm') for (const f of found) input = { ...input, body: input.body.split(f.text).join(`[~accountid:${f.accountId}]`) };
     if (input.flavor === 'jsm' && input.files?.length) {
       // JSM: upload as temporary files, then add them to the request with the comment in one step,
       // so the customer sees the files on a public reply (Jira-API attachments are agent-only).
@@ -210,7 +227,7 @@ export class AtlassianCloud implements TicketApi {
       const r = await this.req('POST', `/rest/servicedeskapi/request/${input.key}/comment`, { body: input.body, public: input.public });
       return { id: String(r.id) };
     }
-    const r = await this.req('POST', `/rest/api/3/issue/${input.key}/comment`, { body: textToAdf(input.body) });
+    const r = await this.req('POST', `/rest/api/3/issue/${input.key}/comment`, { body: textToAdf(input.body, found) });
     if (input.files?.length) await this.attach({ key: input.key, files: input.files });
     return { id: String(r.id) };
   }

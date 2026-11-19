@@ -629,3 +629,10 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 
 .chip.reopened-chip { background: #e3edfb; border-color: transparent; color: #1f5fbf; font-weight: 600; }
 @media (prefers-color-scheme: dark) { .chip.reopened-chip { background: #1d2c44; color: #8db8ff; } }
+
+/* @-mentions in drafts */
+.mention-box { position: relative; }
+.mention-box textarea { width: 100%; }
+.mention-pop { position: absolute; z-index: 40; left: 8px; top: 100%; margin: 2px 0 0; padding: 4px; list-style: none; min-width: 240px; max-width: 360px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .15); }
+.mention-pop li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+.mention-pop li.on { background: var(--accent-soft); }

@@ -1,5 +1,6 @@
+import { MentionTextarea, usePeople } from './Mentions';
 import { useEffect, useId, useRef, useState } from 'react';
-import { ATTACHABLE_KINDS, type AttachmentRef, type EditableField, type Proposal } from '@wc/shared';
+import { ATTACHABLE_KINDS, type AttachmentRef, type DraftMention, type EditableField, type Proposal } from '@wc/shared';
 import { api, patch, post } from '../api';
 import { SourceBadge } from './TabBar';
 import { ConfirmButton } from './ConfirmButton';
@@ -114,6 +115,7 @@ function DraftCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const update = (key: string, v: unknown) => onEdit(setPath(payload, key, v));
+  const people = usePeople(MENTIONABLE[p.kind] ? p.streamId : null);
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     setErr(null);
@@ -161,7 +163,14 @@ function DraftCard({
       {dependsOn.length > 0 && <div className="small dep">Runs after: {dependsOn.join(', ')}</div>}
       <div className="fields">
         {p.editable.map((f) => (
-          <Field key={f.key} f={f} value={getPath(payload, f.key)} onChange={(v) => update(f.key, v)} />
+          <Field
+            key={f.key}
+            f={f}
+            value={getPath(payload, f.key)}
+            onChange={(v) => update(f.key, v)}
+            people={MENTIONABLE[p.kind] === f.key ? people : undefined}
+            onMention={(text, who) => onEdit(withMention(setPath(payload, f.key, text) as Record<string, unknown>, p.kind, who))}
+          />
         ))}
       </div>
       {ATTACHABLE_KINDS.includes(p.kind) && (
@@ -230,7 +239,23 @@ function DraftCard({
   );
 }
 
-function Field({ f, value, onChange }: { f: EditableField; value: unknown; onChange: (v: unknown) => void }) {
+/** The text field of each draft kind where "@" mentions people. */
+const MENTIONABLE: Partial<Record<string, string>> = { email_reply: 'body', email_send: 'body', slack_post: 'text', ticket_comment: 'body' };
+
+/** Remember who was @-mentioned (Slack/Jira turn "@Name" into a real mention on sending); for email, add them to Cc as Gmail does. */
+function withMention(payload: Record<string, unknown>, kind: string, who: DraftMention): Record<string, unknown> {
+  const mentions = [...((payload.mentions as DraftMention[] | undefined) ?? []).filter((m) => m.name !== who.name), who];
+  let next: Record<string, unknown> = { ...payload, mentions };
+  if ((kind === 'email_reply' || kind === 'email_send') && who.email) {
+    const list = (v: unknown) => (Array.isArray(v) ? (v as string[]) : String(v ?? '').split(/[,;]\s*/).filter(Boolean));
+    const to = list(payload.to).map((x) => x.toLowerCase());
+    const cc = list(payload.cc);
+    if (!to.includes(who.email.toLowerCase()) && !cc.some((x) => x.toLowerCase() === who.email!.toLowerCase())) next = { ...next, cc: Array.isArray(payload.cc) || payload.cc === undefined ? [...cc, who.email] : [...cc, who.email].join(', ') };
+  }
+  return next;
+}
+
+function Field({ f, value, onChange, people, onMention }: { f: EditableField; value: unknown; onChange: (v: unknown) => void; people?: DraftMention[]; onMention?: (text: string, who: DraftMention) => void }) {
   const id = useId();
   if (f.type === 'readonly')
     return (
@@ -242,7 +267,9 @@ function Field({ f, value, onChange }: { f: EditableField; value: unknown; onCha
   return (
     <div className="field">
       <label htmlFor={id}>{f.label}</label>
-      {f.type === 'textarea' ? (
+      {f.type === 'textarea' && people && onMention ? (
+        <MentionTextarea id={id} rows={Math.min(14, Math.max(4, String(value ?? '').split('\n').length + 1))} value={String(value ?? '')} people={people} onChange={(v) => onChange(v)} onPick={onMention} />
+      ) : f.type === 'textarea' ? (
         <textarea id={id} rows={Math.min(14, Math.max(4, String(value ?? '').split('\n').length + 1))} value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />
       ) : f.type === 'list' ? (
         <ListInput id={id} value={value} onChange={onChange} />
