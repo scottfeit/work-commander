@@ -2,14 +2,20 @@ import { test, expect, freshApp, stream, WEB } from './helpers';
 
 freshApp();
 
-test('the selected work stream stands out: accent bar down the left, tinted background', async ({ page }) => {
+test('the selected work stream stands out: even 2px accent border, tinted background', async ({ page }) => {
   await page.goto(WEB);
   await stream(page, /contractor access/i).click();
   const sel = page.locator('.sidebar .stream.active');
   const other = page.locator('.sidebar .stream:not(.active):not(.general)').first();
   const [a, b] = await Promise.all([sel.evaluate((e) => getComputedStyle(e).backgroundColor), other.evaluate((e) => getComputedStyle(e).backgroundColor)]);
   expect(a).not.toBe(b);
-  expect(await sel.evaluate((e) => getComputedStyle(e).boxShadow)).toMatch(/inset/);
+  // an even 2px accent border (1px border + 1px inset ring), the same on every side
+  const edge = await sel.evaluate((e) => {
+    const c = getComputedStyle(e);
+    return { widths: [c.borderTopWidth, c.borderRightWidth, c.borderBottomWidth, c.borderLeftWidth], shadow: c.boxShadow };
+  });
+  expect(new Set(edge.widths).size).toBe(1);
+  expect(edge.shadow).toMatch(/0px 0px 0px 1px inset/); // the same 1px ring on every side
   await page.locator('.sidebar').screenshot({ path: 'qa/results/selected-stream.png' });
 });
 
