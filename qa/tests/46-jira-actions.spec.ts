@@ -176,3 +176,26 @@ test('in a narrow window with larger text, the less-used buttons fold into "More
   await expect(row.getByRole('button', { name: 'Unsilence' })).toBeVisible();
   await expect(row.getByRole('button', { name: 'More ▾' })).toHaveCount(0);
 });
+
+test('the Overview folds Unread and Claude Code into "More ▾" when its buttons don\'t fit; the alarm and Close stay out', async ({ page }) => {
+  const ov = page.locator('.overview-pane .ov-actions');
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  // normal size: everything out, no menu
+  await expect(ov.getByRole('button', { name: 'Hand off to Claude Code' })).toBeVisible();
+  await expect(ov.getByRole('button', { name: 'More ▾' })).toHaveCount(0);
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await page.addStyleTag({ content: 'html { zoom: 1.2; }' });
+  await expect(ov.getByRole('button', { name: 'More ▾' })).toBeVisible();
+  await expect(ov.getByRole('button', { name: 'Mark pending' })).toBeVisible();
+  await expect(ov.getByRole('button', { name: 'Close stream' })).toBeVisible();
+  // every button whole (none cut short) and inside the pane
+  const cut = await ov.locator('.btn').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => `${e.textContent} ${e.scrollWidth}/${e.clientWidth}`));
+  expect(cut).toEqual([]);
+  const [r, pane] = await Promise.all([ov.boundingBox(), page.locator('.overview-pane').boundingBox()]);
+  expect(r!.x + r!.width).toBeLessThanOrEqual(pane!.x + pane!.width + 1);
+  await ov.getByRole('button', { name: 'More ▾' }).click();
+  await page.locator('.overview-pane .item-head').screenshot({ path: 'qa/results/overview-more.png' });
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Hand off to Claude Code' }).click();
+  await expect(page.locator('.overview-pane .handoff')).toBeVisible();
+});

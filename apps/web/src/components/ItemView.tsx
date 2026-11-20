@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useFoldWhenTight } from './useFoldWhenTight';
 import type { ClaudeCodeStatus, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, TicketTransitionOption, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { ccPost, fmtTime, get, patch, post, timeAgo } from '../api';
@@ -388,22 +389,7 @@ export function ItemView({
   // When the item's buttons can't fit on one line even on a row of their own, the less-used ones fold into "More ▾".
   const head = useRef<HTMLDivElement>(null);
   const actions = useRef<HTMLSpanElement>(null);
-  const fullWidth = useRef(0);
-  const [compact, setCompact] = useState(false);
-  useLayoutEffect(() => {
-    const h = head.current;
-    const a = actions.current;
-    if (!h || !a) return;
-    const check = () => {
-      if (!compact) fullWidth.current = a.scrollWidth;
-      const room = h.clientWidth;
-      setCompact(fullWidth.current > room);
-    };
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(h);
-    return () => ro.disconnect();
-  }, [compact, item.id, peek, item.data.muted]);
+  const compact = useFoldWhenTight(head, actions, [item.id, peek, item.data.muted]);
   const muteButton = (inMenu: boolean) => (
     <button
       className={inMenu ? 'menu-item' : `btn small ${item.data.muted ? '' : 'ghost'}`}
@@ -795,12 +781,31 @@ export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetR
     });
   const [canHandoff, setCanHandoff] = useState(false);
   useEffect(() => setHandoffOpen(false), [stream.id]);
+  // When the buttons don't fit on one line, Unread and Claude Code fold into "More ▾" (the alarm and Close stay out).
+  const ovRow = useRef<HTMLDivElement>(null);
+  const ovFolded = useFoldWhenTight(ovRow, ovRow, [stream.id, stream.status, stream.unread, canHandoff, manualRead]);
+  const unreadButton = (inMenu: boolean) =>
+    manualRead && onSetRead ? (
+      <button className={inMenu ? 'menu-item' : 'btn small read-btn'} role={inMenu ? 'menuitem' : undefined} aria-label={stream.unread ? 'Mark read' : 'Mark unread'} title={stream.unread ? 'Mark this work stream read' : 'Mark this work stream unread'} onClick={() => onSetRead(stream.unread)}>
+        {stream.unread ? 'Read' : 'Unread'}
+      </button>
+    ) : onMarkUnread ? (
+      <button className={inMenu ? 'menu-item' : 'btn small'} role={inMenu ? 'menuitem' : undefined} aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
+        Unread
+      </button>
+    ) : null;
+  const ccButton = (inMenu: boolean) =>
+    canHandoff ? (
+      <button type="button" className={inMenu ? 'menu-item' : `btn small${handoffOpen ? ' on' : ''}`} role={inMenu ? 'menuitem' : undefined} aria-expanded={inMenu ? undefined : handoffOpen} aria-label="Hand off to Claude Code" title="Hand this work off to Claude Code (writes a brief, then opens it in Terminal)" onClick={() => setHandoffOpen((o) => !o)}>
+        Claude Code
+      </button>
+    ) : null;
 
   return (
     <div className="item-view overview">
       <div className="item-head">
         <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
-        <div className="ov-actions">
+        <div className="ov-actions" ref={ovRow}>
         {onTogglePending && stream.status === 'open' && (
           <span className="pending-split">
           <button
@@ -816,15 +821,7 @@ export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetR
           <SnoozeMenu onPending={() => void save({ pending: true })} onSnooze={(snoozeUntil) => void patch(`/api/streams/${stream.id}`, { pending: true, snoozeUntil })} extra={promisedOption(stream)} />
           </span>
         )}
-        {manualRead && onSetRead ? (
-          <button className="btn small read-btn" aria-label={stream.unread ? 'Mark read' : 'Mark unread'} title={stream.unread ? 'Mark this work stream read' : 'Mark this work stream unread'} onClick={() => onSetRead(stream.unread)}>
-            {stream.unread ? 'Read' : 'Unread'}
-          </button>
-        ) : onMarkUnread && (
-          <button className="btn small" aria-label="Mark unread" title="Mark this work stream unread and go back to the list" onClick={onMarkUnread}>
-            Unread
-          </button>
-        )}
+        {!ovFolded && unreadButton(false)}
         {stream.status === 'open' ? (
           // Same labels as the work stream's tile: Unread, Close, then Confirm.
           <ConfirmButton confirm={confirmClose} onConfirm={() => save({ status: 'closed' })} ariaLabel="Close stream" armedAriaLabel="Confirm close" armedChildren="Confirm" title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'} armedTitle="Click again to close this work stream">
@@ -835,10 +832,12 @@ export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetR
             Reopen
           </button>
         )}
-        {canHandoff && (
-          <button type="button" className={`btn small${handoffOpen ? ' on' : ''}`} aria-expanded={handoffOpen} aria-label="Hand off to Claude Code" title="Hand this work off to Claude Code (writes a brief, then opens it in Terminal)" onClick={() => setHandoffOpen((o) => !o)}>
-            Claude Code
-          </button>
+        {!ovFolded && ccButton(false)}
+        {ovFolded && (unreadButton(true) || ccButton(true)) && (
+          <MoreMenu>
+            {unreadButton(true)}
+            {ccButton(true)}
+          </MoreMenu>
         )}
         </div>
       </div>

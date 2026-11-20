@@ -559,7 +559,7 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 
 /* Overview pane: its buttons on one line under the title (they give way with … before anything wraps). */
 .ov-actions { display: flex; flex: 1 1 100%; gap: 6px; flex-wrap: nowrap; align-items: center; min-width: 0; }
-.ov-actions > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-actions > .btn { flex: none; white-space: nowrap; }
 .ov-actions > .pending-split { flex: 0 0 auto; }
 .overview-pane .handoff { margin: 8px 0 0; }
 
