@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ClearableInput } from '../components/ClearableInput';
 import type { BackupStatus, CredentialInfo, EnvironmentInfo, FieldMapping, ModelChoice, OrgChartSourceSettings, OrgChartSyncStatus, Person, Settings, TaskModels } from '@wc/shared';
 import { BACKGROUND_TASKS } from '@wc/shared';
 import { UsageSection } from './UsageSection';
@@ -9,7 +10,7 @@ import { MeetingsSection } from './MeetingsSection';
 import { ClaudeCodeSection } from './ClaudeCodeSection';
 import { QuickReactions } from './QuickReactions';
 import { get, post, put } from '../api';
-import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, Text, Toggle } from './parts';
+import { BACKEND_LABEL, CredentialField, IngestionEditor, McpEditor, PolicyEditor, Row, Select, SettingsCtx, Text, Toggle, getPath } from './parts';
 
 const SECTIONS = [
   ['pu', 'Primary user & org chart'],
@@ -62,6 +63,43 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
     setS((cur) => (cur ? { ...st, ...diffKeep(cur, saved ?? st) } : st));
   };
   const dirty = useMemo(() => JSON.stringify(s) !== JSON.stringify(saved), [s, saved]);
+  // Search, and "only what I've changed": every section shows, with only the matching rows (Esc clears the search).
+  const [q, setQ] = useState('');
+  const [changedOnly, setChangedOnly] = useState(false);
+  const [defaults, setDefaults] = useState<Settings | null>(null);
+  useEffect(() => void get<Settings>('/api/settings/defaults').then(setDefaults).catch(() => undefined), []);
+  const filtering = !!q.trim() || changedOnly;
+  const on = (k: Section) => section === k || filtering;
+  const body = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const root = body.current;
+    if (!root) return;
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    for (const sec of Array.from(root.querySelectorAll<HTMLElement>(':scope > section'))) {
+      const heading = (sec.querySelector('h2')?.textContent ?? '').toLowerCase();
+      const headingHit = words.length > 0 && words.every((w) => heading.includes(w));
+      let any = false;
+      for (const row of Array.from(sec.querySelectorAll<HTMLElement>('.srow'))) {
+        const text = (row.querySelector('.srow-label')?.textContent ?? '').toLowerCase();
+        const show = !words.length || headingHit || words.every((w) => text.includes(w));
+        row.style.display = show ? '' : 'none'; // (its own display style would beat the hidden attribute)
+        any ||= show;
+      }
+      // while filtering, a section shows only with matching rows (or a matching name, when searching)
+      sec.style.display = filtering && !any && !(headingHit && !changedOnly) ? 'none' : '';
+    }
+  });
+  const reset = (paths: string[]) => {
+    if (!s || !defaults) return;
+    let next: any = structuredClone(s);
+    for (const p of paths) {
+      const keys = p.split('.');
+      let cur = next;
+      for (const k of keys.slice(0, -1)) cur = cur[k] ??= {};
+      cur[keys[keys.length - 1]] = structuredClone(getPath(defaults, p));
+    }
+    setS(next);
+  };
 
   if (!s || !env) return <div className="settings loading">Loading settings…</div>;
   const up = <K extends keyof Settings>(k: K, v: Partial<Settings[K]>) => setS({ ...s, [k]: typeof s[k] === 'object' && !Array.isArray(s[k]) ? { ...(s[k] as object), ...v } : v });
@@ -78,6 +116,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
   const credProps = { creds, backends: env.availableBackends, defaultBackend: s.secrets.defaultBackend, onSaved: reloadCreds };
 
   return (
+    <SettingsCtx.Provider value={{ current: s, defaults: defaults ?? undefined, reset, changedOnly }}>
     <div className="settings">
       <aside className="settings-nav">
         <button className="btn ghost small back" onClick={onBack}>
@@ -94,8 +133,25 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           {env.demoMode ? ' · demo mode' : ''} · v{env.version}
         </div>
       </aside>
-      <main className="settings-body">
+      <main className="settings-body" ref={body}>
         <div className="settings-bar">
+          <ClearableInput
+            wrapClass="settings-search"
+            aria-label="Search settings"
+            placeholder="Search settings"
+            value={q}
+            onClear={() => setQ('')}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setQ('');
+              }
+            }}
+          />
+          <label className="toggle small nowrap">
+            <input type="checkbox" checked={changedOnly} onChange={(e) => setChangedOnly(e.target.checked)} /> Show only changed settings
+          </label>
           {!s.setupComplete && <span className="chip attention">Setup: add your name and email, connect your systems, then save.</span>}
           {msg && <span className={msg.ok ? 'ok' : 'error'}>{msg.text}</span>}
           <button className="btn primary right" disabled={!dirty} onClick={save}>
@@ -103,12 +159,12 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </button>
         </div>
 
-        {section === 'pu' && <PuSection s={s} up={up} credProps={credProps} />}
+        {on('pu') && <PuSection s={s} up={up} credProps={credProps} />}
 
-        {section === 'claude' && (
+        {on('claude') && (
           <section>
             <h2>Claude</h2>
-            <Row label="Provider" hint="How this instance reaches Claude">
+            <Row label="Provider" hint="How this instance reaches Claude" paths={['claude.provider']}>
               <Select
                 value={s.claude.provider}
                 onChange={(provider) => up('claude', { provider })}
@@ -127,22 +183,22 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             </Row>
             {s.claude.provider === 'vertex' && (
               <>
-                <Row label="Vertex project id">
+                <Row label="Vertex project id" paths={['claude.vertex.projectId']}>
                   <Text value={s.claude.vertex.projectId} onChange={(projectId) => up('claude', { vertex: { ...s.claude.vertex, projectId } })} />
                 </Row>
-                <Row label="Region" hint='"global" or a region such as us-east5'>
+                <Row label="Region" hint='"global" or a region such as us-east5' paths={['claude.vertex.region']}>
                   <Text value={s.claude.vertex.region} onChange={(region) => up('claude', { vertex: { ...s.claude.vertex, region } })} />
                 </Row>
               </>
             )}
             {s.claude.provider === 'api-key' && <CredentialField id="anthropic.apiKey" label="Anthropic API key" {...credProps} />}
-            <Row label="Model" hint='An alias ("sonnet", "opus") or a full model id'>
+            <Row label="Model" hint='An alias ("sonnet", "opus") or a full model id' paths={['claude.model']}>
               <Text value={s.claude.model} onChange={(model) => up('claude', { model })} />
             </Row>
             <h3>Models for background calls</h3>
             <p className="small muted">The chat agent and drafting always use the model above. These run without you, so a cheaper model saves the most here.</p>
             {BACKGROUND_TASKS.map((t) => (
-              <Row key={t.id} label={t.label} hint={t.hint}>
+              <Row key={t.id} label={t.label} hint={t.hint} paths={[`claude.taskModels.${t.id}`]}>
                 <Select<ModelChoice>
                   value={s.claude.taskModels?.[t.id] ?? 'main'}
                   onChange={(v) => up('claude', { taskModels: { ...((s.claude.taskModels ?? {}) as TaskModels), [t.id]: v } })}
@@ -156,31 +212,31 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               </Row>
             ))}
             <h3>Behaviour</h3>
-            <Row label="Draft automatically" hint="On: when new activity needs a reply or a ticket, Claude prepares the draft right away. Off: Claude offers to draft it, and only drafts once you accept. Either way nothing is sent without your approval unless a system's write policy is automatic.">
+            <Row label="Draft automatically" hint="On: when new activity needs a reply or a ticket, Claude prepares the draft right away. Off: Claude offers to draft it, and only drafts once you accept. Either way nothing is sent without your approval unless a system's write policy is automatic." paths={['claude.autoDraft']}>
               <Toggle checked={s.claude.autoDraft} onChange={(autoDraft) => up('claude', { autoDraft })} label="Prepare drafts without asking first" />
             </Row>
-            <Row label="Slack topics" hint="A DM or group DM can run several topics. New messages go to the work stream whose topic they continue, or are triaged as a new topic. You can always move a message yourself.">
+            <Row label="Slack topics" hint="A DM or group DM can run several topics. New messages go to the work stream whose topic they continue, or are triaged as a new topic. You can always move a message yourself." paths={['claude.splitSlackByTopic']}>
               <Toggle checked={s.claude.splitSlackByTopic !== false} onChange={(splitSlackByTopic) => up('claude', { splitSlackByTopic })} label="Sort Slack conversations into work streams by topic" />
             </Row>
-            <Row label="Reopen closed streams" hint="New activity on a stream closed within this many days reopens it. Older closed streams stay closed and the activity starts a new work stream.">
+            <Row label="Reopen closed streams" hint="New activity on a stream closed within this many days reopens it. Older closed streams stay closed and the activity starts a new work stream." paths={['claude.reopenClosedWithinDays']}>
               <input className="num" type="number" min={0} max={365} aria-label="Reopen closed streams within days" value={s.claude.reopenClosedWithinDays} onChange={(e) => up('claude', { reopenClosedWithinDays: Math.max(0, Number(e.target.value)) })} /> <span className="small muted">days</span>
             </Row>
-            <Row label="Web research" hint="Lets Claude use web search and fetch during research">
+            <Row label="Web research" hint="Lets Claude use web search and fetch during research" paths={['claude.allowWebResearch']}>
               <Toggle checked={s.claude.allowWebResearch} onChange={(allowWebResearch) => up('claude', { allowWebResearch })} label="Allow web search" />
             </Row>
-            <Row label="Max agent turns per run">
+            <Row label="Max agent turns per run" paths={['claude.maxTurns']}>
               <input className="num" type="number" min={5} max={200} value={s.claude.maxTurns} onChange={(e) => up('claude', { maxTurns: Number(e.target.value) })} />
             </Row>
             <TestButton label="Test Claude connection" run={() => post('/api/claude/test').then((r) => `Claude replied: ${r.reply}`)} note={dirty ? 'Save first' : undefined} />
           </section>
         )}
 
-        {section === 'google' && (
+        {on('google') && (
           <section>
             <h2>Google Workspace</h2>
             {flash && <div className={flash === 'connected' ? 'ok' : 'error'}>{flash === 'connected' ? 'Google account connected.' : `Google sign-in: ${flash}`}</div>}
             <Toggle checked={s.google.enabled} onChange={(enabled) => up('google', { enabled })} label="Enabled" />
-            <Row label="Connect with">
+            <Row label="Connect with" paths={['google.mode', 'google.ingestion']}>
               <Select value={s.google.mode} onChange={(mode) => up('google', { mode, ingestion: mode === 'mcp' && s.google.ingestion === 'realtime' ? 'polling' : s.google.ingestion })} options={[{ value: 'oauth', label: 'OAuth (Gmail, Drive, Calendar APIs)' }, { value: 'mcp', label: 'MCP server' }]} />
             </Row>
             {s.google.mode === 'oauth' ? (
@@ -188,7 +244,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 <p className="muted small">
                   Create an OAuth client (type "Web application") in a GCP project you control, enable the Gmail, Drive and Calendar APIs, and add <code>{env.publicUrl}/api/oauth/google/callback</code> as an authorized redirect URI.
                 </p>
-                <Row label="OAuth client id">
+                <Row label="OAuth client id" paths={['google.oauth.clientId']}>
                   <Text value={s.google.oauth.clientId} onChange={(clientId) => up('google', { oauth: { ...s.google.oauth, clientId } })} />
                 </Row>
                 <CredentialField id="google.oauth.clientSecret" label="OAuth client secret" {...credProps} />
@@ -217,7 +273,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                   )}
                   {dirty && <span className="small muted"> Save first</span>}
                 </Row>
-                <Row label="Inbox filter" hint="Gmail query used for the first sync">
+                <Row label="Inbox filter" hint="Gmail query used for the first sync" paths={['google.oauth.gmailQuery']}>
                   <Text value={s.google.oauth.gmailQuery} onChange={(gmailQuery) => up('google', { oauth: { ...s.google.oauth, gmailQuery } })} />
                 </Row>
               </>
@@ -225,6 +281,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               <McpEditor value={s.google.mcp!} onChange={(mcp) => up('google', { mcp })} creds={creds} system="google" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
             )}
             <IngestionEditor
+              base="google"
               mode={s.google.ingestion}
               seconds={s.google.pollSeconds}
               realtimeAvailable={s.google.mode === 'oauth'}
@@ -233,25 +290,25 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             />
             {s.google.mode === 'oauth' && s.google.ingestion === 'realtime' && (
               <>
-                <Row label="Pub/Sub topic" hint="Grant gmail-api-push@system.gserviceaccount.com the Publisher role on it">
+                <Row label="Pub/Sub topic" hint="Grant gmail-api-push@system.gserviceaccount.com the Publisher role on it" paths={['google.oauth.pubsubTopic']}>
                   <Text value={s.google.oauth.pubsubTopic} placeholder="projects/PROJECT/topics/wc-gmail" onChange={(pubsubTopic) => up('google', { oauth: { ...s.google.oauth, pubsubTopic } })} />
                 </Row>
-                <Row label="Pull subscription">
+                <Row label="Pull subscription" paths={['google.oauth.pubsubSubscription']}>
                   <Text value={s.google.oauth.pubsubSubscription} placeholder="projects/PROJECT/subscriptions/wc-gmail-pull" onChange={(pubsubSubscription) => up('google', { oauth: { ...s.google.oauth, pubsubSubscription } })} />
                 </Row>
               </>
             )}
             <h3>Approvals</h3>
-            <PolicyEditor value={s.google.policy} onChange={(policy) => up('google', { policy })} />
+            <PolicyEditor base="google.policy" value={s.google.policy} onChange={(policy) => up('google', { policy })} />
             <TestButton label="Test" run={() => post('/api/integrations/google/test').then(fmtTest)} note={dirty ? 'Save first' : undefined} />
           </section>
         )}
 
-        {section === 'slack' && (
+        {on('slack') && (
           <section>
             <h2>Slack</h2>
             <Toggle checked={s.slack.enabled} onChange={(enabled) => up('slack', { enabled })} label="Enabled" />
-            <Row label="Connect with">
+            <Row label="Connect with" paths={['slack.mode', 'slack.ingestion']}>
               <Select value={s.slack.mode} onChange={(mode) => up('slack', { mode, ingestion: mode === 'mcp' && s.slack.ingestion === 'realtime' ? 'polling' : s.slack.ingestion })} options={[{ value: 'api', label: 'Slack app tokens (API)' }, { value: 'mcp', label: 'MCP server' }]} />
             </Row>
             {s.slack.mode === 'api' ? (
@@ -265,18 +322,19 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             ) : (
               <>
                 <McpEditor value={s.slack.mcp!} onChange={(mcp) => up('slack', { mcp })} creds={creds} system="slack" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
-                <Row label="Checking for activity" hint="On: Work Commander reads Slack's MCP server itself (searches, channel and thread reads), so checking costs no Claude tokens. Off: Claude does the reading, following the ingestion instructions above. If a direct read fails, that check uses Claude.">
+                <Row label="Checking for activity" hint="On: Work Commander reads Slack's MCP server itself (searches, channel and thread reads), so checking costs no Claude tokens. Off: Claude does the reading, following the ingestion instructions above. If a direct read fails, that check uses Claude." paths={['slack.mcpDirect']}>
                   <Toggle checked={s.slack.mcpDirect !== false} onChange={(mcpDirect) => up('slack', { mcpDirect })} label="Read Slack without Claude" />
                 </Row>
               </>
             )}
-            <Row label="Watched channels" hint="Also look at new messages in the channels you tick, not only DMs, mentions and threads you're in">
+            <Row label="Watched channels" hint="Also look at new messages in the channels you tick, not only DMs, mentions and threads you're in" paths={['slack.watchedChannels']}>
               <ChannelPicker value={s.slack.watchedChannels} onChange={(watchedChannels) => up('slack', { watchedChannels })} canLoad={!dirty} />
             </Row>
-            <Row label="Quick reactions" hint="The five emoji offered first when you react to a Slack message (on hover, and at the top of the full picker). Click one to change it.">
+            <Row label="Quick reactions" hint="The five emoji offered first when you react to a Slack message (on hover, and at the top of the full picker). Click one to change it." paths={['slack.quickReactions']}>
               <QuickReactions value={s.slack.quickReactions ?? ['+1', 'white_check_mark', 'eyes', 'pray', 'tada']} onChange={(quickReactions) => up('slack', { quickReactions })} />
             </Row>
             <IngestionEditor
+              base="slack"
               mode={s.slack.ingestion}
               seconds={s.slack.pollSeconds}
               realtimeAvailable={s.slack.mode === 'api'}
@@ -284,21 +342,21 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               onChange={(ingestion, pollSeconds) => up('slack', { ingestion, pollSeconds })}
             />
             <h3>Approvals</h3>
-            <PolicyEditor value={s.slack.policy} onChange={(policy) => up('slack', { policy })} />
+            <PolicyEditor base="slack.policy" value={s.slack.policy} onChange={(policy) => up('slack', { policy })} />
             <TestButton label="Test" run={() => post('/api/integrations/slack/test').then(fmtTest)} note={dirty ? 'Save first' : undefined} />
           </section>
         )}
 
-        {section === 'atlassian' && <AtlassianSection s={s} up={up} credProps={credProps} creds={creds} env={env} dirty={dirty} />}
+        {on('atlassian') && <AtlassianSection s={s} up={up} credProps={credProps} creds={creds} env={env} dirty={dirty} />}
 
-        {section === 'onepassword' && (
+        {on('onepassword') && (
           <section>
             <h2>1Password</h2>
             <p className="muted small">
               Agents ask for access to systems you control through 1Password. You approve each request in the draft pane. Claude never sees the secret: approved credentials are injected server-side into requests to the allowed hosts only.
             </p>
             <Toggle checked={s.onepassword.enabled} onChange={(enabled) => up('onepassword', { enabled })} label="Enabled" />
-            <Row label="Connect with">
+            <Row label="Connect with" paths={['onepassword.mode']}>
               <Select
                 value={s.onepassword.mode}
                 onChange={(mode) => up('onepassword', { mode })}
@@ -312,41 +370,41 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             {s.onepassword.mode === 'service-account' && <CredentialField id="onepassword.serviceAccountToken" label="Service account token" placeholder="ops_…" {...credProps} />}
             {s.onepassword.mode === 'connect' && (
               <>
-                <Row label="Connect server URL">
+                <Row label="Connect server URL" paths={['onepassword.connect.url']}>
                   <Text value={s.onepassword.connect?.url} onChange={(url) => up('onepassword', { connect: { ...s.onepassword.connect, url } })} />
                 </Row>
                 <CredentialField id="onepassword.connectToken" label="Connect access token" {...credProps} />
               </>
             )}
             {s.onepassword.mode === 'cli' && (
-              <Row label="Account" hint="Optional: account shorthand or sign-in address if you have several">
+              <Row label="Account" hint="Optional: account shorthand or sign-in address if you have several" paths={['onepassword.cli']}>
                 <Text value={s.onepassword.cli?.account} onChange={(account) => up('onepassword', { cli: { account } })} />
               </Row>
             )}
-            <Row label="Vault agents may request from">
+            <Row label="Vault agents may request from" paths={['onepassword.accessVault']}>
               <Text value={s.onepassword.accessVault} onChange={(accessVault) => up('onepassword', { accessVault })} placeholder="Agent Access" />
             </Row>
-            <Row label="Vault for dashboard secrets" hint="Used when you choose 1Password as a credential's storage">
+            <Row label="Vault for dashboard secrets" hint="Used when you choose 1Password as a credential's storage" paths={['onepassword.secretsVault']}>
               <Text value={s.onepassword.secretsVault} onChange={(secretsVault) => up('onepassword', { secretsVault })} placeholder="Work Commander" />
             </Row>
-            <Row label="Grants expire after (minutes)">
+            <Row label="Grants expire after (minutes)" paths={['onepassword.grantTtlMinutes']}>
               <input className="num" type="number" min={5} value={s.onepassword.grantTtlMinutes} onChange={(e) => up('onepassword', { grantTtlMinutes: Number(e.target.value) })} />
             </Row>
             <h3>Approvals</h3>
-            <PolicyEditor value={s.onepassword.policy} onChange={(policy) => up('onepassword', { policy })} />
+            <PolicyEditor base="onepassword.policy" value={s.onepassword.policy} onChange={(policy) => up('onepassword', { policy })} />
             <p className="small muted">Access requests always need your approval, whatever the write policy.</p>
             <TestButton label="List vault items" run={() => get('/api/onepassword/items').then((r: any[]) => `${r.length} items: ${r.slice(0, 5).map((x) => x.title).join(', ')}`)} note={dirty ? 'Save first' : undefined} />
           </section>
         )}
 
-        {section === 'secrets' && (
+        {on('secrets') && (
           <section>
             <h2>Secrets</h2>
             <p className="muted small">API keys and tokens never go in the dashboard database. Each one lives in the backend you pick for it. The database stores only a reference.</p>
-            <Row label="Default storage for new credentials">
+            <Row label="Default storage for new credentials" paths={['secrets.defaultBackend']}>
               <Select value={s.secrets.defaultBackend} onChange={(defaultBackend) => up('secrets', { defaultBackend })} options={env.availableBackends.map((b) => ({ value: b, label: BACKEND_LABEL[b] }))} />
             </Row>
-            <Row label="GCP project for Secret Manager" hint="Uses Application Default Credentials (gcloud auth application-default login locally, the service account on Cloud Run)">
+            <Row label="GCP project for Secret Manager" hint="Uses Application Default Credentials (gcloud auth application-default login locally, the service account on Cloud Run)" paths={['secrets.gcpProjectId']}>
               <Text value={s.secrets.gcpProjectId} onChange={(gcpProjectId) => up('secrets', { gcpProjectId })} />
             </Row>
             <h3>Stored credentials</h3>
@@ -385,7 +443,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
           </section>
         )}
 
-        {section === 'playbooks' && (
+        {on('playbooks') && (
           <section>
             <h2>Playbooks</h2>
             <p className="muted small">
@@ -403,17 +461,17 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             <p className="muted small">One instruction per line works best. Include links and what to put where. Press Save changes to apply.</p>
           </section>
         )}
-        {section === 'triage' && saved && <TriageSection s={s} saved={saved} up={up} env={env} />}
-        {section === 'rules' && <RulesSection s={s} setS={setS} />}
-        {section === 'style' && <StyleSection s={s} setS={setS} />}
-        {section === 'meetings' && <MeetingsSection s={s} setS={setS} />}
-        {section === 'claudecode' && <ClaudeCodeSection s={s} setS={setS} local={env.hosting === 'local'} />}
-        {section === 'usage' && <UsageSection s={s} up={up} />}
+        {on('triage') && saved && <TriageSection s={s} saved={saved} up={up} env={env} />}
+        {on('rules') && <RulesSection s={s} setS={setS} />}
+        {on('style') && <StyleSection s={s} setS={setS} />}
+        {on('meetings') && <MeetingsSection s={s} setS={setS} />}
+        {on('claudecode') && <ClaudeCodeSection s={s} setS={setS} local={env.hosting === 'local'} />}
+        {on('usage') && <UsageSection s={s} up={up} />}
 
-        {section === 'display' && (
+        {on('display') && (
           <section>
             <h2>Display</h2>
-            <Row label="Opening a work stream" hint="Which work item tab you land on when you click a work stream (the Overview is always shown beside it)">
+            <Row label="Opening a work stream" hint="Which work item tab you land on when you click a work stream (the Overview is always shown beside it)" paths={['ui.openTab']}>
               <Select
                 value={s.ui.openTab ?? 'overview'}
                 onChange={(openTab) => up('ui', { openTab })}
@@ -423,7 +481,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
-            <Row label="Emails" hint="How an email shows when you open it; each message has an Original / Text link to flip it">
+            <Row label="Emails" hint="How an email shows when you open it; each message has an Original / Text link to flip it" paths={['ui.emailView']}>
               <Select
                 value={s.ui.emailView ?? 'text'}
                 onChange={(emailView) => up('ui', { emailView })}
@@ -433,15 +491,15 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
-            <Row label="Closing work streams" hint="Close stream asks for a second click, so a stray click doesn't close one. A closed stream can always be reopened.">
+            <Row label="Closing work streams" hint="Close stream asks for a second click, so a stray click doesn't close one. A closed stream can always be reopened." paths={['ui.confirmClose']}>
               <Toggle checked={s.ui.confirmClose !== false} onChange={(confirmClose) => up('ui', { confirmClose })} label="Click twice to close a work stream" />
             </Row>
-            <Row label="Message order" hint="Normally the oldest message is at the top of a work item and the newest at the bottom.">
+            <Row label="Message order" hint="Normally the oldest message is at the top of a work item and the newest at the bottom." paths={['ui.newestFirst.email', 'ui.newestFirst.slack', 'ui.newestFirst.tickets']}>
               <Toggle checked={!!s.ui.newestFirst?.email} onChange={(email) => up('ui', { newestFirst: { ...s.ui.newestFirst, email } })} label="Emails: newest at the top" />
               <Toggle checked={!!s.ui.newestFirst?.slack} onChange={(slack) => up('ui', { newestFirst: { ...s.ui.newestFirst, slack } })} label="Slack: newest at the top" />
               <Toggle checked={!!s.ui.newestFirst?.tickets} onChange={(tickets) => up('ui', { newestFirst: { ...s.ui.newestFirst, tickets } })} label="Jira / JSM comments: newest at the top" />
             </Row>
-            <Row label="When I close a work stream" hint="What the screen shows after you close the work stream you're on.">
+            <Row label="When I close a work stream" hint="What the screen shows after you close the work stream you're on." paths={['ui.afterClose']}>
               <Select
                 value={s.ui.afterClose ?? 'next'}
                 onChange={(afterClose) => up('ui', { afterClose })}
@@ -452,7 +510,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
-            <Row label="Why it's in front of you" hint="A short line saying why a work stream needs you now: a new message (and from whom), reopened, back from snooze, a reminder, a question from Claude, a deadline, or drafts to review.">
+            <Row label="Why it's in front of you" hint="A short line saying why a work stream needs you now: a new message (and from whom), reopened, back from snooze, a reminder, a question from Claude, a deadline, or drafts to review." paths={['ui.streamReason']}>
               <Select
                 value={s.ui.streamReason ?? 'both'}
                 onChange={(streamReason) => up('ui', { streamReason })}
@@ -464,15 +522,15 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
-            <Row label="Read / unread" hint="Normally opening a work stream marks it read, and opening a work item's tab clears its dot. With these on, they stay unread until you click Read (the button then reads Unread).">
+            <Row label="Read / unread" hint="Normally opening a work stream marks it read, and opening a work item's tab clears its dot. With these on, they stay unread until you click Read (the button then reads Unread)." paths={['ui.manualStreamRead', 'ui.manualItemRead']}>
               <Toggle checked={!!s.ui.manualStreamRead} onChange={(manualStreamRead) => up('ui', { manualStreamRead })} label="Mark work streams Read myself" />
               <Toggle checked={!!s.ui.manualItemRead} onChange={(manualItemRead) => up('ui', { manualItemRead })} label="Mark work items Read myself" />
             </Row>
-            <Row label="Undo" hint="The arrow next to Settings (or ⌘Z) undoes your last three actions: moves, Pending, closing, edits, Accept and Decline, Gmail buttons and more">
+            <Row label="Undo" hint="The arrow next to Settings (or ⌘Z) undoes your last three actions: moves, Pending, closing, edits, Accept and Decline, Gmail buttons and more" paths={['ui.undoToast']}>
               <Toggle checked={s.ui.undoToast !== false} onChange={(undoToast) => up('ui', { undoToast })} label="Show a message saying what was undone" />
             </Row>
             
-            <Row label="Work item tabs">
+            <Row label="Work item tabs" paths={['ui.recentTabFirst']}>
               <Toggle
                 checked={!!s.ui.recentTabFirst}
                 onChange={(recentTabFirst) => up('ui', { recentTabFirst })}
@@ -483,12 +541,12 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               You can also drag tabs into any order within a work stream. With this on, the tab with the newest activity jumps to the front of the others. The Overview sits in its own pane to the right of the tabs; drag the line between them to resize it.
             </p>
             <h3>Pending reminders</h3>
-            <Row label="Remind me after" hint="A Pending work stream that nothing has touched for this long returns to the top of Open, marked Reminder and unread, with a follow-up drafted for whoever replied last. 0 = never.">
+            <Row label="Remind me after" hint="A Pending work stream that nothing has touched for this long returns to the top of Open, marked Reminder and unread, with a follow-up drafted for whoever replied last. 0 = never." paths={['reminders.pendingDays']}>
               <input className="num" type="number" min={0} max={365} aria-label="Pending reminder days" value={s.reminders?.pendingDays ?? 3} onChange={(e) => up('reminders', { pendingDays: Math.max(0, Math.floor(Number(e.target.value)) || 0) })} /> <span className="small muted">days (0 = never remind)</span>
             </Row>
             <h3>Silenced work items</h3>
             <p className="muted small">An item you silence (Ignore updates on its tab) normally keeps pulling in updates quietly. These options change that.</p>
-            <Row label="Polling">
+            <Row label="Polling" paths={['silencing.skipPolling']}>
               <Toggle
                 checked={!!s.silencing.skipPolling}
                 onChange={(skipPolling) => up('silencing', { skipPolling })}
@@ -496,7 +554,7 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
               />
             </Row>
             <p className="muted small">While an item is silenced, nothing about it is checked or stored. When you unsilence it, it catches up from where it left off.</p>
-            <Row label="Mentions">
+            <Row label="Mentions" paths={['silencing.mentionsOverride']}>
               <Toggle
                 checked={!!s.silencing.mentionsOverride && !s.silencing.skipPolling}
                 disabled={!!s.silencing.skipPolling}
@@ -510,10 +568,11 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
             </p>
           </section>
         )}
-        {section === 'backup' && <BackupSection s={s} up={up} env={env} />}
-        {section === 'status' && <StatusSection s={s} up={up} />}
+        {on('backup') && <BackupSection s={s} up={up} env={env} />}
+        {on('status') && <StatusSection s={s} up={up} />}
       </main>
     </div>
+    </SettingsCtx.Provider>
   );
 }
 
@@ -821,15 +880,15 @@ function AtlassianSection({ s, up, credProps, creds, env, dirty }: { s: Settings
     <section>
       <h2>Atlassian</h2>
       <Toggle checked={a.enabled} onChange={(enabled) => up('atlassian', { enabled })} label="Enabled" />
-      <Row label="Connect with">
+      <Row label="Connect with" paths={['atlassian.mode', 'atlassian.ingestion']}>
         <Select value={a.mode} onChange={(mode) => up('atlassian', { mode, ingestion: mode === 'mcp' && a.ingestion === 'realtime' ? 'polling' : a.ingestion })} options={[{ value: 'api', label: 'API token (Jira, JSM, Confluence REST)' }, { value: 'mcp', label: 'MCP server' }]} />
       </Row>
       {a.mode === 'api' ? (
         <>
-          <Row label="Site URL">
+          <Row label="Site URL" paths={['atlassian.api.siteUrl']}>
             <Text value={a.api.siteUrl} onChange={(siteUrl) => up('atlassian', { api: { ...a.api, siteUrl } })} placeholder="https://yourco.atlassian.net" />
           </Row>
-          <Row label="Account email">
+          <Row label="Account email" paths={['atlassian.api.email']}>
             <Text value={a.api.email} onChange={(email) => up('atlassian', { api: { ...a.api, email } })} />
           </Row>
           <CredentialField id="atlassian.apiToken" label="API token" {...credProps} />
@@ -837,10 +896,11 @@ function AtlassianSection({ s, up, credProps, creds, env, dirty }: { s: Settings
       ) : (
         <McpEditor value={a.mcp!} onChange={(mcp) => up('atlassian', { mcp })} creds={creds} system="atlassian" dirty={dirty} credProps={credProps} publicUrl={env.publicUrl} />
       )}
-      <Row label="Tickets to watch (JQL)" hint="Tickets attached to open streams are always watched too">
+      <Row label="Tickets to watch (JQL)" hint="Tickets attached to open streams are always watched too" paths={['atlassian.jql']}>
         <Text value={a.jql} onChange={(jql) => up('atlassian', { jql })} />
       </Row>
       <IngestionEditor
+              base="atlassian"
         mode={a.ingestion}
         seconds={a.pollSeconds}
         realtimeAvailable={a.mode === 'api'}
@@ -907,7 +967,7 @@ function AtlassianSection({ s, up, credProps, creds, env, dirty }: { s: Settings
       )}
       {err && <div className="error small">{err}</div>}
       <h3>Approvals</h3>
-      <PolicyEditor value={a.policy} onChange={(policy) => up('atlassian', { policy })} />
+      <PolicyEditor base="atlassian.policy" value={a.policy} onChange={(policy) => up('atlassian', { policy })} />
       <TestButton label="Test" run={() => post('/api/integrations/atlassian/test').then(fmtTest)} note={dirty ? 'Save first' : undefined} />
     </section>
   );
@@ -1000,16 +1060,16 @@ function BackupSection({ s, up, env }: { s: Settings; up: <K extends keyof Setti
         Saves a consistent copy of Work Commander's database (work streams, messages, drafts, settings) to a folder on a schedule. It runs while Work Commander is running, and
         right at startup if one is overdue. Credentials are in your OS keychain and are not part of the backup.
       </p>
-      <Row label="Schedule">
+      <Row label="Schedule" paths={['backup.enabled']}>
         <Toggle checked={b.enabled} onChange={(enabled) => up('backup', { enabled })} label="Back up automatically" />
       </Row>
-      <Row label="Folder" hint="e.g. a Google Drive folder. ~ is your home folder. The folder is created if needed">
+      <Row label="Folder" hint="e.g. a Google Drive folder. ~ is your home folder. The folder is created if needed" paths={['backup.folder']}>
         <Text value={b.folder} onChange={(folder) => up('backup', { folder })} placeholder="~/Google Drive/My Drive/WC backups" />
       </Row>
-      <Row label="Back up every" hint="hours">
+      <Row label="Back up every" hint="hours" paths={['backup.everyHours']}>
         <input type="number" min={1} step={1} value={b.everyHours} onChange={(e) => up('backup', { everyHours: Math.max(1, Math.floor(Number(e.target.value)) || 1) })} />
       </Row>
-      <Row label="Keep" hint="most recent backups; older ones are deleted">
+      <Row label="Keep" hint="most recent backups; older ones are deleted" paths={['backup.keep']}>
         <input type="number" min={1} step={1} value={b.keep} onChange={(e) => up('backup', { keep: Math.max(1, Math.floor(Number(e.target.value)) || 1) })} />
       </Row>
       <div className="inline">
@@ -1064,7 +1124,7 @@ function StatusSection({ s, up }: { s: Settings; up: <K extends keyof Settings>(
         </tbody>
       </table>
       <h3>Pause after a gap</h3>
-      <Row label="Pause polling after" hint="If nothing has been checked for this long (the computer was asleep, or Work Commander was off), polling and triage stay paused until you click Resume, so you can clean up your inbox first and nothing you've archived or deleted is triaged. 0 = never pause.">
+      <Row label="Pause polling after" hint="If nothing has been checked for this long (the computer was asleep, or Work Commander was off), polling and triage stay paused until you click Resume, so you can clean up your inbox first and nothing you've archived or deleted is triaged. 0 = never pause." paths={['polling.pauseAfterGapHours']}>
         <input
           className="num"
           type="number"

@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { CredentialInfo, IngestionMode, McpServerSettings, PolicyMode, SecretBackend } from '@wc/shared';
 import { del, post, put } from '../api';
 
@@ -8,7 +8,25 @@ export const BACKEND_LABEL: Record<SecretBackend, string> = {
   onepassword: '1Password',
 };
 
-export function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+/**
+ * What rows need to say whether they differ from the defaults: the settings being edited, the defaults, a way to put a
+ * setting back, whether to show only changed rows, and (inside a shared editor) the settings path it edits.
+ */
+export const SettingsCtx = createContext<{ current?: unknown; defaults?: unknown; reset?: (paths: string[]) => void; changedOnly?: boolean; base?: string }>({});
+
+/** Settings paths in the rows inside are relative to `base` (e.g. a shared policy editor used for each system). */
+export function PathBase({ base, children }: { base: string; children: ReactNode }) {
+  const ctx = useContext(SettingsCtx);
+  return <SettingsCtx.Provider value={{ ...ctx, base: ctx.base ? `${ctx.base}.${base}` : base }}>{children}</SettingsCtx.Provider>;
+}
+
+export const getPath = (o: unknown, path: string) => path.split('.').reduce<any>((a, k) => (a == null ? a : a[k]), o);
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+export function Row({ label, hint, children, paths }: { label: string; hint?: ReactNode; children: ReactNode; /** The settings this row edits (dotted paths). */ paths?: string[] }) {
+  const ctx = useContext(SettingsCtx);
+  const full = (paths ?? []).map((p) => (ctx.base ? `${ctx.base}.${p}` : p));
+  const changed = !!ctx.defaults && full.some((p) => !same(getPath(ctx.current, p), getPath(ctx.defaults, p)));
   const labelId = useId();
   const controls = useRef<HTMLDivElement>(null);
   // Name the row's form controls after the row label (they are passed in as children, so they cannot carry htmlFor themselves).
@@ -18,11 +36,18 @@ export function Row({ label, hint, children }: { label: string; hint?: ReactNode
       if (!labelled) el.setAttribute('aria-labelledby', labelId);
     });
   });
+  if (ctx.changedOnly && !changed) return null;
   return (
-    <div className="srow">
+    <div className={`srow${changed ? ' changed' : ''}`}>
       <div className="srow-label">
         <span id={labelId} className="srow-title">
+          {changed && <span className="changed-dot" title="Changed from the default" aria-label="Changed from the default" role="img" />}
           {label}
+          {changed && ctx.reset && (
+            <button type="button" className="link small reset-link" title="Put back the default (then Save changes)" onClick={() => ctx.reset!(full)}>
+              Reset
+            </button>
+          )}
         </span>
         {hint && <div className="muted small">{hint}</div>}
       </div>
@@ -138,17 +163,17 @@ export function CredentialField({
   );
 }
 
-export function PolicyEditor({ value, onChange }: { value: { read: PolicyMode; write: PolicyMode }; onChange: (v: { read: PolicyMode; write: PolicyMode }) => void }) {
+export function PolicyEditor({ value, onChange, base }: { value: { read: PolicyMode; write: PolicyMode }; onChange: (v: { read: PolicyMode; write: PolicyMode }) => void; /** Its settings path, e.g. "google.policy". */ base?: string }) {
   const opts = [
     { value: 'auto' as PolicyMode, label: 'Run automatically' },
     { value: 'approve' as PolicyMode, label: 'Ask me first' },
   ];
   return (
     <>
-      <Row label="Reads" hint="Searching and fetching for research">
+      <Row label="Reads" hint="Searching and fetching for research" paths={base ? [`${base}.read`] : undefined}>
         <Select value={value.read} options={opts} onChange={(read) => onChange({ ...value, read })} />
       </Row>
-      <Row label="Writes" hint="Sending, posting, creating, changing">
+      <Row label="Writes" hint="Sending, posting, creating, changing" paths={base ? [`${base}.write`] : undefined}>
         <Select value={value.write} options={opts} onChange={(write) => onChange({ ...value, write })} />
         {value.write === 'auto' && <div className="small warn">Claude will send and change things in this system without showing you a draft first.</div>}
       </Row>
@@ -162,7 +187,10 @@ export function IngestionEditor({
   onChange,
   realtimeAvailable,
   realtimeHint,
+  base,
 }: {
+  /** The system's settings path, e.g. "google". */
+  base?: string;
   mode: IngestionMode;
   seconds: number;
   onChange: (m: IngestionMode, s: number) => void;
@@ -170,7 +198,7 @@ export function IngestionEditor({
   realtimeHint: string;
 }) {
   return (
-    <Row label="Pick up new activity" hint={realtimeHint}>
+    <Row label="Pick up new activity" hint={realtimeHint} paths={base ? [`${base}.ingestion`, `${base}.pollSeconds`] : undefined}>
       <div className="inline">
         <Select
           value={mode}

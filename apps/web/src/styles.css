@@ -726,3 +726,10 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .person-role { color: var(--text); }
 .person-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 6px; align-items: baseline; }
 .person-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Settings: search, "only changed", and the changed marker */
+.settings-search { flex: 0 1 260px; }
+.settings-search input { width: 100%; }
+.nowrap { white-space: nowrap; }
+.changed-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
+.reset-link { margin-left: 8px; font-weight: 400; }

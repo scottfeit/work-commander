@@ -56,7 +56,7 @@ export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: S
       <p className="muted small">
         Run Claude Code inside Work Commander: in a work stream, "Claude Code" → <b>Run here</b> starts it in the hand-off folder, and it works in the stream's Claude chat. (Open in Terminal still works as before.)
       </p>
-      <Row label="Run inside Work Commander" hint={local ? undefined : 'Only when Work Commander runs on your own machine.'}>
+      <Row label="Run inside Work Commander" hint={local ? undefined : 'Only when Work Commander runs on your own machine.'} paths={['claudeCode.enabled']}>
         <Toggle checked={cc.enabled} disabled={!local} onChange={(enabled) => set({ enabled })} label="Let Claude Code run inside Work Commander" />
       </Row>
       <div className="cc-protections small">
@@ -74,7 +74,7 @@ export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: S
           <li>Time, turn and spending limits below; Stop at any time; every request and your answer is in Status &amp; audit.</li>
         </ul>
       </div>
-      <Row label="Sites it may reach" hint="One per line (subdomains included), e.g. github.com, registry.npmjs.org. Everything else is blocked, for commands and web fetches alike.">
+      <Row label="Sites it may reach" hint="One per line (subdomains included), e.g. github.com, registry.npmjs.org. Everything else is blocked, for commands and web fetches alike." paths={['claudeCode.allowedDomains']}>
         <textarea
           aria-label="Allowed sites"
           rows={5}
@@ -85,17 +85,16 @@ export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: S
       </Row>
       <Row
         label="Auto Mode"
-        hint="Claude Code's own reviewer approves or refuses each action, and asks you only when it's unsure. Each action is still listed in the chat. What stays fixed either way: commands run in the sandbox (writes only in the project folder, network only to the allowed sites), and secret folders and WC's data can't be read or edited. With it on, its web-fetch and web-search tools are off (commands can still reach the allowed sites). Edits to files elsewhere in your home folder are then the reviewer's call, not yours."
-      >
+        hint="Claude Code's own reviewer approves or refuses each action, and asks you only when it's unsure. Each action is still listed in the chat. What stays fixed either way: commands run in the sandbox (writes only in the project folder, network only to the allowed sites), and secret folders and WC's data can't be read or edited. With it on, its web-fetch and web-search tools are off (commands can still reach the allowed sites). Edits to files elsewhere in your home folder are then the reviewer's call, not yours." paths={['claudeCode.autoMode']}>
         <Toggle checked={!!cc.autoMode} onChange={(autoMode) => set({ autoMode })} label="Let Claude Code approve its own actions (Auto Mode)" />
       </Row>
-      <Row label="CLAUDE.md" hint="Your ~/.claude/CLAUDE.md and the project's CLAUDE.md files (and what they import), as standing instructions. Only these text files are read: never settings.json, hooks or permission rules.">
+      <Row label="CLAUDE.md" hint="Your ~/.claude/CLAUDE.md and the project's CLAUDE.md files (and what they import), as standing instructions. Only these text files are read: never settings.json, hooks or permission rules." paths={['claudeCode.loadClaudeMd']}>
         <Toggle checked={!!cc.loadClaudeMd} onChange={(loadClaudeMd) => set({ loadClaudeMd })} label="Give Claude Code my CLAUDE.md instructions" />
       </Row>
-      <Row label="Skills" hint="Copies of the chosen skills are handed to Claude Code for each session. Anything in a skill that could pre-approve tools or run commands on its own (allowed-tools, hooks, inline commands) is taken out, so what a skill does still asks you first. 'All' also includes the project folder's .claude/skills.">
+      <Row label="Skills" hint="Copies of the chosen skills are handed to Claude Code for each session. Anything in a skill that could pre-approve tools or run commands on its own (allowed-tools, hooks, inline commands) is taken out, so what a skill does still asks you first. 'All' also includes the project folder's .claude/skills." paths={['claudeCode.skills']}>
         <SkillsPicker value={cc.skills ?? []} onChange={(skills) => set({ skills })} />
       </Row>
-      <Row label="Limits" hint="Each time it runs (a reply carries on with fresh limits).">
+      <Row label="Limits" hint="Each time it runs (a reply carries on with fresh limits)." paths={['claudeCode.maxMinutes', 'claudeCode.maxTurns', 'claudeCode.maxBudgetUsd']}>
         <div className="inline">
           <input className="num" type="number" min={1} max={480} aria-label="Minutes limit" value={cc.maxMinutes} onChange={(e) => set({ maxMinutes: Math.max(1, Math.floor(Number(e.target.value)) || 1) })} /> <span className="small muted">minutes</span>
           <input className="num" type="number" min={1} max={500} aria-label="Turns limit" value={cc.maxTurns} onChange={(e) => set({ maxTurns: Math.max(1, Math.floor(Number(e.target.value)) || 1) })} /> <span className="small muted">turns</span>

@@ -31,7 +31,7 @@ export function StyleSection({ s, setS }: { s: Settings; setS: (s: Settings) => 
         yourself (in Gmail or Slack, or as a Quick Reply) and Claude drafts you edited before sending. Claude drafts you sent unchanged are left out. It takes one call to Claude; the copying habits are counted, not guessed.
         Edit it freely.
       </p>
-      <Row label="Drafts">
+      <Row label="Drafts" paths={['style.enabled']}>
         <Toggle checked={style.enabled} onChange={(enabled) => set({ enabled })} label="Write drafts in my style" />
       </Row>
       <div className="inline">

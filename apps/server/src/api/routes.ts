@@ -1,3 +1,4 @@
+import { defaultSettings } from '../core/settings.js';
 import { personCard } from '../core/personCard.js';
 import { updateWaitingOn } from '../core/waitingOn.js';
 import { applyTransition, setAssignee, transitionOptions } from '../core/jiraActions.js';
@@ -772,6 +773,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
 
   // ---------- settings & credentials ----------
   f.get('/api/settings', async () => settings.get());
+  // The defaults, so Settings can show what you've changed (and put a setting back).
+  f.get('/api/settings/defaults', async () => defaultSettings());
   f.put('/api/settings', async (req) => {
     const patch = req.body as Partial<Settings>;
     if (patch.claude?.provider === 'claude-code-login' && cfg.hosting !== 'local') throw new Error('Claude Code login is only available for local hosting');
