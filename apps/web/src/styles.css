@@ -38,8 +38,9 @@
   --attn: var(--bv-blue); /* attention text: Blue, marked with a yellow dot */
   --attn-bg: var(--grey-8);
   --attn-mark: var(--bv-yellow);
-  --pending: var(--bv-coral); /* the Pending alarm (an icon, never text) */
-  --pending-soft: #fdeeea;
+  --pending: var(--bv-blue); /* the Pending alarm: the corporate color */
+  --pending-ink: #ffffff; /* the alarm on a filled (Pending) button */
+  --pending-soft: #e6ebf2; /* a light tint of Bazaarvoice Blue */
   --pu-bg: #f3f5ff;
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -69,8 +70,9 @@
     --attn: #ffffff;
     --attn-bg: #161922;
     --attn-mark: #ffdb30;
-    --pending: #fc937e;
-    --pending-soft: #1f1512;
+    --pending: #ffffff; /* Blue disappears on black: white, the guide's other brand-mark color */
+    --pending-ink: #000000;
+    --pending-soft: #1a1d24;
     --pu-bg: #11152a;
   }
 }
@@ -442,7 +444,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .stream.pending.active .stream-open { opacity: 1; }
 .pending-btn { color: var(--pending); border-color: var(--pending); min-width: 30px; display: inline-flex; align-items: center; justify-content: center; }
 .pending-btn:hover { background: var(--pending-soft); }
-.pending-btn.on { background: var(--pending); color: #fff; }
+.pending-btn.on { background: var(--pending); color: var(--pending-ink); }
 .chip.reminder { background: var(--attn-bg); border-color: transparent; color: var(--attn); font-weight: 600; }
 .chip.reminder::before, .chip.snooze-chip::before { background: var(--pending) !important; }
 
@@ -592,7 +594,7 @@ kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px sol
 .pending-split > .pending-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .pending-split .snooze { display: inline-flex; }
 .pending-split .pending-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; border-color: var(--pending); color: var(--pending); padding: 0 5px; }
-.pending-split > .pending-btn.on + .snooze .pending-caret { background: var(--pending); color: #fff; border-left-color: rgba(255, 255, 255, .55); }
+.pending-split > .pending-btn.on + .snooze .pending-caret { background: var(--pending); color: var(--pending-ink); border-left-color: rgba(127, 127, 127, .55); }
 .due-lines > .link { justify-self: start; }
 
 /* Overview pane: its buttons on one line under the title (they give way with … before anything wraps). */
