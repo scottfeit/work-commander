@@ -36,3 +36,20 @@ test('a changed setting gets a dot and Reset; "Show only changed settings" lists
   await page.getByRole('checkbox', { name: 'Show only changed settings' }).uncheck();
   await expect(page.locator('.srow', { hasText: 'Closing work streams' }).getByRole('checkbox')).toBeChecked();
 });
+
+test('a connection problem shows a banner (only then), with a way to fix it', async ({ page }) => {
+  await page.goto(WEB);
+  await expect(page.locator('.conn-banner')).toHaveCount(0); // all well: nothing shown
+  await page.route('**/api/integrations/status', (r) => r.fulfill({ json: { slack: { ok: false, message: 'Slack poll failed: token_expired', at: new Date().toISOString() }, google: { ok: true, message: 'ok', at: new Date().toISOString() } } }));
+  await page.reload();
+  const b = page.locator('.conn-banner');
+  await expect(b).toHaveCount(1);
+  await expect(b).toContainText('Slack needs attention: Slack poll failed: token_expired');
+  await page.locator('.banners').screenshot({ path: 'qa/results/conn-banner.png' });
+  await b.getByRole('button', { name: 'Dismiss the Slack alert' }).click();
+  await expect(b).toHaveCount(0);
+  await page.reload();
+  await page.locator('.conn-banner').getByRole('button', { name: 'Fix in Settings' }).click();
+  await expect(page).toHaveURL(/\/settings\?section=slack/);
+  await expect(page.locator('.settings-body h2', { hasText: 'Slack' })).toBeVisible();
+});

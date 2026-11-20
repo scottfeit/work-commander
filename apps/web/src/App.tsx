@@ -27,6 +27,8 @@ function usePath() {
   return [path, nav] as const;
 }
 
+const SYSTEM_NAME: Record<string, string> = { google: 'Gmail and Google', slack: 'Slack', atlassian: 'Jira', onepassword: '1Password' };
+
 export function App() {
   const [path, nav] = usePath();
   const [env, setEnv] = useState<EnvironmentInfo | null>(null);
@@ -42,6 +44,10 @@ export function App() {
   const [confirmClose, setConfirmClose] = useState(true);
   // Settings → Display: things stay unread until you click Read.
   const [manualStreamRead, setManualStreamRead] = useState(false);
+  /** Each connection's last reported state (from polling), and which alerts were dismissed (until the next report). */
+  const [conn, setConn] = useState<Record<string, { ok: boolean; message: string; at: string } | undefined>>({});
+  const [dismissedConn, setDismissedConn] = useState<Record<string, string>>({});
+  useEffect(() => void get<typeof conn>('/api/integrations/status').then(setConn).catch(() => undefined), []);
   /** Where "why it's in front of you" shows (Settings → Display). */
   const [streamReason, setStreamReason] = useState<'both' | 'card' | 'overview' | 'off'>('both');
   const afterCloseRef = useRef<'stay' | 'next' | 'all'>('next');
@@ -262,6 +268,9 @@ export function App() {
           });
           break;
         }
+        case 'ingest.status':
+          setConn((c) => ({ ...c, [e.system]: { ok: e.ok, message: e.message, at: e.at } }));
+          break;
         case 'stream.deleted':
           setStreams((xs) => xs.filter((x) => x.id !== e.streamId));
           // You emptied the stream you were looking at: follow the item to where it went.
@@ -504,13 +513,28 @@ export function App() {
   const openOrder = useMemo(() => streams.filter((s) => s.status === 'open' && !s.pending).sort((a, b) => dueRank(a) - dueRank(b) || b.lastActivityAt.localeCompare(a.lastActivityAt)).map((s) => s.id), [streams]);
   const openOrderRef = useRef<string[]>([]);
   openOrderRef.current = openOrder;
+  // Connections needing attention (a failed poll, an expired sign-in): shown in a banner only while something is wrong.
+  const troubled = Object.entries(conn).filter(([sys, st]) => st && !st.ok && dismissedConn[sys] !== st.at) as [string, { ok: boolean; message: string; at: string }][];
 
   if (path.startsWith('/settings')) return <SettingsPage env={env} onBack={() => nav('/')} />;
 
   return (
-    <div className={`app${usageAlert || polling.paused || polling.catchingUp ? ' has-banner' : ''}`}>
-      {(usageAlert || polling.paused || polling.catchingUp) && (
+    <div className={`app${usageAlert || polling.paused || polling.catchingUp || troubled.length ? ' has-banner' : ''}`}>
+      {(usageAlert || polling.paused || polling.catchingUp || troubled.length > 0) && (
         <div className="banners">
+          {troubled.map(([sys, st]) => (
+            <div key={sys} className="usage-banner conn-banner" role="alert">
+              <span>
+                <b>{SYSTEM_NAME[sys] ?? sys} needs attention:</b> {st.message.length > 180 ? `${st.message.slice(0, 180)}…` : st.message}
+              </span>
+              <button className="btn small" onClick={() => nav(`/settings?section=${sys}`)}>
+                Fix in Settings
+              </button>
+              <button className="btn small ghost" aria-label={`Dismiss the ${SYSTEM_NAME[sys] ?? sys} alert`} onClick={() => setDismissedConn((d) => ({ ...d, [sys]: st.at }))}>
+                ×
+              </button>
+            </div>
+          ))}
           {polling.paused && (
             <div className="usage-banner polling-banner" role="status">
               <span>
