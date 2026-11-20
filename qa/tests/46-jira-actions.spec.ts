@@ -147,3 +147,32 @@ test('Claude can change the epic and the sprint: drafts you approve', async ({ p
   expect(((await api.waitStatus(epic, 'executed')) as any).result).toEqual({ epic: 'OPS-500', keys: [key] });
   expect(((await api.waitStatus(sprint, 'executed')) as any).result).toEqual({ sprint: 'OPS Sprint 12', keys: [key] });
 });
+
+test('in a narrow window with larger text, the less-used buttons fold into "More ▾" so the row stays on one line', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await page.goto(WEB);
+  await page.addStyleTag({ content: 'html { zoom: 1.2; }' }); // larger text: 120%
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const row = page.locator('.top-pane .item-head-actions');
+  await expect(row.getByRole('button', { name: 'More ▾' })).toBeVisible();
+  const mids = await row.locator('> *').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; }));
+  expect(Math.max(...mids) - Math.min(...mids)).toBeLessThan(4);
+  const [r, pane] = await Promise.all([row.boundingBox(), page.locator('.top-pane .item-head').boundingBox()]);
+  expect(r!.x + r!.width).toBeLessThanOrEqual(pane!.x + pane!.width + 1);
+  // the menu holds both, and they work
+  await row.getByRole('button', { name: 'More ▾' }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Not relevant' })).toBeVisible();
+  await page.screenshot({ path: 'qa/results/more-menu.png', clip: { ...(await page.locator('.top-pane .item-head').boundingBox())!, height: 200 } });
+  await menu.getByRole('menuitem', { name: 'Ignore updates' }).click();
+  await expect(menu).toHaveCount(0);
+  await expect.poll(async () => (await api.get(`/api/streams/${streamId}/items`)).json.find((i: any) => i.title.startsWith(key))?.data.muted).toBe(true);
+  // wide again: the buttons come back out
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.addStyleTag({ content: 'html { zoom: 1; }' });
+  await expect(row.getByRole('button', { name: 'Unsilence' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'More ▾' })).toHaveCount(0);
+});

@@ -683,7 +683,7 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .ticket-status-ask select, .ticket-status-ask input { font: inherit; font-size: 12px; }
 
 /* A work item's buttons: one line, kept together (the whole group moves under the title when space is tight) */
-.item-head-actions { display: flex; flex-wrap: wrap; row-gap: 6px; align-items: center; gap: 10px; flex: 0 1 auto; max-width: 100%; }
+.item-head-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; flex: none; max-width: 100%; }
 
 /* A text box with an × that clears it */
 .clearable { position: relative; display: flex; align-items: center; min-width: 0; }
@@ -691,3 +691,9 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .clearable.search-wrap { flex: 1; }
 .clear-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
 .clear-x:hover, .clear-x:focus-visible { background: var(--line); color: var(--text); }
+
+/* "More ▾": less-used item buttons, folded away when space is short */
+.more-menu { position: relative; display: inline-flex; }
+.more-menu-list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; display: grid; min-width: 160px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+.menu-item { text-align: left; white-space: nowrap; padding: 6px 10px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--accent-soft); }

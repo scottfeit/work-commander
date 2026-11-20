@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ClaudeCodeStatus, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, TicketTransitionOption, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { ccPost, fmtTime, get, patch, post, timeAgo } from '../api';
@@ -385,14 +385,54 @@ export function ItemView({
     setHtmls({});
     if (item.source === 'gmail') get<Record<string, string>>(`/api/items/${item.id}/html`).then(setHtmls).catch(() => undefined);
   }, [item.id, item.source, item.updatedAt]);
+  // When the item's buttons can't fit on one line even on a row of their own, the less-used ones fold into "More ▾".
+  const head = useRef<HTMLDivElement>(null);
+  const actions = useRef<HTMLSpanElement>(null);
+  const fullWidth = useRef(0);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const h = head.current;
+    const a = actions.current;
+    if (!h || !a) return;
+    const check = () => {
+      if (!compact) fullWidth.current = a.scrollWidth;
+      const room = h.clientWidth;
+      setCompact(fullWidth.current > room);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(h);
+    return () => ro.disconnect();
+  }, [compact, item.id, peek, item.data.muted]);
+  const muteButton = (inMenu: boolean) => (
+    <button
+      className={inMenu ? 'menu-item' : `btn small ${item.data.muted ? '' : 'ghost'}`}
+      role={inMenu ? 'menuitem' : undefined}
+      aria-pressed={inMenu ? undefined : !!item.data.muted}
+      title={item.data.muted ? 'Updates are silenced: still pulled in, but no notifications, unread marks or reopening. Click to unsilence.' : 'Keep pulling in updates but stop notifying, marking the stream unread or reopening it'}
+      onClick={() => void post(`/api/items/${item.id}/mute`, { muted: !item.data.muted })}
+    >
+      {item.data.muted ? 'Unsilence' : 'Ignore updates'}
+    </button>
+  );
+  const notRelevantButton = (inMenu: boolean) => (
+    <button
+      className={inMenu ? 'menu-item' : 'btn ghost small'}
+      role={inMenu ? 'menuitem' : undefined}
+      title="Remove this from the work stream. It won't be added back to it."
+      onClick={() => void post(`/api/items/${item.id}/not-relevant`).then(() => onRemoved?.())}
+    >
+      Not relevant
+    </button>
+  );
   return (
     <div className="item-view">
-      <div className="item-head">
+      <div className="item-head" ref={head}>
         <SourceBadge source={item.source} />
         <h2>{item.title}</h2>
         {peek && <span className="chip subtle">{item.data.proposedStream ? `Proposed work stream: ${item.data.proposedStream.title}` : 'Skipped · preview'}</span>}
         {/* The item's buttons stay on one line: when the title leaves too little room they move under it together. */}
-        <span className="item-head-actions">
+        <span className={`item-head-actions${compact ? ' compact' : ''}`} ref={actions}>
           {item.url && (
             <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
               Open ↗
@@ -418,28 +458,20 @@ export function ItemView({
             {manualRead && item.data.unread ? 'Read' : 'Unread'}
           </button>
         )}
-        {!peek && (
-          <button
-            className={`btn small ${item.data.muted ? '' : 'ghost'}`}
-            aria-pressed={!!item.data.muted}
-            title={item.data.muted ? 'Updates are silenced: still pulled in, but no notifications, unread marks or reopening. Click to unsilence.' : 'Keep pulling in updates but stop notifying, marking the stream unread or reopening it'}
-            onClick={() => void post(`/api/items/${item.id}/mute`, { muted: !item.data.muted })}
-          >
-            {item.data.muted ? 'Unsilence' : 'Ignore updates'}
-          </button>
-        )}
         {peek ? (
           <button className="btn ghost small" title={item.data.proposedStream ? "Don't make this a work stream. It comes back if there is new activity." : 'Hide this from the Skipped list until it has new activity'} onClick={onDismiss}>
             Decline
           </button>
+        ) : compact ? (
+          <MoreMenu>
+            {muteButton(true)}
+            {notRelevantButton(true)}
+          </MoreMenu>
         ) : (
-          <button
-            className="btn ghost small"
-            title="Remove this from the work stream. It won't be added back to it."
-            onClick={() => void post(`/api/items/${item.id}/not-relevant`).then(() => onRemoved?.())}
-          >
-            Not relevant
-          </button>
+          <>
+            {muteButton(false)}
+            {notRelevantButton(false)}
+          </>
         )}
         </span>
         {/* Tool-specific actions (Gmail, Slack, Jira) get their own row under the title and the item buttons. */}
@@ -539,6 +571,35 @@ function MeetingView({ m }: { m: NonNullable<StreamItem['data']['meeting']> }) {
         {m.followedUpAt ? 'Follow-up offered or drafted after it ended.' : ''}
       </p>
     </div>
+  );
+}
+
+/** "More ▾": a few less-used buttons, folded away when there isn't room for them. Closes on a choice, Esc or a click elsewhere. */
+function MoreMenu({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return (
+    <span className="more-menu" ref={box}>
+      <button type="button" className="btn ghost small" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        More ▾
+      </button>
+      {open && (
+        <span className="more-menu-list" role="menu" onClick={() => setOpen(false)}>
+          {children}
+        </span>
+      )}
+    </span>
   );
 }
 
