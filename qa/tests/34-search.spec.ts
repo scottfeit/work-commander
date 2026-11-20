@@ -64,3 +64,12 @@ test('both search boxes have an × that clears them', async ({ page }) => {
   await expect(box).toHaveValue('');
   await expect(box).toBeFocused();
 });
+
+test('the Filter streams box is a plain box (no drop shadow from the search pop-up)', async ({ page }) => {
+  await page.goto(WEB);
+  const f = page.getByPlaceholder('Filter streams');
+  expect(await f.evaluate((e) => getComputedStyle(e).boxShadow)).toBe('none');
+  await page.locator('.sidebar-tools').screenshot({ path: 'qa/results/filter-box.png' });
+  await page.keyboard.press('ControlOrMeta+k');
+  expect(await page.getByRole('dialog', { name: 'Search everything' }).evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe('none');
+});

@@ -68,7 +68,7 @@ export function Search({ open, initial, onClose, onOpen }: { open: boolean; init
   };
   return (
     <div className="shortcuts-backdrop search-backdrop" onMouseDown={onClose}>
-      <div className="search" role="dialog" aria-label="Search everything" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="search-dialog" role="dialog" aria-label="Search everything" onMouseDown={(e) => e.stopPropagation()}>
         <ClearableInput
           ref={input}
           onClear={() => setQ('')}
