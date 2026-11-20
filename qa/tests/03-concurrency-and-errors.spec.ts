@@ -17,8 +17,9 @@ test('API errors are clean 4xx JSON, never 500s', async () => {
     ['POST', '/api/proposals/nope/reject', {}],
     ['PATCH', '/api/proposals/nope', { payload: {} }],
     ['PATCH', '/api/proposals/nope', { payload: 'not-an-object' }],
-    ['POST', '/api/streams', { title: '' }],
-    ['POST', '/api/streams', {}],
+    // (no title is fine: a new stream is named by its first work item)
+    ['POST', '/api/streams', { title: 12345 }],
+    ['POST', '/api/streams', { summary: ['not text'] }],
     ['POST', '/api/streams/nope/chat', { text: '' }],
     ['GET', '/api/streams/nope/items', undefined],
     ['GET', '/api/does-not-exist', undefined],
