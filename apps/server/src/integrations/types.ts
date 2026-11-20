@@ -79,6 +79,11 @@ export interface TicketApi {
   transition(input: { key: string; to: string; resolution?: string }): Promise<{ status: string }>;
   /** Set the assignee: an email address, "me" (the PU), or null to unassign. */
   assign(input: { key: string; assignee: string | null }): Promise<{ assignee: string | null }>;
+  /**
+   * Link issues: each of `keys` gets a link of this relation ("relates to", "blocks", "is blocked by", "duplicates", … or a link
+   * type's name) to `to`. Returns the link type used and how each key was linked.
+   */
+  linkIssues?(input: { keys: string[]; to: string; relation: string }): Promise<{ type: string; linked: string[] }>;
   confluenceSearch(query: string, max?: number): Promise<{ id: string; title: string; url: string; excerpt: string }[]>;
   confluenceRead(pageId: string): Promise<{ title: string; text: string; url: string }>;
   listServiceDesks(): Promise<{ id: string; projectKey: string; name: string }[]>;

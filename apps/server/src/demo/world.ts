@@ -153,6 +153,9 @@ export class DemoWorld {
       this.tickets.get(i.key)!.data.ticket!.assignee = i.assignee === 'me' ? PU.name : (i.assignee ?? undefined);
       return { assignee: i.assignee };
     },
+    /** Demo issue links, remembered as Jira would. */
+    links: [] as { keys: string[]; to: string; relation: string }[],
+    linkIssues: async (i: { keys: string[]; to: string; relation: string }) => (this.tickets_.links.push(i), { type: 'Relates', linked: i.keys.map((k) => `${k} ${i.relation} ${i.to}`) }),
     confluenceSearch: async () => [{ id: '42', title: 'Acme admin console: contractor access policy', url: 'https://wiki.example.com/42', excerpt: 'Contractors receive read-only role "auditor"; group must be approved by Security.' }],
     confluenceRead: async () => ({ title: 'Acme admin console: contractor access policy', url: 'https://wiki.example.com/42', text: 'Contractors receive the read-only "auditor" role via a named group. Security must approve the group.' }),
     listServiceDesks: async () => [{ id: '1', projectKey: 'OPS', name: 'IT Operations' }],

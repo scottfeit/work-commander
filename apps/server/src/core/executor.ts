@@ -248,6 +248,15 @@ export class Executor {
         await this.attachInbound(p.streamId, await t.getIssue(x.key));
         return { ...r, key: x.key };
       }
+      case 'ticket_link': {
+        const t = await this.hub.api('tickets');
+        if (!t.linkIssues) throw new Error('Linking issues needs Jira connected directly (not through an MCP server)');
+        const keys = asList(x.keys).map((k) => k.trim().toUpperCase()).filter(Boolean);
+        if (!keys.length || !x.to_key) throw new Error('Name the issues to link and the issue to link them to');
+        const r = await t.linkIssues({ keys, to: String(x.to_key).trim().toUpperCase(), relation: String(x.relation ?? 'relates to') });
+        await this.attachInbound(p.streamId, await t.getIssue(String(x.to_key).trim().toUpperCase())).catch(() => undefined);
+        return r;
+      }
       case 'credential_request': {
         const g = await this.grants.create({ streamId: p.streamId, item: x.item, allowedHosts: asList(x.allowed_hosts), authScheme: (x.auth_scheme || 'bearer') as AuthScheme });
         return { grant_id: g.id, item: g.title, allowed_hosts: g.hosts, expires_at: g.expiresAt };

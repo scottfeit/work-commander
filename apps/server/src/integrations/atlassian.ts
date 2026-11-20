@@ -259,6 +259,21 @@ export class AtlassianCloud implements TicketApi {
     return { assignee: name };
   }
 
+  async linkIssues(input: { keys: string[]; to: string; relation: string }) {
+    const types = ((await this.req('GET', '/rest/api/3/issueLinkType')).issueLinkTypes ?? []) as { name: string; inward: string; outward: string }[];
+    const want = (input.relation || 'relates to').trim().toLowerCase();
+    const pick = resolveLinkType(types, want);
+    if (!pick) throw new Error(`No Jira link type matches "${input.relation}". This site has: ${types.map((t) => `${t.outward} / ${t.inward}`).join('; ')}`);
+    const linked: string[] = [];
+    for (const key of input.keys) {
+      // Jira's issueLink: the inwardIssue is the one the link's outward description is said of ("A blocks B": inward A, outward B).
+      const [a, b] = pick.reverse ? [input.to, key] : [key, input.to];
+      await this.req('POST', '/rest/api/3/issueLink', { type: { name: pick.type.name }, inwardIssue: { key: a }, outwardIssue: { key: b } });
+      linked.push(`${key} ${pick.reverse ? pick.type.inward : pick.type.outward} ${input.to}`);
+    }
+    return { type: pick.type.name, linked };
+  }
+
   async confluenceSearch(query: string, max = 10) {
     const cql = `type=page AND text ~ "${query.replace(/"/g, '\\"')}"`;
     const r = await this.req('GET', `/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${max}`);
@@ -345,4 +360,21 @@ export class JiraIngestor implements Ingestor {
       this.busy = false;
     }
   }
+}
+
+/**
+ * Which link type (and direction) a relation means: "blocks" is a type's outward description, "is blocked by" its inward one
+ * (so the link goes the other way), or a type's own name ("Relates", "Blocks"). Case and spacing don't matter.
+ */
+export function resolveLinkType<T extends { name: string; inward: string; outward: string }>(types: T[], relation: string): { type: T; reverse: boolean } | null {
+  const n = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const r = n(relation);
+  for (const t of types) if (n(t.outward) === r) return { type: t, reverse: false };
+  for (const t of types) if (n(t.inward) === r) return { type: t, reverse: true };
+  for (const t of types) if (n(t.name) === r) return { type: t, reverse: false };
+  if (/^(relate|link)/.test(r)) {
+    const rel = types.find((t) => /^relate/i.test(t.name));
+    if (rel) return { type: rel, reverse: false };
+  }
+  return null;
 }

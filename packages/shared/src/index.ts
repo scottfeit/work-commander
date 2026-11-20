@@ -191,6 +191,7 @@ export type ProposalKind =
   | 'ticket_comment'
   | 'ticket_transition'
   | 'ticket_assign'
+  | 'ticket_link'
   | 'playbook'
   | 'credential_request'
   | 'stream_close'

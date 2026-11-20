@@ -19,7 +19,7 @@ export interface ToolContext {
 }
 
 /** Proposal kinds that are drafts of something sent or changed elsewhere (what "Draft automatically" governs). */
-export const DRAFT_KINDS: ProposalKind[] = ['email_reply', 'email_send', 'slack_post', 'ticket_create', 'ticket_comment', 'ticket_transition', 'ticket_assign'];
+export const DRAFT_KINDS: ProposalKind[] = ['email_reply', 'email_send', 'slack_post', 'ticket_create', 'ticket_comment', 'ticket_transition', 'ticket_assign', 'ticket_link'];
 export const OFFER_ONLY_REFUSAL =
   'Not drafted: the PU has turned off automatic drafts, and they did not ask for this one. Call offer_draft to offer it (one short label and the instruction for what to draft), then end your turn. The draft is made only if they accept.';
 
@@ -630,6 +630,23 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
           { key: 'key', label: 'Ticket', type: 'readonly' },
           { key: 'assignee', label: 'Assignee (email, "me" or "unassigned")', type: 'text' },
         ], a.after),
+    });
+    add({
+      name: 'propose_ticket_link',
+      description:
+        'Draft linking Jira/JSM issues: each of keys gets a link to to_key. relation is how each of keys relates to to_key, in Jira\'s words: "relates to" (the default), "blocks", "is blocked by", "duplicates", "is duplicated by", "clones", … or a link type\'s name. E.g. "link IT-123 and IT-124 to IT-999" -> keys ["IT-123","IT-124"], to_key "IT-999", relation "relates to".',
+      shape: { keys: list, to_key: z.string(), relation: z.string().optional(), rationale: z.string(), after },
+      access: 'write',
+      system: 'atlassian',
+      kind: 'ticket_link',
+      handler: async (a) => {
+        const relation = a.relation?.trim() || 'relates to';
+        return propose('ticket_link', 'atlassian', `Link ${a.keys.join(', ')} → ${a.to_key}`, a.rationale, { keys: a.keys, to_key: a.to_key, relation }, [
+          { key: 'keys', label: 'Issues', type: 'list' },
+          { key: 'relation', label: 'Relation', type: 'text' },
+          { key: 'to_key', label: 'Linked to', type: 'text' },
+        ], a.after);
+      },
     });
     add({
       name: 'propose_ticket_transition',
