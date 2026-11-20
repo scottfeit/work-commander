@@ -789,3 +789,9 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 /* Brand: setting names are subheads (Bazaarvoice Blue); checkboxes and radios in Connecting Purple */
 .srow-title { color: var(--strong); }
 input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--cta); }
+
+/* Card buttons (open, proposed and skipped tiles): tighter pills, and one line always (text gives way with … before anything wraps) */
+.sidebar .stream .btn.small { padding: 3px 8px; }
+.sidebar .stream-meta:has(> .btn) { flex-wrap: nowrap; }
+.sidebar .stream-meta:has(> .btn) > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .stream-meta:has(> .btn) > .pending-split, .sidebar .stream-meta:has(> .btn) > .chip { flex: none; }
