@@ -35,6 +35,8 @@ interface Props {
   onReopenStream: (id: string) => void;
   /** Mark a work stream Pending (waiting on others) or put it back in Open. */
   onTogglePending: (id: string, pending: boolean) => void;
+  /** Tells the app whether Pending streams are shown (so marking the open one Pending can move on to the next). */
+  onShowPendingChange?: (shown: boolean) => void;
   onSnooze: (id: string, until: string) => void;
   /** Closing takes two clicks (Settings → Display). */
   confirmClose: boolean;
@@ -47,7 +49,7 @@ interface Props {
   onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onShowPendingChange, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [moved, setMoved] = useState(0);
@@ -56,6 +58,9 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
   // What the list shows (the checkboxes at the bottom): Open and Pending are on by default; uncheck to look only at Closed or Declined.
   const [showOpen, setShowOpen] = useState(true);
   const [showPending, setShowPending] = useState(true);
+  useEffect(() => {
+    onShowPendingChange?.(showPending);
+  }, [showPending]);
   const [skipped, setSkipped] = useState<SkippedItem[]>([]);
   const loadSkipped = () => get<SkippedItem[]>('/api/items/skipped?dismissed=1').then(setSkipped).catch(() => undefined);
   useEffect(() => void loadSkipped(), [streams.length, moved, skippedVersion]);

@@ -43,6 +43,8 @@ export function App() {
   // Settings → Display: things stay unread until you click Read.
   const [manualStreamRead, setManualStreamRead] = useState(false);
   const afterCloseRef = useRef<'stay' | 'next' | 'all'>('next');
+  /** Whether the list shows Pending streams (the sidebar's "Show pending"). */
+  const showPendingRef = useRef(true);
   const [manualItemRead, setManualItemRead] = useState(false);
   const [newestFirst, setNewestFirst] = useState<{ email?: boolean; slack?: boolean; tickets?: boolean }>({});
   const manualStreamReadRef = useRef(false);
@@ -240,12 +242,15 @@ export function App() {
           // Settings → Display decides whether it stays on screen, the next one in the Open list opens, or All open work.
           const closedHere = e.stream.id === cur && e.stream.status === 'closed' && openOrderRef.current.includes(e.stream.id);
           const how = afterCloseRef.current;
-          if (closedHere && how === 'all') setSelected(GENERAL_STREAM);
-          else if (closedHere && how === 'next') {
+          // Or it was just made Pending (or snoozed) while Pending streams are hidden: the next one in the Open list opens.
+          const pendedHere = e.stream.id === cur && e.stream.status === 'open' && e.stream.pending && !showPendingRef.current && openOrderRef.current.includes(e.stream.id);
+          const next = () => {
             const order = openOrderRef.current;
             const i = order.indexOf(e.stream.id);
             setSelected(order[i + 1] ?? order[i - 1] ?? GENERAL_STREAM);
-          }
+          };
+          if (closedHere && how === 'all') setSelected(GENERAL_STREAM);
+          else if ((closedHere && how === 'next') || pendedHere) next();
           setStreams((xs) => {
             const without = xs.filter((x) => x.id !== e.stream.id);
             // (the stream you're on stays in the list when closed, so "Keep showing it" can show it)
@@ -576,6 +581,9 @@ export function App() {
         onCloseStream={(id) => void patch(`/api/streams/${id}`, { status: 'closed' })}
         onReopenStream={(id) => void patch(`/api/streams/${id}`, { status: 'open' })}
         onTogglePending={(id, pending) => void patch(`/api/streams/${id}`, { pending })}
+        onShowPendingChange={(v) => {
+          showPendingRef.current = v;
+        }}
         onSnooze={(id, snoozeUntil) => void patch(`/api/streams/${id}`, { pending: true, snoozeUntil })}
         undoNext={undoInfo.next}
         onUndo={() => void doUndo()}

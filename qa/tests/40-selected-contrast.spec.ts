@@ -108,3 +108,22 @@ test('a Slack DM can be marked read or unread in Slack itself; a thread cannot',
   await expect(page.getByRole('group', { name: 'Slack' })).toHaveCount(0);
   expect((await a.get('/api/items/sr-thread/slack-read')).status).toBe(400);
 });
+
+test('marking the open stream Pending while Pending is hidden opens the next stream', async ({ page }) => {
+  const { api: a } = await import('./helpers');
+  await a.post('/api/streams', { title: 'Next after pending', summary: '' });
+  await page.goto(WEB);
+  await page.locator('.sidebar').getByRole('checkbox', { name: /Show pending/ }).uncheck();
+  await stream(page, /contractor access/i).click();
+  // the next one in the Open list as shown (or the one before, when it's last)
+  const titles = await page.locator('.sidebar .stream.open:not(.general):not(.skipped-tile):not(.pending) .stream-title').allTextContents();
+  const i = titles.findIndex((t) => /contractor access/i.test(t));
+  const expected = titles[i + 1] ?? titles[i - 1];
+  await page.locator('.sidebar .stream.active').getByRole('button', { name: 'Mark pending' }).click();
+  await expect(page.locator('.sidebar .stream.active .stream-title')).toHaveText(expected);
+  await expect(page.locator('.sidebar .stream', { hasText: /contractor access/i })).toHaveCount(0);
+  // with Pending shown, it stays on the stream you marked
+  await page.locator('.sidebar').getByRole('checkbox', { name: /Show pending/ }).check();
+  await page.locator('.sidebar .stream.active').getByRole('button', { name: 'Mark pending' }).click();
+  await expect(page.locator('.sidebar .stream.active .stream-title')).toHaveText(expected);
+});
