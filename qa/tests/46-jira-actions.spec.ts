@@ -199,3 +199,19 @@ test('the Overview folds Unread and Claude Code into "More ▾" when its buttons
   await page.getByRole('menu').getByRole('menuitem', { name: 'Hand off to Claude Code' }).click();
   await expect(page.locator('.overview-pane .handoff')).toBeVisible();
 });
+
+test('a draft that waits for another names it, even once that one is done', async ({ page }) => {
+  const { streamId } = await demoTicket(); // the ticket draft is approved: the reply that ran after it named it by id before
+  const ticket = (await api.proposals()).find((p: any) => p.kind === 'ticket_create')!;
+  const id = await insertProposal(streamId, 'email_send', 'Email: follow-up', { to: ['a@b.c'], cc: [], subject: 'x', body: 'y' }, []);
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  db.prepare('update proposals set depends_on = ? where id = ?').run(JSON.stringify([ticket.id]), id);
+  db.close();
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  const dep = page.locator('.draft', { hasText: 'Email: follow-up' }).locator('.dep');
+  await expect(dep).toHaveText(`Runs after: ${ticket.title} (done)`);
+  await expect(dep).not.toContainText('p_');
+});

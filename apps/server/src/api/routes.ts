@@ -746,6 +746,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
       status: q.status ? String(q.status).split(',') as any : undefined,
     });
   });
+  f.get('/api/proposals/:id', async (req) => {
+    const p = await repo.getProposal((req.params as any).id);
+    if (!p) throw notFound('Draft');
+    return p;
+  });
   f.patch('/api/proposals/:id', async (req) => executor.edit((req.params as any).id, z.object({ payload: z.record(z.string(), z.unknown()) }).parse(req.body).payload));
   f.post('/api/proposals/:id/approve', async (req) => {
     const b = z.object({ payload: z.record(z.string(), z.unknown()).optional() }).parse(req.body ?? {});

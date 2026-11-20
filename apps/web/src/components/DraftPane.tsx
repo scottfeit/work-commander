@@ -1,7 +1,7 @@
 import { MentionTextarea, usePeople } from './Mentions';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ATTACHABLE_KINDS, type AttachmentRef, type DraftMention, type EditableField, type Proposal } from '@wc/shared';
-import { api, patch, post } from '../api';
+import { api, get, patch, post } from '../api';
 import { SourceBadge } from './TabBar';
 import { ConfirmButton } from './ConfirmButton';
 
@@ -11,6 +11,8 @@ function SystemIcon({ system }: { system: string }) {
   const source = SYSTEM_SOURCE[system];
   return source ? <SourceBadge source={source} /> : <span className="logo small" role="img" aria-label="Work Commander" title="Work Commander" />;
 }
+
+const STATUS_WORD: Record<string, string> = { executed: 'done', approved: 'approved', executing: 'running', failed: 'failed', rejected: 'rejected', withdrawn: 'withdrawn', pending: 'waiting' };
 
 /** The text a Quick Reply draft is waiting for (a blank one can't be sent). */
 const mainText = (p: Proposal, payload: Record<string, any>) => {
@@ -39,7 +41,17 @@ function setPath(o: any, path: string, v: unknown) {
 export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, onHide, confirmClose = true }: { onHide?: () => void; confirmClose?: boolean; drafts: Proposal[]; onDecided: (p: Proposal) => void; onStale: () => void; focusId?: string | null; onFocused?: () => void }) {
   // Unsaved PU edits, keyed by proposal id. Kept here so "Approve all" sends the edited text.
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
-  const titles = new Map(drafts.map((d) => [d.id, d.title]));
+  // What each draft waits for, by title: drafts in the pane, or (already approved, sent, etc.) looked up once.
+  const [elsewhere, setElsewhere] = useState<Record<string, string>>({});
+  const titles = new Map<string, string>([...Object.entries(elsewhere), ...drafts.map((d) => [d.id, d.title] as [string, string])]);
+  const missing = [...new Set(drafts.flatMap((d) => d.dependsOn))].filter((x) => !drafts.some((d) => d.id === x) && !(x in elsewhere));
+  useEffect(() => {
+    for (const id of missing)
+      get<Proposal>(`/api/proposals/${id}`)
+        .then((p) => setElsewhere((m) => ({ ...m, [id]: `${p.title} (${STATUS_WORD[p.status] ?? p.status})` })))
+        .catch(() => setElsewhere((m) => ({ ...m, [id]: 'an earlier draft' })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missing.join(',')]);
   const [allErr, setAllErr] = useState('');
   const approveAll = async () => {
     setAllErr('');
