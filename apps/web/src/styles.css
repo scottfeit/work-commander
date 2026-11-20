@@ -675,3 +675,9 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .src-count-wrap { position: relative; display: inline-flex; flex: none; margin-right: 5px; }
 .src-count { position: absolute; right: -6px; bottom: -5px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--text); color: var(--panel); font-size: 9px; font-weight: 700; line-height: 13px; text-align: center; box-shadow: 0 0 0 1.5px var(--panel-2); }
 .stream.active .src-count { box-shadow: 0 0 0 1.5px var(--accent-soft); }
+
+/* A Jira/JSM ticket's status drop-down, and the box asking for what a move requires */
+.ticket-status { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.ticket-status > select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.ticket-status-ask { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; display: flex; align-items: center; gap: 8px; white-space: nowrap; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+.ticket-status-ask select, .ticket-status-ask input { font: inherit; font-size: 12px; }

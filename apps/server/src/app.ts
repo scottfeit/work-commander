@@ -1,3 +1,4 @@
+import { applyTransition } from './core/jiraActions.js';
 import type { AppConfig } from './config.js';
 import { openDatabase, type Database } from './db/index.js';
 import { SettingsStore } from './core/settings.js';
@@ -97,7 +98,12 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   triage.onAddedToChat = (a) => offerAddedChat({ repo, settings: get, secret: (id) => secrets.get(id), structured: (i) => backend.structured(i) }, a);
   hub.mcpIngestorFactory = (system, sink, report) => new McpPollIngestor(system, backend, get, secrets, repo, sink, report);
   await executor.recoverInterrupted();
-  const undo = new UndoLog({ repo, gmail: (itemId, action, opts) => gmailThreadAction({ repo, hub }, itemId, action, opts), layaChanged: () => laya.examplesRestored() });
+  const undo = new UndoLog({
+    repo,
+    gmail: (itemId, action, opts) => gmailThreadAction({ repo, hub }, itemId, action, opts),
+    jiraStatus: (itemId, status) => applyTransition({ repo, hub }, itemId, { to: status }),
+    layaChanged: () => laya.examplesRestored(),
+  });
   const claudeCode = new ClaudeCodeSessions({
     cfg,
     repo,

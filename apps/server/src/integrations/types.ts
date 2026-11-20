@@ -79,7 +79,10 @@ export interface TicketApi {
   comment(input: { key: string; body: string; public: boolean; flavor: 'jsm' | 'jira'; files?: OutFile[]; mentions?: { name: string; email?: string }[] }): Promise<{ id: string }>;
   /** Attach files to an issue (used after creating a ticket). */
   attach(input: { key: string; files: OutFile[] }): Promise<{ count: number }>;
-  transition(input: { key: string; to: string; resolution?: string }): Promise<{ status: string }>;
+  /** Move by transition id, or to a status (or transition) by name. `fields`: values for fields the transition requires (an allowed value as { id }). */
+  transition(input: { key: string; to: string; id?: string; resolution?: string; fields?: Record<string, string | { id: string }> }): Promise<{ status: string }>;
+  /** Where the ticket can move to now, with the fields each move requires. */
+  transitionOptions?(key: string): Promise<import('@wc/shared').TicketTransitionOption[]>;
   /** Set the assignee: an email address, "me" (the PU), or null to unassign. */
   assign(input: { key: string; assignee: string | null }): Promise<{ assignee: string | null }>;
   /**

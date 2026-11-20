@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
-import type { ClaudeCodeStatus, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, WorkStream } from '@wc/shared';
+import type { ClaudeCodeStatus, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, TicketTransitionOption, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { ccPost, fmtTime, get, patch, post, timeAgo } from '../api';
 import { UsagePie } from './usageViz';
@@ -446,7 +446,7 @@ export function ItemView({
       {t ? (
         <>
           <dl className="ticket-fields">
-            <div><dt>Status</dt><dd><span className="chip">{t.status}</span></dd></div>
+            <div><dt>Status</dt><dd><TicketStatus item={item} status={t.status} /></dd></div>
             <div><dt>Assignee</dt><dd>{t.assignee ?? 'Unassigned'}</dd></div>
             <div><dt>Requester</dt><dd>{t.requester ?? t.reporter ?? '—'}</dd></div>
             <div><dt>Type</dt><dd>{t.flavor === 'jsm' ? 'Service request' : 'Jira issue'}</dd></div>
@@ -894,6 +894,89 @@ function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt:
       <p className="muted small">Estimated at API prices{u.unit === 'tokens' ? ` · ${formatUsage(u.total, 'tokens')}` : ''}. Background checks for new activity aren't tied to one work stream; they're in Settings → Usage.</p>
       <UsagePie parts={parts} />
     </section>
+  );
+}
+
+/**
+ * A Jira/JSM ticket's status as a drop-down: picking one moves the ticket right away (Undo moves it back). When Jira requires
+ * something for that move (e.g. a Resolution), a small box asks for it first. Just the status when Jira can't be asked.
+ */
+function TicketStatus({ item, status }: { item: StreamItem; status: string }) {
+  const [opts, setOpts] = useState<TicketTransitionOption[] | null>(null);
+  const [asking, setAsking] = useState<TicketTransitionOption | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setAsking(null);
+    setErr(null);
+    get<{ transitions: TicketTransitionOption[] }>(`/api/items/${item.id}/jira/transitions`)
+      .then((r) => setOpts(r.transitions))
+      .catch(() => setOpts(null));
+  }, [item.id, status]);
+  if (!opts) return <span className="chip">{status}</span>;
+  const apply = async (o: TicketTransitionOption, given: Record<string, string>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const fields = Object.fromEntries(o.fields.map((f) => [f.key, f.allowed ? { id: given[f.key] } : given[f.key]]));
+      await post(`/api/items/${item.id}/jira/transition`, { id: o.id, fields: o.fields.length ? fields : undefined });
+      setAsking(null);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pick = (id: string) => {
+    const o = opts.find((x) => x.id === id);
+    if (!o) return;
+    if (!o.fields.length) return void apply(o, {});
+    setValues(Object.fromEntries(o.fields.map((f) => [f.key, f.allowed?.[0]?.id ?? ''])));
+    setAsking(o);
+  };
+  return (
+    <span className="ticket-status">
+      <select aria-label="Status" value="" disabled={busy} onChange={(e) => pick(e.target.value)} title="Change the status in Jira">
+        <option value="" disabled>
+          {busy ? 'Moving…' : status}
+        </option>
+        {opts.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name === o.to ? o.to : `${o.name} → ${o.to}`}
+          </option>
+        ))}
+      </select>
+      {asking && (
+        <span className="ticket-status-ask" role="group" aria-label={`Moving to ${asking.to}`}>
+          {asking.fields.map((f) =>
+            f.allowed ? (
+              <label key={f.key}>
+                {f.name}{' '}
+                <select value={values[f.key] ?? ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}>
+                  {f.allowed.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label key={f.key}>
+                {f.name} <input value={values[f.key] ?? ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+              </label>
+            ),
+          )}
+          <button type="button" className="btn small primary" disabled={busy || asking.fields.some((f) => !values[f.key])} onClick={() => void apply(asking, values)}>
+            Move to {asking.to}
+          </button>
+          <button type="button" className="btn small ghost" disabled={busy} onClick={() => setAsking(null)}>
+            Cancel
+          </button>
+        </span>
+      )}
+      {err && <span className="small error">{err}</span>}
+    </span>
   );
 }
 

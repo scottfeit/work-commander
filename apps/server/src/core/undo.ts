@@ -52,6 +52,8 @@ interface Entry {
   chats: { id: string; meta: string }[];
   laya: { itemIds: string[]; examples: DB['laya_examples'][]; compare: { id: number; claude: string; agree: number | null; corrected: number }[] };
   gmail?: { itemId: string; undo: GmailAction; toInbox?: boolean };
+  /** A Jira status change from the item's own control: undo moves it back. */
+  jira?: { itemId: string; status: string };
   /** A Slack message move can be undone only while no new message arrives in that conversation. */
   slack?: { channel: string; messageIds: string[] };
 }
@@ -68,6 +70,8 @@ export interface UndoDeps {
   repo: Repo;
   /** Applies a Gmail action to an item's thread (and refreshes its stored state). */
   gmail: (itemId: string, action: GmailAction, opts: { toInbox?: boolean }) => Promise<unknown>;
+  /** Moves a ticket back to a status. */
+  jiraStatus?: (itemId: string, status: string) => Promise<unknown>;
   /** Laya re-checks its parts after training examples change. */
   layaChanged?: () => Promise<void>;
 }
@@ -155,6 +159,13 @@ export class UndoLog {
     await this.serial(async () => this.save([...(await this.prune(await this.load())), e]));
   }
 
+  /** A Jira status change: undo moves the ticket back to the status it had. */
+  async recordJiraStatus(label: string, itemId: string, previous: string) {
+    const e = this.blank(label, new Date().toISOString());
+    e.jira = { itemId, status: previous };
+    await this.serial(async () => this.save([...(await this.prune(await this.load())), e]));
+  }
+
   /** Undo the most recent action still undoable. Returns what was undone, or null when there is nothing. */
   async undo(): Promise<string | null> {
     return this.serial(async () => {
@@ -205,7 +216,7 @@ export class UndoLog {
     return { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, label, at, items: [], createdItems: [], streams: [], deletedStreams: [], createdStreams: [], newSummaryIds: [], proposalMoves: [], newProposals: [], chats: [], laya: { itemIds: [], examples: [], compare: [] } };
   }
   private isEmpty(e: Entry) {
-    return !e.items.length && !e.createdItems.length && !e.streams.length && !e.deletedStreams.length && !e.createdStreams.length && !e.proposalMoves.length && !e.newProposals.length && !e.chats.length && !e.laya.itemIds.length && !e.gmail;
+    return !e.items.length && !e.createdItems.length && !e.streams.length && !e.deletedStreams.length && !e.createdStreams.length && !e.proposalMoves.length && !e.newProposals.length && !e.chats.length && !e.laya.itemIds.length && !e.gmail && !e.jira;
   }
 
   private diff(label: string, at: string, b: Awaited<ReturnType<UndoLog['snapshot']>>, a: Awaited<ReturnType<UndoLog['snapshot']>>, createdStreams: string[], createdItemsHint: string[]): Entry {
@@ -261,6 +272,11 @@ export class UndoLog {
     const db = this.db;
     if (e.gmail) {
       await this.deps.gmail(e.gmail.itemId, e.gmail.undo, { toInbox: e.gmail.toInbox });
+      return;
+    }
+    if (e.jira) {
+      if (!this.deps.jiraStatus) throw new Error('Jira is not connected');
+      await this.deps.jiraStatus(e.jira.itemId, e.jira.status);
       return;
     }
     // 1. Streams the action removed come back first, so items and drafts have somewhere to return to.

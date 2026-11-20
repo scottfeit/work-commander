@@ -232,13 +232,27 @@ export class AtlassianCloud implements TicketApi {
     return { id: String(r.id) };
   }
 
-  async transition(input: { key: string; to: string; resolution?: string }) {
+  async transitionOptions(key: string) {
+    const r = await this.req('GET', `/rest/api/3/issue/${key}/transitions?expand=transitions.fields`);
+    return ((r.transitions ?? []) as any[]).map((t) => ({
+      id: String(t.id),
+      name: String(t.name),
+      to: String(t.to?.name ?? t.name),
+      // only what Jira insists on and won't fill in itself
+      fields: Object.entries((t.fields ?? {}) as Record<string, any>)
+        .filter(([, f]) => f?.required && !f?.hasDefaultValue)
+        .map(([k, f]) => ({ key: k, name: String(f.name ?? k), ...(Array.isArray(f.allowedValues) ? { allowed: f.allowedValues.map((v: any) => ({ id: String(v.id), name: String(v.name ?? v.value ?? v.id) })) } : {}) })),
+    }));
+  }
+
+  async transition(input: { key: string; to: string; id?: string; resolution?: string; fields?: Record<string, string | { id: string }> }) {
     const r = await this.req('GET', `/rest/api/3/issue/${input.key}/transitions`);
     const want = input.to.toLowerCase();
-    const t = (r.transitions as any[]).find((x) => x.name.toLowerCase() === want || x.to?.name?.toLowerCase() === want);
-    if (!t) throw new Error(`No transition "${input.to}" on ${input.key}. Available: ${(r.transitions as any[]).map((x) => x.name).join(', ')}`);
+    const t = (r.transitions as any[]).find((x) => (input.id ? String(x.id) === input.id : x.name.toLowerCase() === want || x.to?.name?.toLowerCase() === want));
+    if (!t) throw new Error(`No transition "${input.id ?? input.to}" on ${input.key} now. Available: ${(r.transitions as any[]).map((x) => x.name).join(', ')}`);
     const body: any = { transition: { id: t.id } };
     if (input.resolution) body.fields = { resolution: { name: input.resolution } };
+    if (input.fields && Object.keys(input.fields).length) body.fields = { ...(body.fields ?? {}), ...input.fields };
     await this.req('POST', `/rest/api/3/issue/${input.key}/transitions`, body);
     return { status: t.to?.name ?? t.name };
   }

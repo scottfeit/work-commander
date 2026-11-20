@@ -1,3 +1,4 @@
+import { applyTransition, transitionOptions } from '../core/jiraActions.js';
 import { currentSignature } from '../core/emailSignature.js';
 import { randomBytes } from 'node:crypto';
 import { safeEqual } from '../core/safeEqual.js';
@@ -473,6 +474,16 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const verb = { read: 'mark %s read', unread: 'mark %s unread', archive: 'archive %s', unarchive: 'unarchive %s', trash: 'delete %s', untrash: 'undelete %s' }[b.action];
     await undo.recordGmail(verb.replace('%s', q(item.title)), id, b.action, wasInInbox);
     return state;
+  });
+  // A Jira/JSM item's status, changed right away from its drop-down (Undo moves it back).
+  f.get('/api/items/:id/jira/transitions', async (req) => transitionOptions({ repo, hub }, (req.params as any).id));
+  f.post('/api/items/:id/jira/transition', async (req) => {
+    const b = z.object({ id: z.string().min(1), fields: z.record(z.string(), z.union([z.string(), z.object({ id: z.string() })])).optional() }).parse(req.body);
+    const id = (req.params as any).id as string;
+    const { item, from } = await applyTransition({ repo, hub }, id, b);
+    await undo.recordJiraStatus(`move ${q(item.title)} to ${item.data.ticket?.status ?? 'a new status'}`, id, from);
+    await repo.audit('you', 'jira.transitioned', { itemId: id, from, to: item.data.ticket?.status });
+    return { status: item.data.ticket?.status };
   });
   // System-wide Undo (your last three actions).
   f.get('/api/undo', async () => undo.info());

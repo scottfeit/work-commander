@@ -5,6 +5,9 @@ freshApp();
 
 /** The demo's first ticket (created by approving its ticket draft), and the stream it lives in. */
 async function demoTicket() {
+  // the demo has one ticket draft: an earlier test in this file may have approved it already
+  const made = (await api.proposals()).find((p: any) => p.kind === 'ticket_create' && p.status === 'executed') as any;
+  if (made) return { key: made.result.key as string, streamId: made.streamId as string };
   const [ticket] = await api.waitPending(['ticket_create']);
   await api.post(`/api/proposals/${ticket.id}/approve`);
   const done = await api.waitStatus(ticket.id, 'executed');
@@ -54,4 +57,25 @@ test('email drafts end with the Gmail signature (Quick Reply too)', async ({ pag
   await api.post(`/api/proposals/${id}/approve`);
   const failed = (await api.waitStatus(id, 'failed')) as any;
   expect(failed.error).toMatch(/Write a message first/);
+});
+
+test('a Jira/JSM item has a status drop-down: moves right away, asks for a Resolution when needed, Undo moves it back', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const status = page.locator('.ticket-fields').getByLabel('Status');
+  await status.selectOption({ label: 'In Progress' });
+  await expect(status.locator('option').first()).toHaveText('In Progress');
+  // Resolved needs a Resolution: a small box asks first
+  await status.selectOption({ label: 'Resolved' });
+  const ask = page.getByRole('group', { name: 'Moving to Resolved' });
+  await ask.getByRole('combobox').selectOption({ label: "Won't Do" });
+  await page.screenshot({ path: 'qa/results/jira-status.png', clip: { ...(await page.locator('.ticket-fields').boundingBox())!, height: 130 } });
+  await ask.getByRole('button', { name: 'Move to Resolved' }).click();
+  await expect(status.locator('option').first()).toHaveText('Resolved');
+  // Undo moves it back
+  await page.locator('.brand').getByRole('button', { name: /^Undo/ }).click();
+  await expect(status.locator('option').first()).toHaveText('In Progress');
 });

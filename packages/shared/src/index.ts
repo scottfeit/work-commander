@@ -280,6 +280,15 @@ export interface ChatMessage {
 }
 
 /** A Claude Code session running inside WC for a work stream. */
+/** A status a Jira/JSM ticket can move to now, and the fields Jira requires for it (e.g. Resolution, with its choices). */
+export interface TicketTransitionOption {
+  id: string;
+  name: string;
+  /** The status it leads to. */
+  to: string;
+  fields: { key: string; name: string; allowed?: { id: string; name: string }[] }[];
+}
+
 export interface ClaudeCodeStatus {
   /** Settings → Claude Code is on, WC runs on this machine and listens only on it. */
   enabled: boolean;

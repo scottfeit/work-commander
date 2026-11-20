@@ -14,6 +14,7 @@ const withFiles = (text: string, files?: DemoFile[]) => (files?.length ? `${text
  * whole dashboard flow can be clicked through (and tested) without credentials. Nothing leaves
  * the process. The scenario mirrors the example work stream in the README.
  */
+const DEMO_STATUSES = ['Open', 'In Progress', 'Waiting for customer', 'Resolved'];
 export const PU = { name: 'Alex Rivera', email: 'alex.rivera@example.com', orgFunction: 'IT Systems Administration' };
 export const PEOPLE = [
   { name: 'Alex Rivera', email: PU.email, title: 'Senior Systems Administrator', department: 'IT', managerEmail: 'jordan.lee@example.com' },
@@ -146,9 +147,17 @@ export class DemoWorld {
       t.data.ticket!.comments.push(msg(id, PU, withFiles(`${i.public ? '' : '[internal] '}${i.body}`, i.files), new Date().toISOString()));
       return { id };
     },
-    transition: async (i: { key: string; to: string }) => {
-      this.tickets.get(i.key)!.data.ticket!.status = i.to;
-      return { status: i.to };
+    /** A small demo workflow: any status to any other; "Resolved" needs a Resolution. */
+    transitionOptions: async (key: string) => {
+      const cur = this.tickets.get(key)!.data.ticket!.status;
+      const resolution = { key: 'resolution', name: 'Resolution', allowed: [{ id: '1', name: 'Done' }, { id: '2', name: "Won't Do" }] };
+      return DEMO_STATUSES.filter((st) => st !== cur).map((st) => ({ id: `t-${st}`, name: st, to: st, fields: st === 'Resolved' ? [resolution] : [] }));
+    },
+    transition: async (i: { key: string; to: string; id?: string; fields?: Record<string, unknown> }) => {
+      const to = i.id ? i.id.replace(/^t-/, '') : i.to;
+      if (to === 'Resolved' && i.id && !i.fields?.resolution) throw new Error('Resolution is required');
+      this.tickets.get(i.key)!.data.ticket!.status = to;
+      return { status: to };
     },
     assign: async (i: { key: string; assignee: string | null }) => {
       this.tickets.get(i.key)!.data.ticket!.assignee = i.assignee === 'me' ? PU.name : (i.assignee ?? undefined);
