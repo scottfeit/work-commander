@@ -13,7 +13,13 @@ function SystemIcon({ system }: { system: string }) {
 }
 
 /** The text a Quick Reply draft is waiting for (a blank one can't be sent). */
-const mainText = (p: Proposal, payload: Record<string, any>) => (p.kind === 'mcp_tool_call' ? payload.args?.message : p.kind === 'slack_post' ? payload.text : payload.body);
+const mainText = (p: Proposal, payload: Record<string, any>) => {
+  if (p.kind === 'mcp_tool_call') return payload.args?.message;
+  if (p.kind === 'slack_post') return payload.text;
+  // an email's signature isn't something you wrote
+  const body = String(payload.body ?? '').replace(/\s+$/, '');
+  return payload.signature_text && body.endsWith(payload.signature_text) ? body.slice(0, body.length - payload.signature_text.length) : body;
+};
 
 const getPath = (o: any, path: string) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 function setPath(o: any, path: string, v: unknown) {
@@ -138,7 +144,10 @@ function DraftCard({
     // Quick Reply just opened (or re-opened) this draft: bring it into view with the cursor in the message.
     if (!focus) return;
     card.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    card.current?.querySelector('textarea')?.focus({ preventScroll: true });
+    const ta = card.current?.querySelector('textarea');
+    ta?.focus({ preventScroll: true });
+    ta?.setSelectionRange(0, 0); // above the signature, if there is one
+    if (ta) ta.scrollTop = 0;
     setFlash(true);
     const t = setTimeout(() => setFlash(false), 1600);
     onFocused?.();

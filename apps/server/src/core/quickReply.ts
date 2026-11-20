@@ -1,3 +1,4 @@
+import { signDraft, type EmailSignature } from './emailSignature.js';
 import type { EditableField, Proposal, Settings, StreamItem } from '@wc/shared';
 import { Repo, draftTarget } from './repo.js';
 
@@ -94,9 +95,10 @@ export function buildQuickReply(item: StreamItem, s: Settings): QuickDraft {
 }
 
 /** Open a Quick Reply draft in the item's stream, or return the Quick Reply draft you already have open for the same destination. */
-export async function startQuickReply(repo: Repo, item: StreamItem, s: Settings) {
+export async function startQuickReply(repo: Repo, item: StreamItem, s: Settings, signature: EmailSignature | null = null) {
   if (!item.streamId) throw new Error('Add this item to a work stream first');
   const d = buildQuickReply(item, s);
+  if (d.kind === 'email_reply') d.payload = signDraft(d.payload, signature);
   const target = draftTarget({ kind: d.kind, system: d.system, payload: d.payload });
   if (target) {
     // Only a draft of your own is reused; one Claude prepared for the same place stays, and you get a blank one next to it.

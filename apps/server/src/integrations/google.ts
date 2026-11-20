@@ -1,3 +1,4 @@
+import { signatureFromHtml } from '../core/emailSignature.js';
 import { OAuth2Client } from 'google-auth-library';
 import { gmail as gmailApi, type gmail_v1 } from '@googleapis/gmail';
 import { drive as driveApi } from '@googleapis/drive';
@@ -83,6 +84,8 @@ export function buildMime(input: {
   cc: string[];
   subject: string;
   body: string;
+  /** An HTML version, sent with the text as multipart/alternative. */
+  html?: string;
   inReplyTo?: string;
   references?: string;
   files?: OutFile[];
@@ -97,7 +100,12 @@ export function buildMime(input: {
     ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`, `References: ${[input.references, input.inReplyTo].filter(Boolean).join(' ')}`] : []),
     'MIME-Version: 1.0',
   ];
-  const textPart = ['Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', b64(Buffer.from(input.body, 'utf8'))];
+  const plain = ['Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', b64(Buffer.from(input.body, 'utf8'))];
+  const alt = `wca_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  // With an HTML version: text and HTML as alternatives of each other (mail apps show the HTML).
+  const textPart = input.html
+    ? [`Content-Type: multipart/alternative; boundary="${alt}"`, '', `--${alt}`, ...plain, `--${alt}`, 'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', b64(Buffer.from(input.html, 'utf8')), `--${alt}--`, '']
+    : plain;
   let lines: string[];
   if (!input.files?.length) {
     lines = [...headers, ...textPart];
@@ -230,7 +238,19 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
     return pu.name ? `${pu.name} <${pu.email}>` : pu.email;
   }
 
-  async reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }) {
+  private sig?: { at: number; value: { html: string; text: string } | null };
+  /** The signature of the PU's default send-as address (cached for 10 minutes). */
+  async signature() {
+    if (this.sig && Date.now() - this.sig.at < 10 * 60_000) return this.sig.value;
+    const r = await this.gmail.users.settings.sendAs.list({ userId: 'me' });
+    const all = r.data.sendAs ?? [];
+    const pick = all.find((x) => x.isDefault) ?? all.find((x) => x.isPrimary);
+    const value = signatureFromHtml(pick?.signature);
+    this.sig = { at: Date.now(), value };
+    return value;
+  }
+
+  async reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; html?: string; files?: OutFile[] }) {
     const t = await this.gmail.users.threads.get({ userId: 'me', id: input.threadId, format: 'metadata', metadataHeaders: ['Message-ID', 'References', 'Subject'] });
     const last = t.data.messages?.[t.data.messages.length - 1];
     const subject = input.subject || (last ? header(last, 'Subject') : '');
@@ -240,6 +260,7 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
       cc: input.cc,
       subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
       body: input.body,
+      html: input.html,
       inReplyTo: last ? header(last, 'Message-ID') : undefined,
       references: last ? header(last, 'References') : undefined,
       files: input.files,
@@ -254,7 +275,7 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
     return this.gmail.users.messages.send({ userId: 'me', requestBody: { threadId }, media: { mimeType: 'message/rfc822', body: buildMime(msg) } });
   }
 
-  async send(input: { to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }) {
+  async send(input: { to: string[]; cc: string[]; subject: string; body: string; html?: string; files?: OutFile[] }) {
     const r = await this.sendMime({ from: await this.fromHeader(), ...input });
     return { messageId: r.data.id!, threadId: r.data.threadId! };
   }

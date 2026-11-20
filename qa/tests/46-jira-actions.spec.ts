@@ -40,3 +40,18 @@ test('Claude can link Jira issues: a draft you approve', async ({ page }) => {
   const done = (await api.waitStatus(id, 'executed')) as any;
   expect(done.result.linked).toEqual([`IT-123 relates to ${key}`, `IT-124 relates to ${key}`]);
 });
+
+test('email drafts end with the Gmail signature (Quick Reply too)', async ({ page }) => {
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  await page.locator('.top-pane .item-head').getByRole('button', { name: 'Quick reply' }).click();
+  const draft = page.locator('.draft', { hasText: 'Quick reply' });
+  const body = draft.locator('textarea').first();
+  await expect(body).toHaveValue(/\n\nAlex Rivera\nIT Operations, Acme · acme\.example$/);
+  await draft.screenshot({ path: 'qa/results/signature-draft.png' });
+  // a Quick Reply holding only the signature is still blank: it can't be sent
+  const id = (await api.proposals()).find((p: any) => p.payload.quick && p.kind === 'email_reply')!.id;
+  await api.post(`/api/proposals/${id}/approve`);
+  const failed = (await api.waitStatus(id, 'failed')) as any;
+  expect(failed.error).toMatch(/Write a message first/);
+});

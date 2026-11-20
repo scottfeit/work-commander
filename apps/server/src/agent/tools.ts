@@ -1,3 +1,4 @@
+import { currentSignature, signDraft } from '../core/emailSignature.js';
 import { attachDriveFile } from '../core/docs.js';
 import { addWorkItemFromUrl, urlInPuMessages } from '../core/addByUrl.js';
 import { gatherSlackContext } from '../core/slackContext.js';
@@ -93,6 +94,8 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     editable: EditableField[],
     dependsOn: string[] = [],
   ) => {
+    // Email drafts end with the PU's Gmail signature, as Gmail's own compose window would.
+    if (kind === 'email_reply' || kind === 'email_send') payload = signDraft(payload, await currentSignature(d.hub));
     const p = await d.repo.createProposal({ streamId: ctx.streamId, runId: ctx.runId, kind, system, title, rationale, payload, editable, dependsOn });
     if (policy(system).write === 'auto' && kind !== 'credential_request') {
       const done = await d.executor.approve(p.id, undefined, { auto: true });

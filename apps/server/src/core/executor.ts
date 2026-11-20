@@ -1,3 +1,4 @@
+import { emailHtml, withoutSignature } from './emailSignature.js';
 import { notFound, conflict } from './errors.js';
 import { isQuickRun } from './quickReply.js';
 import type { Proposal, Settings, ThreadMessage } from '@wc/shared';
@@ -191,7 +192,7 @@ export class Executor {
   private async run(p: Proposal, x: Record<string, any>): Promise<Record<string, unknown>> {
     if (!this.attachments && Array.isArray(x.attachments) && x.attachments.length) throw new Error('Attachments are not available');
     // A draft started with Quick Reply can still be blank: never send nothing.
-    const written = p.kind === 'email_reply' || p.kind === 'email_send' ? x.body : p.kind === 'slack_post' ? x.text : p.kind === 'ticket_comment' ? x.body : p.kind === 'mcp_tool_call' && x.args && x.quick ? x.args.message : 'ok';
+    const written = p.kind === 'email_reply' || p.kind === 'email_send' ? withoutSignature(x.body, x.signature_text) : p.kind === 'slack_post' ? x.text : p.kind === 'ticket_comment' ? x.body : p.kind === 'mcp_tool_call' && x.args && x.quick ? x.args.message : 'ok';
     if (typeof written === 'string' && !written.trim() && !(Array.isArray(x.attachments) && x.attachments.length)) throw new Error('Write a message first');
     const files = this.attachments ? await this.attachments.resolve(x.attachments, p.streamId) : [];
     const attached = files.length ? { attachments: files.map((f) => f.filename) } : {};
@@ -199,14 +200,14 @@ export class Executor {
       case 'email_reply': {
         const email = await this.hub.api('email');
         checkEmailSize(files);
-        const r = await email.reply({ threadId: x.thread_id, to: asList(x.to), cc: asList(x.cc), subject: x.subject ?? '', body: x.body, files });
+        const r = await email.reply({ threadId: x.thread_id, to: asList(x.to), cc: asList(x.cc), subject: x.subject ?? '', body: x.body, html: emailHtml(x.body, x) ?? undefined, files });
         await this.attachInbound(p.streamId, await email.getThread(r.threadId));
         return { ...r, ...attached };
       }
       case 'email_send': {
         const email = await this.hub.api('email');
         checkEmailSize(files);
-        const r = await email.send({ to: asList(x.to), cc: asList(x.cc), subject: x.subject, body: x.body, files });
+        const r = await email.send({ to: asList(x.to), cc: asList(x.cc), subject: x.subject, body: x.body, html: emailHtml(x.body, x) ?? undefined, files });
         await this.attachInbound(p.streamId, await email.getThread(r.threadId));
         return { ...r, ...attached };
       }

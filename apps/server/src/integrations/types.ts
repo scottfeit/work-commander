@@ -26,8 +26,11 @@ export interface Ingestor {
 export interface EmailApi {
   getThread(threadId: string): Promise<InboundItem>;
   search(query: string, max?: number): Promise<{ threadId: string; subject: string; from: string; snippet: string; at: string }[]>;
-  reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
-  send(input: { to: string[]; cc: string[]; subject: string; body: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
+  /** `html`: an HTML version sent alongside the plain text (multipart/alternative). */
+  reply(input: { threadId: string; to: string[]; cc: string[]; subject: string; body: string; html?: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
+  send(input: { to: string[]; cc: string[]; subject: string; body: string; html?: string; files?: OutFile[] }): Promise<{ messageId: string; threadId: string }>;
+  /** The PU's Gmail signature (their default send-as address's), or null. */
+  signature?(): Promise<{ html: string; text: string } | null>;
   /** Mark read/unread, archive/unarchive, or trash/untrash a whole thread. `toInbox` with untrash: put it back in the Inbox too. */
   modifyThread?(threadId: string, action: GmailAction, opts?: { toInbox?: boolean }): Promise<void>;
   /** Where the thread is now (read, archived, in Trash). */

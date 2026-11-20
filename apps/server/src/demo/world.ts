@@ -52,6 +52,7 @@ export class DemoWorld {
       if (t.data.gmail) t.data.gmail.state = await this.email.threadState(id);
       return t;
     },
+    signature: async () => ({ html: '<div><b>Alex Rivera</b><br>IT Operations, Acme · <a href="https://acme.example">acme.example</a></div>', text: 'Alex Rivera\nIT Operations, Acme · acme.example' }),
     threadState: async (id: string) => ({ ...(this.gmailState.get(id) ?? { unread: true, inbox: true, trash: false }) }),
     /** Demo attachments: a small PNG for images, a line of text for anything else. */
     attachment: async (_messageId: string, a: { mimeType: string; name: string }) =>

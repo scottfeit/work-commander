@@ -1,3 +1,4 @@
+import { currentSignature } from '../core/emailSignature.js';
 import { randomBytes } from 'node:crypto';
 import { safeEqual } from '../core/safeEqual.js';
 import { isOwnOrigin } from '../auth/guard.js';
@@ -321,7 +322,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.post('/api/items/:id/quick-reply', async (req) => {
     const item = await repo.getItem((req.params as any).id);
     if (!item) throw new Error('Item not found');
-    return startQuickReply(repo, item, await settings.get());
+    return startQuickReply(repo, item, await settings.get(), item.source === 'gmail' ? await currentSignature(hub) : null);
   });
   f.post('/api/items/:id/mute', async (req) => {
     const b = z.object({ muted: z.boolean() }).parse(req.body);
