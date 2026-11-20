@@ -92,6 +92,10 @@ describe('the Slack API poll', () => {
       expect(calls.some((c) => c.fn === 'list')).toBe(false); // the conversation list is not walked
       expect(sunk).toContain('D04DPN6NQHW:dm'); // a 1:1 DM is one conversation item
     });
+    it('a group DM whose id starts with C is one conversation too, and your own messages alone update it', async () => {
+      await make({ dmHits: ['C0GROUP0001'], channelMsgs: { C0GROUP0001: [{ ts: String(NOW() - 5), user: 'UME' }] } }).pollOnce();
+      expect(sunk).toEqual(['C0GROUP0001:dm']);
+    });
     it('asks search for DMs since the starting day', async () => {
       await repo.setSync('slack.lastTs', String(Date.parse('2026-11-18T12:00:00Z') / 1000));
       await make().pollOnce();

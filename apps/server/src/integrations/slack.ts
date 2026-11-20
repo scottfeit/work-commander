@@ -524,14 +524,13 @@ export class SlackIngestor implements Ingestor {
         const all = await this.history(id, String(since - 7 * 86_400));
         const activity = (m: any) => Math.max(Number(m.ts), Number(m.latest_reply ?? 0));
         const msgs = all.filter((m) => activity(m) > since);
-        if (id.startsWith('D')) {
-          // A DM is one conversation item; new messages from either side (the PU's own replies too) update it.
-          if (msgs.length && !seen.has(id)) {
-            seen.add(id);
-            const newest = msgs.reduce((a, b) => (activity(b) > activity(a) ? b : a));
-            await this.sink(await this.slack.getDmConversation(id, String(activity(newest)), since));
-          }
-        } else for (const m of msgs) if (m.user !== me || Number(m.latest_reply ?? 0) > since) await emit(id, m.thread_ts ?? m.ts, String(activity(m)));
+        // Everything found here is a DM or group DM (search said so), whatever its id starts with: group DMs often start with C.
+        // Each is one conversation item; new messages from either side (the PU's own too) update it.
+        if (msgs.length && !seen.has(id)) {
+          seen.add(id);
+          const newest = msgs.reduce((a, b) => (activity(b) > activity(a) ? b : a));
+          await this.sink(await this.slack.getDmConversation(id, String(activity(newest)), since));
+        }
       }
       // Watched channels: new messages there, even when they don't mention the PU.
       const watched = parseWatchedChannels(this.s.watchedChannels);
