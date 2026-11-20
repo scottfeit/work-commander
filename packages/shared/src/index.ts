@@ -720,6 +720,12 @@ export interface Settings {
     loadClaudeMd?: boolean;
     /** Skills it may use: 'all' (yours and the project's) or the names you picked. Default none. */
     skills?: 'all' | string[];
+    /**
+     * Claude Code's Auto Mode: its classifier approves or refuses each action and asks the PU only when unsure. WC's hard limits
+     * stay (commands sandboxed, secret folders blocked) and web fetches are turned off (commands can still reach allowed sites).
+     * Default off.
+     */
+    autoMode?: boolean;
   };
   /** Calendar meetings linked to work streams: a brief before, a follow-up after. */
   meetings?: { enabled: boolean; /** Minutes before the start to post the brief (0 = no brief). */ briefMinutes: number; followUp: 'offer' | 'draft' | 'off' };

@@ -63,7 +63,11 @@ export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: S
         <b>How it's kept safe</b>
         <ul>
           <li>It only starts when you click Run here, never from a message or triage.</li>
-          <li>Reading inside its folder is free; every command, file change, reading outside the folder and web request waits for your Allow in the chat.</li>
+          <li>
+            {cc.autoMode
+              ? 'Auto Mode is on: Claude Code’s reviewer approves its actions and asks you only when unsure; each action is listed in the chat.'
+              : 'Reading inside its folder is free; every command, file change, reading outside the folder and web request waits for your Allow in the chat.'}
+          </li>
           <li>Commands run in your computer's sandbox: they can write only inside the folder, can't read SSH keys, cloud logins or Work Commander's own data, and reach only the sites below.</li>
           <li>Your own Claude Code settings, hooks and plugins aren't loaded (they could pre-approve commands), and it gets no Work Commander secrets.</li>
           <li>Messages and tickets are passed to it as information, never as instructions.</li>
@@ -78,6 +82,12 @@ export function ClaudeCodeSection({ s, setS, local }: { s: Settings; setS: (s: S
           placeholder={'github.com\nregistry.npmjs.org'}
           onChange={(e) => set({ allowedDomains: e.target.value.split(/[\s,]+/).map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean) })}
         />
+      </Row>
+      <Row
+        label="Auto Mode"
+        hint="Claude Code's own reviewer approves or refuses each action, and asks you only when it's unsure. Each action is still listed in the chat. What stays fixed either way: commands run in the sandbox (writes only in the project folder, network only to the allowed sites), and secret folders and WC's data can't be read or edited. With it on, its web-fetch and web-search tools are off (commands can still reach the allowed sites). Edits to files elsewhere in your home folder are then the reviewer's call, not yours."
+      >
+        <Toggle checked={!!cc.autoMode} onChange={(autoMode) => set({ autoMode })} label="Let Claude Code approve its own actions (Auto Mode)" />
       </Row>
       <Row label="CLAUDE.md" hint="Your ~/.claude/CLAUDE.md and the project's CLAUDE.md files (and what they import), as standing instructions. Only these text files are read: never settings.json, hooks or permission rules.">
         <Toggle checked={!!cc.loadClaudeMd} onChange={(loadClaudeMd) => set({ loadClaudeMd })} label="Give Claude Code my CLAUDE.md instructions" />

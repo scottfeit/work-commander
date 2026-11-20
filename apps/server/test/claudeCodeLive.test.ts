@@ -140,4 +140,34 @@ describe('Claude Code inside WC', () => {
     expect((await cc.status('T')).session?.state).toBe('interrupted');
     expect((await chat('T')).some((m) => /interrupted/.test(m.content))).toBe(true);
   });
+
+  it('Auto Mode: off by default; on, the classifier decides, web tools are off and what it does is listed in the chat', async () => {
+    const { defaultSettings: d } = await import('../src/core/settings.js');
+    expect(d().claudeCode?.autoMode).toBe(false);
+    await cc.start('S', folder, 'brief');
+    await expect.poll(async () => (await waiting('S')).length).toBe(1);
+    const off = calls[0].options;
+    expect(off.permissionMode).toBe('default');
+    expect(off.managedSettings.permissions.deny).toEqual(expect.arrayContaining([`Read(/${path.join(os.homedir(), '.ssh')}/**)`, `Edit(/${path.join(os.homedir(), '.ssh')}/**)`]));
+    expect(off.managedSettings.permissions.deny).not.toContain('WebFetch');
+    await cc.stop('S');
+
+    s.claudeCode!.autoMode = true;
+    script = async function* () {
+      yield { type: 'system', session_id: 'sess-2' };
+      yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }, { type: 'tool_use', name: 'Read', input: { file_path: path.join(folder, 'a.ts') } }] } };
+      yield { type: 'result', subtype: 'success', result: 'Done', modelUsage: {} };
+    };
+    await cc.start('T', folder, 'brief');
+    await idle('T');
+    const on = calls[1].options;
+    expect(on.permissionMode).toBe('auto');
+    expect(on.managedSettings.permissions.deny).toEqual(expect.arrayContaining(['WebFetch', 'WebSearch', `Read(/${cfg.dataDir}/**)`]));
+    expect(on.sandbox).toMatchObject({ enabled: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: [folder] } });
+    expect(on.systemPrompt.append).toMatch(/reviewed automatically/);
+    const notes = (await chat('T')).filter((m) => m.role === 'system').map((m) => m.content);
+    expect(notes).toContain('Claude Code: Run a command · npm test');
+    expect(notes.some((n) => /Claude Code: Read/.test(n))).toBe(false); // reading inside the folder isn't listed
+    expect(notes[0]).toMatch(/Auto Mode/);
+  });
 });

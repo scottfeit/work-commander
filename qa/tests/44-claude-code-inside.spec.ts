@@ -123,3 +123,17 @@ test('an offer for something you asked for yourself has no "I\'m looking into it
   await expect(bubble.getByRole('button', { name: 'Hand off to Claude Code' })).toBeVisible();
   await expect(bubble.getByRole('button', { name: /looking into it/ })).toHaveCount(0);
 });
+
+test('Settings: Auto Mode is off by default and can be turned on', async ({ page }) => {
+  expect((await api.get('/api/settings')).json.claudeCode.autoMode).toBe(false);
+  await page.goto(`${WEB}/settings?section=claudecode`);
+  const t = page.getByRole('checkbox', { name: /approve its own actions \(Auto Mode\)/ });
+  await expect(t).not.toBeChecked();
+  await t.check();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect.poll(async () => (await api.get('/api/settings')).json.claudeCode.autoMode).toBe(true);
+  await page.locator('.settings-body').screenshot({ path: 'qa/results/claude-code-auto.png' });
+  await t.uncheck();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect.poll(async () => (await api.get('/api/settings')).json.claudeCode.autoMode).toBe(false);
+});
