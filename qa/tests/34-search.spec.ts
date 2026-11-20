@@ -73,3 +73,21 @@ test('the Filter streams box is a plain box (no drop shadow from the search pop-
   await page.keyboard.press('ControlOrMeta+k');
   expect(await page.getByRole('dialog', { name: 'Search everything' }).evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe('none');
 });
+
+test('Esc cancels a search: the filter box clears and lets go; in ⌘K the first Esc clears, the second closes', async ({ page }) => {
+  await page.goto(WEB);
+  const filter = page.getByPlaceholder('Filter streams');
+  await filter.fill('zzz-no-such-stream');
+  await filter.press('Escape');
+  await expect(filter).toHaveValue('');
+  await expect(filter).not.toBeFocused();
+  await expect(page.locator('button.stream-open').first()).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  const box = page.getByRole('textbox', { name: 'Search everything' });
+  await box.fill('kickoff');
+  await box.press('Escape');
+  await expect(box).toHaveValue('');
+  await expect(page.getByRole('dialog', { name: 'Search everything' })).toBeVisible();
+  await box.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Search everything' })).toHaveCount(0);
+});

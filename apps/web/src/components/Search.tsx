@@ -78,7 +78,12 @@ export function Search({ open, initial, onClose, onOpen }: { open: boolean; init
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose();
+            // Esc: first clears what's typed, then closes
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              if (q) setQ('');
+              else onClose();
+            }
             else if (e.key === 'ArrowDown') (e.preventDefault(), setSel((n) => Math.min(ordered.length - 1, n + 1)));
             else if (e.key === 'ArrowUp') (e.preventDefault(), setSel((n) => Math.max(0, n - 1)));
             else if (e.key === 'Enter' && ordered[sel]) choose(ordered[sel]);

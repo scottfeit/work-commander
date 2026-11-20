@@ -265,7 +265,14 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <span className="muted small">{streams.filter((s) => s.status === 'open').length}</span>
       </button>
       <div className="sidebar-tools">
-        <ClearableInput wrapClass="search-wrap" className="search" placeholder="Filter streams" value={q} onClear={() => setQ('')} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && q.trim().length >= 2 && onSearchAll(q.trim())} />
+        <ClearableInput wrapClass="search-wrap" className="search" placeholder="Filter streams" value={q} onClear={() => setQ('')} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => {
+            if (e.key === 'Enter' && q.trim().length >= 2) onSearchAll(q.trim());
+            // Esc cancels the filter: clears it and leaves the box
+            if (e.key === 'Escape') {
+              setQ('');
+              e.currentTarget.blur();
+            }
+          }} />
         <button
           className={`icon-btn ${dropOn === NEW_STREAM ? 'drop-target' : ''}`}
           title="New work stream (or drop a work item here to start one with it)"
