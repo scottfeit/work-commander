@@ -47,31 +47,31 @@
   --sans: 'Gibson', 'canada-type-gibson', -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif;
   color-scheme: light dark;
 }
-/* Dark: the guide's Bazaarvoice Blue backgrounds, white text; light brand colors only as marks and borders. */
+/* Dark: black backgrounds with near-black panels, white text; brand colors only for buttons, marks and borders. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #001c4d;
-    --panel: var(--bv-blue);
-    --panel-2: #002659;
-    --line: #1f4a8a;
-    --line-2: #2d5a9c;
+    --bg: #000000;
+    --panel: #0e1015;
+    --panel-2: #07080b;
+    --line: #23262e;
+    --line-2: #343844;
     --text: #ffffff;
     --strong: #ffffff;
     --muted: var(--grey-6);
     --accent: #7ee4fc; /* Light Social Blue: borders, rings and marks on Blue */
     --cta: var(--bv-purple);
     --accent-ink: #ffffff;
-    --accent-soft: #0b3f86;
+    --accent-soft: #151a33; /* a dark tint of Connecting Purple */
     --link: #ffffff;
     --ok: #00d0b4;
     --warn: #ffdb30;
     --err: #ff6e90;
     --attn: #ffffff;
-    --attn-bg: #0b3f86;
+    --attn-bg: #161922;
     --attn-mark: #ffdb30;
     --pending: #fc937e;
-    --pending-soft: #0b3f86;
-    --pu-bg: #0a3a7c;
+    --pending-soft: #1f1512;
+    --pu-bg: #11152a;
   }
 }
 * { box-sizing: border-box; }
