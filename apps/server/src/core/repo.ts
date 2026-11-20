@@ -101,8 +101,37 @@ export class Repo {
       })(),
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       itemCount: Number(items?.n ?? 0),
+      reason: r.status === 'open' ? await this.streamReason(r, pendingN) : null,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
+  }
+
+  /** Why a work stream is in front of the PU now: the most pressing of what's going on, in a few words. null = nothing notable. */
+  private async streamReason(r: StreamRow, pendingN: number): Promise<string | null> {
+    const latest = await this.db.selectFrom('items').select(['source', 'data']).where('stream_id', '=', r.id).orderBy('updated_at', 'desc').limit(1).executeTakeFirst();
+    const data = pj<ItemData>(latest?.data ?? null, {} as ItemData);
+    const msgs = data.messages?.length ? data.messages : (data.ticket?.comments ?? []);
+    const last = msgs.length ? msgs.reduce((a, b) => (a.at >= b.at ? a : b)) : null;
+    const tool = latest ? ({ gmail: 'email', slack: 'Slack', jira: 'Jira', jsm: 'Jira', gdoc: 'Google Docs' } as Record<string, string>)[latest.source] : undefined;
+    const fromOther = last && !last.isFromPU ? `${last.author.name}${tool ? ` on ${tool === 'email' ? 'email' : tool}` : ''}` : null;
+    if (r.reopened_at) return fromOther ? `Reopened: new message from ${fromOther}` : 'Reopened by new activity';
+    if (r.back_at) return 'Back from snooze';
+    if (r.reminder_at) {
+      const days = r.pending_at ? Math.max(1, Math.round((Date.parse(r.reminder_at) - Date.parse(r.pending_at)) / 86_400_000)) : null;
+      return days ? `Reminder: nothing new in ${days} day${days === 1 ? '' : 's'}` : 'Reminder: nothing new for a while';
+    }
+    const chat = await this.db.selectFrom('chat_messages').select('role').where('stream_id', '=', r.id).where('role', 'in', ['question', 'user', 'assistant']).orderBy('created_at', 'desc').limit(1).executeTakeFirst();
+    if (chat?.role === 'question') return 'Claude has a question for you';
+    const due = pj<{ due?: StreamDeadline | null }>(r.deadlines ?? null, {}).due;
+    if (due?.at) {
+      const ms = Date.parse(due.at) - Date.now();
+      if (ms < 0) return 'Overdue';
+      if (ms < 2 * 86_400_000) return ms < 86_400_000 ? 'Due within a day' : 'Due tomorrow';
+    }
+    if (pendingN > 0) return `${pendingN} draft${pendingN === 1 ? '' : 's'} to review`;
+    if (r.unread && fromOther) return `New message from ${fromOther}`;
+    if (r.unread && Date.now() - Date.parse(r.created_at) < 86_400_000) return 'New work stream';
+    return null;
   }
 
   async listStreams(includeClosed: boolean) {

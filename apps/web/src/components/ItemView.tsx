@@ -740,7 +740,7 @@ function RefreshOverview({ streamId, disabled }: { streamId: string; disabled: b
 type SummaryVersion = { id: number; summary: string; by: 'claude' | 'you' | 'unknown'; at: string | null };
 const fmtFull = (iso: string) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetRead, manualRead, onTogglePending, confirmClose = true }: { cc?: ClaudeCodeStatus | null; stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onSetRead?: (read: boolean) => void; manualRead?: boolean; onTogglePending?: () => void; confirmClose?: boolean }) {
+export function StreamOverview({ cc, showReason, stream, items, onOpen, onMarkUnread, onSetRead, manualRead, onTogglePending, confirmClose = true }: { cc?: ClaudeCodeStatus | null; showReason?: boolean; stream: WorkStream; items: StreamItem[]; onOpen: (id: string) => void; onMarkUnread?: () => void; onSetRead?: (read: boolean) => void; manualRead?: boolean; onTogglePending?: () => void; confirmClose?: boolean }) {
   const [title, setTitle] = useState(stream.title);
   const [summary, setSummary] = useState(stream.summary);
   const [grants, setGrants] = useState<any[]>([]);
@@ -843,6 +843,11 @@ export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetR
         </div>
       </div>
       <Handoff cc={cc} streamId={stream.id} updatedAt={stream.updatedAt} open={handoffOpen} onClose={() => setHandoffOpen(false)} onAvailable={setCanHandoff} />
+      {showReason && stream.reason && (
+        <div className="ov-reason">
+          <span className="muted">Why it's here:</span> {stream.reason}
+        </div>
+      )}
       {stream.status === 'open' && <DueLine stream={stream} />}
       <textarea className="summary-input" rows={12} value={summary} placeholder="Summary (Claude keeps this current)" onChange={(e) => setSummary(e.target.value)} onBlur={() => summary !== stream.summary && save({ summary })} />
       <div className="overview-foot">

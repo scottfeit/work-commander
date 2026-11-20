@@ -86,6 +86,8 @@ export interface WorkStream {
   lastSource?: ItemSource;
   /** How many work items the stream holds. */
   itemCount?: number;
+  /** Why it's in front of you now, in a few words (e.g. "New message from Priya Shah on Slack"), or null. */
+  reason?: string | null;
   runState: 'idle' | 'running' | 'waiting_approval';
 }
 
@@ -693,6 +695,8 @@ export interface Settings {
     undoToast?: boolean;
     /** When you close the work stream you're on: keep showing it, open the next one in the list (default), or go to All open work. */
     afterClose?: 'stay' | 'next' | 'all';
+    /** Where to show why a work stream is in front of you: on its card, on the Overview, both (default) or nowhere. */
+    streamReason?: 'both' | 'card' | 'overview' | 'off';
     /** Show the newest message first in work items, per kind (default oldest first). */
     newestFirst?: { email?: boolean; slack?: boolean; tickets?: boolean };
     /** Work streams stay unread until you click Read (opening one doesn't mark it read). Default off. */

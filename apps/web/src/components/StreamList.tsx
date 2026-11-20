@@ -38,6 +38,8 @@ interface Props {
   onTogglePending: (id: string, pending: boolean) => void;
   /** Tells the app whether Pending streams are shown (so marking the open one Pending can move on to the next). */
   onShowPendingChange?: (shown: boolean) => void;
+  /** Show why each stream is in front of you, on its card. */
+  showReason?: boolean;
   onSnooze: (id: string, until: string) => void;
   /** Closing takes two clicks (Settings → Display). */
   confirmClose: boolean;
@@ -50,7 +52,7 @@ interface Props {
   onTogglePolling: () => void;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onShowPendingChange, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
+export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onShowPendingChange, showReason, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [moved, setMoved] = useState(0);
@@ -138,7 +140,19 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       setMoveErr(err.message);
     }
   };
-  const row = (s: WorkStream) => (
+  /**
+   * The card's "why it's here" line: only what its chips don't already say (they show Reopened, Reminder, Back, drafts to
+   * review and the due date), e.g. a reopened stream's chip plus "New message from Priya on Slack".
+   */
+  const reasonFor = (s: WorkStream) => {
+    if (!showReason || !s.reason) return null;
+    const r = s.reason;
+    if (/^\d+ drafts? to review$|^Due|^Overdue|^Back from snooze$|^Reopened by new activity$/.test(r)) return null;
+    if (r.startsWith('Reopened: new message')) return r.replace(/^Reopened: new/, 'New');
+    if (r.startsWith('Reminder: ')) return r.slice('Reminder: '.length).replace(/^./, (c) => c.toUpperCase());
+    return r;
+  };
+  const row = (s: WorkStream, cardReason = reasonFor(s)) => (
     <SwipeRow key={s.id} onSwipe={() => (manualRead && onSetRead ? onSetRead(s.id, false) : onMarkUnread(s.id))} label="Unread">
     <div
       className={`stream ${s.id === selected ? 'active' : ''} ${s.status} ${s.pending ? 'pending' : ''} ${dropOn === s.id ? 'drop-target' : ''}`}
@@ -167,6 +181,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           <span className="stream-title">{s.title}</span>
           <span className="muted small">{timeAgo(s.lastActivityAt)}</span>
         </div>
+        {cardReason && <div className="stream-reason">{cardReason}</div>}
         {s.summary && <div className="stream-summary">{s.summary}</div>}
         <div className="stream-meta">
           {s.runState === 'running' && <span className="chip running">working…</span>}

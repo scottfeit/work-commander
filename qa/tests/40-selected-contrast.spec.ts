@@ -127,3 +127,40 @@ test('marking the open stream Pending while Pending is hidden opens the next str
   await page.locator('.sidebar .stream.active').getByRole('button', { name: 'Mark pending' }).click();
   await expect(page.locator('.sidebar .stream.active .stream-title')).toHaveText(expected);
 });
+
+test('why a work stream is in front of you: on the card and the Overview, per the setting', async ({ page }) => {
+  const { api: a } = await import('./helpers');
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  const card = page.locator('.sidebar .stream.active');
+  // drafts to review are already a chip on the card: no repeat there; the Overview says it
+  await expect(card.locator('.chip.attention')).toBeVisible();
+  await expect(card.locator('.stream-reason')).toHaveCount(0);
+  await expect(page.locator('.overview-pane .ov-reason')).toContainText(/drafts? to review/);
+  await expect(page.locator('.overview-pane .ov-reason')).toContainText("Why it's here:");
+  // a new message: the card says from whom
+  const { demoDataDir } = await import('./helpers');
+  const path = await import('node:path');
+  const nid = (await a.post('/api/streams', { title: 'Reason stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run('rsn1', nid, 'slack', 'slack_thread', 'D0RSN:dm', 'DM', null, JSON.stringify({ messages: [{ id: '1.1', author: { name: 'Marco Diaz' }, text: 'ping', at: new Date().toISOString() }] }), new Date().toISOString());
+  db.close();
+  await page.reload();
+  const rc = page.locator('.sidebar .stream', { hasText: 'Reason stream' });
+  await expect(rc.locator('.stream-reason')).toHaveText('New message from Marco Diaz on Slack');
+  await rc.screenshot({ path: 'qa/results/reason-card.png' });
+  const s = (await a.get('/api/settings')).json;
+  await a.call('PUT', '/api/settings', { ...s, ui: { ...s.ui, streamReason: 'overview' } });
+  await page.goto(`${WEB}/settings`);
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  await expect(page.locator('.sidebar .stream.active .stream-reason')).toHaveCount(0);
+  await expect(page.locator('.overview-pane .ov-reason')).toBeVisible();
+  await a.call('PUT', '/api/settings', { ...s, ui: { ...s.ui, streamReason: 'off' } });
+  await page.goto(`${WEB}/settings`);
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  await expect(page.locator('.overview-pane .ov-reason')).toHaveCount(0);
+  await a.call('PUT', '/api/settings', { ...s, ui: { ...s.ui, streamReason: 'both' } });
+});

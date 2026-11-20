@@ -42,6 +42,8 @@ export function App() {
   const [confirmClose, setConfirmClose] = useState(true);
   // Settings → Display: things stay unread until you click Read.
   const [manualStreamRead, setManualStreamRead] = useState(false);
+  /** Where "why it's in front of you" shows (Settings → Display). */
+  const [streamReason, setStreamReason] = useState<'both' | 'card' | 'overview' | 'off'>('both');
   const afterCloseRef = useRef<'stay' | 'next' | 'all'>('next');
   /** Whether the list shows Pending streams (the sidebar's "Show pending"). */
   const showPendingRef = useRef(true);
@@ -138,6 +140,7 @@ export function App() {
         setRecentTabFirst(!!s.ui?.recentTabFirst);
         setConfirmClose(s.ui?.confirmClose !== false);
         setManualStreamRead(!!s.ui?.manualStreamRead);
+        setStreamReason(s.ui?.streamReason ?? 'both');
         afterCloseRef.current = s.ui?.afterClose ?? 'next';
         manualStreamReadRef.current = !!s.ui?.manualStreamRead;
         setManualItemRead(!!s.ui?.manualItemRead);
@@ -561,6 +564,7 @@ export function App() {
       <StreamList
         confirmClose={confirmClose}
         manualRead={manualStreamRead}
+        showReason={streamReason === 'both' || streamReason === 'card'}
         onSetRead={(id, read) => void patch(`/api/streams/${id}`, { unread: !read })}
         streams={streams}
         selected={peek ? '' : selected}
@@ -616,7 +620,7 @@ export function App() {
             <>
               <div className="divider-v" role="separator" aria-orientation="vertical" aria-label="Resize the Overview pane" onMouseDown={startOvDrag} onDoubleClick={() => { setOvSplit(1 / 3); localStorage.removeItem('wc.ovSplit'); }} title="Drag to resize the Overview (double-click to reset)" />
               <aside className="overview-pane" aria-label="Overview">
-                <StreamOverview cc={cc} confirmClose={confirmClose} manualRead={manualStreamRead} onSetRead={(read) => void patch(`/api/streams/${stream!.id}`, { unread: !read })} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
+                <StreamOverview cc={cc} showReason={streamReason === 'both' || streamReason === 'overview'} confirmClose={confirmClose} manualRead={manualStreamRead} onSetRead={(read) => void patch(`/api/streams/${stream!.id}`, { unread: !read })} stream={stream!} items={items} onOpen={setTab} onMarkUnread={() => void markUnread(stream!.id)} onTogglePending={() => void patch(`/api/streams/${stream!.id}`, { pending: !stream!.pending })} />
               </aside>
             </>
           )}

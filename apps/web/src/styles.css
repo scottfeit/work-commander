@@ -703,3 +703,8 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 
 /* The Overview's title: cut with … when it doesn't fit (full on hover; editing shows it all) */
 .overview .title-input { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; min-width: 0; }
+
+/* Why a work stream is in front of you */
+.stream-reason { font-size: 12px; font-weight: 600; color: var(--attn); margin: 2px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-reason { font-size: 13px; margin: 0 0 8px; color: var(--attn); font-weight: 600; }
+.ov-reason .muted { font-weight: 400; }

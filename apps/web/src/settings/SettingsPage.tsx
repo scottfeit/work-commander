@@ -452,6 +452,18 @@ export function SettingsPage({ env, onBack }: { env: EnvironmentInfo | null; onB
                 ]}
               />
             </Row>
+            <Row label="Why it's in front of you" hint="A short line saying why a work stream needs you now: a new message (and from whom), reopened, back from snooze, a reminder, a question from Claude, a deadline, or drafts to review.">
+              <Select
+                value={s.ui.streamReason ?? 'both'}
+                onChange={(streamReason) => up('ui', { streamReason })}
+                options={[
+                  { value: 'both', label: 'On the card and the Overview' },
+                  { value: 'card', label: 'On the card only' },
+                  { value: 'overview', label: 'On the Overview only' },
+                  { value: 'off', label: "Don't show it" },
+                ]}
+              />
+            </Row>
             <Row label="Read / unread" hint="Normally opening a work stream marks it read, and opening a work item's tab clears its dot. With these on, they stay unread until you click Read (the button then reads Unread).">
               <Toggle checked={!!s.ui.manualStreamRead} onChange={(manualStreamRead) => up('ui', { manualStreamRead })} label="Mark work streams Read myself" />
               <Toggle checked={!!s.ui.manualItemRead} onChange={(manualItemRead) => up('ui', { manualItemRead })} label="Mark work items Read myself" />
