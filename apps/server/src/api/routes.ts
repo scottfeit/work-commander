@@ -111,8 +111,9 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   // ---------- streams ----------
   f.get('/api/streams', async (req) => repo.listStreams((req.query as any).includeClosed === '1'));
   f.post('/api/streams', async (req) => {
-    const b = z.object({ title: z.string().min(1), summary: z.string().default('') }).parse(req.body);
-    return repo.createStream(b, 'you');
+    // No title: "New work stream" until the first work item added names it.
+    const b = z.object({ title: z.string().trim().optional(), summary: z.string().default('') }).parse(req.body);
+    return repo.createStream({ title: b.title || 'New work stream', summary: b.summary, untitled: !b.title }, 'you');
   });
   // Learn the PU's writing style from their own sent messages; the guide comes back for them to review and save.
   f.post('/api/style/learn', async () => {

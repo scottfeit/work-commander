@@ -58,6 +58,15 @@ export class Repo {
 
   // ---------- streams ----------
   private async toStream(r: StreamRow): Promise<WorkStream> {
+    // A stream started by hand without a title takes the title of the first work item added to it.
+    if (r.untitled) {
+      const first = await this.db.selectFrom('items').select('title').where('stream_id', '=', r.id).orderBy('updated_at', 'asc').limit(1).executeTakeFirst();
+      if (first?.title?.trim()) {
+        const title = first.title.trim().slice(0, 120);
+        await this.db.updateTable('streams').set({ title, untitled: 0 }).where('id', '=', r.id).execute();
+        r = { ...r, title, untitled: 0 };
+      }
+    }
     const pending = await this.db
       .selectFrom('proposals')
       .select((eb) => eb.fn.countAll<number>().as('n'))
@@ -111,7 +120,7 @@ export class Repo {
     return this.db.selectFrom('streams').selectAll().where('id', '=', id).executeTakeFirst();
   }
 
-  async createStream(input: { title: string; summary: string; labels?: string[]; ticketTarget?: TicketTarget }, by: SummaryAuthor = 'claude') {
+  async createStream(input: { title: string; summary: string; labels?: string[]; ticketTarget?: TicketTarget; untitled?: boolean }, by: SummaryAuthor = 'claude') {
     const t = now();
     const row: StreamRow = {
       id: nanoid(10),
@@ -129,6 +138,7 @@ export class Repo {
       back_at: null,
       deadlines: null,
       reopened_at: null,
+      untitled: input.untitled ? 1 : 0,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -149,7 +159,10 @@ export class Repo {
     const t = now();
     if (patch.summary !== undefined) await this.recordSummary(id, patch.summary, by, t);
     const set: Partial<StreamRow> = { updated_at: t };
-    if (patch.title !== undefined) set.title = patch.title;
+    if (patch.title !== undefined) {
+      set.title = patch.title;
+      set.untitled = 0; // named on purpose: the first item no longer renames it
+    }
     if (patch.summary !== undefined) set.summary = patch.summary;
     if (patch.status !== undefined) {
       set.status = patch.status;

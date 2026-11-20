@@ -49,8 +49,6 @@ interface Props {
 
 export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [title, setTitle] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [moved, setMoved] = useState(0);
   const [moveErr, setMoveErr] = useState<string | null>(null);
@@ -98,11 +96,9 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       />
     );
 
+  // A new work stream starts untitled ("New work stream"): the first work item added to it names it.
   const create = async () => {
-    if (!title.trim()) return;
-    const s = await post<WorkStream>('/api/streams', { title: title.trim(), summary: '' });
-    setTitle('');
-    setAdding(false);
+    const s = await post<WorkStream>('/api/streams', { summary: '' });
     onSelect(s.id);
   };
 
@@ -268,7 +264,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           className={`icon-btn ${dropOn === NEW_STREAM ? 'drop-target' : ''}`}
           title="New work stream (or drop a work item here to start one with it)"
           aria-label="New work stream"
-          onClick={() => setAdding((v) => !v)}
+          onClick={() => void create()}
           onDragOver={(e) => {
             if (!e.dataTransfer.types.includes(ITEM_DRAG)) return;
             e.preventDefault();
@@ -284,14 +280,6 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <button type="button" className="link small search-all" onClick={() => onSearchAll(q.trim())} title="Search work streams (closed too), messages and chat (⌘K)">
           Search everything for "{q.trim()}" ↵
         </button>
-      )}
-      {adding && (
-        <div className="new-stream">
-          <input autoFocus placeholder="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
-          <button className="btn small primary" onClick={create}>
-            Add
-          </button>
-        </div>
       )}
       <div className="stream-scroll">
         {showOpen && <div className="section-label">Open · {openEntries.length}</div>}

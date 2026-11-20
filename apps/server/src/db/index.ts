@@ -42,6 +42,8 @@ export interface DB {
     deadlines: string | null;
     /** Reopened by new activity (shown as a chip until the PU's next move on it). */
     reopened_at: string | null;
+    /** 1 = started by hand without a title: the first work item added names it. */
+    untitled: number | null;
     created_at: string;
     updated_at: string;
     closed_at: string | null;
@@ -451,6 +453,7 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS back_at text`.execute(db);
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS deadlines text`.execute(db);
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS reopened_at text`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS untitled integer`.execute(db);
   } else {
     const cols = await sql<{ name: string }>`PRAGMA table_info(streams)`.execute(db);
     if (!cols.rows.some((c) => c.name === 'pending')) await sql`ALTER TABLE streams ADD COLUMN pending integer NOT NULL DEFAULT 0`.execute(db);
@@ -460,6 +463,7 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     if (!cols.rows.some((c) => c.name === 'back_at')) await sql`ALTER TABLE streams ADD COLUMN back_at text`.execute(db);
     if (!cols.rows.some((c) => c.name === 'deadlines')) await sql`ALTER TABLE streams ADD COLUMN deadlines text`.execute(db);
     if (!cols.rows.some((c) => c.name === 'reopened_at')) await sql`ALTER TABLE streams ADD COLUMN reopened_at text`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'untitled')) await sql`ALTER TABLE streams ADD COLUMN untitled integer`.execute(db);
   }
 }
 

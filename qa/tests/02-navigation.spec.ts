@@ -55,17 +55,17 @@ test('stream filter and new-stream creation', async ({ page }) => {
   await page.getByPlaceholder('Filter streams').fill('zzz-no-such-stream');
   await expect(page.locator('button.stream-open')).toHaveCount(0);
   await page.getByPlaceholder('Filter streams').fill('');
-  await page.getByTitle('New work stream').click();
-  await page.getByPlaceholder('Work stream title').fill('QA manual stream');
-  await page.getByRole('button', { name: 'Add' }).click();
-  await expect(stream(page, /QA manual stream/)).toBeVisible();
-  await expect(page.locator('.chat')).toContainText(/QA manual stream/);
-  // empty title is rejected rather than creating a blank stream
-  const n = (await api.streams()).length;
-  await page.getByTitle('New work stream').click();
-  await page.getByPlaceholder('Work stream title').fill('   ');
-  await page.getByRole('button', { name: 'Add' }).click();
-  expect((await api.streams()).length).toBe(n);
+  // "+" starts a work stream at once, with no title to type; the first work item added names it
+  const before = (await api.streams()).length;
+  await page.getByTitle(/^New work stream/).click();
+  await expect.poll(async () => (await api.streams()).length).toBe(before + 1);
+  const fresh = (await api.streams()).find((s: any) => s.title === 'New work stream')!;
+  await expect(page.locator('.sidebar .stream.active')).toContainText('New work stream');
+  const item = (await api.get(`/api/streams/${(await api.streams()).find((s: any) => /contractor access/i.test(s.title)).id}/items`)).json[0];
+  await api.post(`/api/items/${item.id}/move`, { streamId: fresh.id });
+  await expect(page.locator('.sidebar .stream.active')).toContainText(item.title.slice(0, 20));
+  // the stream now carries the item's title
+  expect((await api.streams()).find((s: any) => s.id === fresh.id).title).toBe(item.title.slice(0, 120));
 });
 
 test('chat: sending a message shows it and gets a reply, empty messages are blocked', async ({ page }) => {

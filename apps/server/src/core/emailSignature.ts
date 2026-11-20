@@ -26,7 +26,7 @@ export async function currentSignature(hub: Pick<IntegrationHub, 'api' | 'system
 }
 
 /** An email draft's payload with the signature's text at the end of the body (kept, hidden, as HTML for sending). */
-export function signDraft<T extends Record<string, any>>(payload: T, sig: EmailSignature | null): T {
+export function signDraft<T extends Record<string, any>>(payload: T, sig: EmailSignature | null): T & { signature_text?: string; signature_html?: string } {
   if (!sig || payload.signature_text) return payload;
   const body = String(payload.body ?? '').replace(/\s+$/, '');
   if (body.includes(sig.text)) return payload; // already signed
