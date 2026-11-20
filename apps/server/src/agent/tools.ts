@@ -20,7 +20,7 @@ export interface ToolContext {
 }
 
 /** Proposal kinds that are drafts of something sent or changed elsewhere (what "Draft automatically" governs). */
-export const DRAFT_KINDS: ProposalKind[] = ['email_reply', 'email_send', 'slack_post', 'ticket_create', 'ticket_comment', 'ticket_transition', 'ticket_assign', 'ticket_link'];
+export const DRAFT_KINDS: ProposalKind[] = ['email_reply', 'email_send', 'slack_post', 'ticket_create', 'ticket_comment', 'ticket_transition', 'ticket_assign', 'ticket_link', 'ticket_epic', 'ticket_sprint'];
 export const OFFER_ONLY_REFUSAL =
   'Not drafted: the PU has turned off automatic drafts, and they did not ask for this one. Call offer_draft to offer it (one short label and the instruction for what to draft), then end your turn. The draft is made only if they accept.';
 
@@ -654,6 +654,34 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
           { key: 'to_key', label: 'Linked to', type: 'text' },
         ], a.after);
       },
+    });
+    add({
+      name: 'propose_ticket_epic',
+      description: 'Draft putting Jira issues under an epic (epic_key, e.g. "IT-500"), or taking them out of their epic (epic_key "none").',
+      shape: { keys: list, epic_key: z.string(), rationale: z.string(), after },
+      access: 'write',
+      system: 'atlassian',
+      kind: 'ticket_epic',
+      handler: async (a) => {
+        const none = /^(none|no epic|remove)$/i.test(a.epic_key.trim());
+        return propose('ticket_epic', 'atlassian', none ? `Remove ${a.keys.join(', ')} from their epic` : `Epic of ${a.keys.join(', ')} → ${a.epic_key}`, a.rationale, { keys: a.keys, epic_key: a.epic_key }, [
+          { key: 'keys', label: 'Issues', type: 'list' },
+          { key: 'epic_key', label: 'Epic', type: 'text' },
+        ], a.after);
+      },
+    });
+    add({
+      name: 'propose_ticket_sprint',
+      description: 'Draft moving Jira issues to a sprint: its name (e.g. "IT Sprint 42") or id, "active" for the current sprint, "next" for the next planned one, or "backlog" to take them out of sprints.',
+      shape: { keys: list, sprint: z.string(), rationale: z.string(), after },
+      access: 'write',
+      system: 'atlassian',
+      kind: 'ticket_sprint',
+      handler: async (a) =>
+        propose('ticket_sprint', 'atlassian', /^backlog$/i.test(a.sprint.trim()) ? `Move ${a.keys.join(', ')} to the backlog` : `Sprint of ${a.keys.join(', ')} → ${a.sprint}`, a.rationale, { keys: a.keys, sprint: a.sprint }, [
+          { key: 'keys', label: 'Issues', type: 'list' },
+          { key: 'sprint', label: 'Sprint', type: 'text' },
+        ], a.after),
     });
     add({
       name: 'propose_ticket_transition',

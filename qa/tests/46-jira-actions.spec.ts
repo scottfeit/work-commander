@@ -126,3 +126,24 @@ test('a work item\'s buttons stay together on one line (moving under a long titl
   expect(r!.x + r!.width).toBeLessThanOrEqual(pane!.x + pane!.width + 1);
   await page.locator('.top-pane .item-head').screenshot({ path: 'qa/results/item-head-narrow.png' });
 });
+
+test('Claude can change the epic and the sprint: drafts you approve', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  const epic = await insertProposal(streamId, 'ticket_epic', `Epic of ${key} → OPS-500`, { keys: [key], epic_key: 'OPS-500' }, [
+    { key: 'keys', label: 'Issues', type: 'list' },
+    { key: 'epic_key', label: 'Epic', type: 'text' },
+  ]);
+  const sprint = await insertProposal(streamId, 'ticket_sprint', `Sprint of ${key} → active`, { keys: [key], sprint: 'active' }, [
+    { key: 'keys', label: 'Issues', type: 'list' },
+    { key: 'sprint', label: 'Sprint', type: 'text' },
+  ]);
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await expect(page.locator('.draft', { hasText: 'Epic of' })).toBeVisible();
+  await page.locator('.draft', { hasText: 'Sprint of' }).screenshot({ path: 'qa/results/jira-sprint-draft.png' });
+  await api.post(`/api/proposals/${epic}/approve`);
+  await api.post(`/api/proposals/${sprint}/approve`);
+  expect(((await api.waitStatus(epic, 'executed')) as any).result).toEqual({ epic: 'OPS-500', keys: [key] });
+  expect(((await api.waitStatus(sprint, 'executed')) as any).result).toEqual({ sprint: 'OPS Sprint 12', keys: [key] });
+});

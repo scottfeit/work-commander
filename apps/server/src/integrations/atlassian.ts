@@ -296,6 +296,45 @@ export class AtlassianCloud implements TicketApi {
     return { type: pick.type.name, linked };
   }
 
+  async setEpic(input: { keys: string[]; epic: string }) {
+    const epic = input.epic.trim();
+    const none = !epic || /^(none|no epic|remove)$/i.test(epic);
+    await this.req('POST', `/rest/agile/1.0/epic/${none ? 'none' : encodeURIComponent(epic.toUpperCase())}/issue`, { issues: input.keys });
+    return { epic: none ? null : epic.toUpperCase() };
+  }
+
+  async setSprint(input: { keys: string[]; sprint: string }) {
+    const want = input.sprint.trim();
+    if (/^backlog$/i.test(want)) {
+      await this.req('POST', '/rest/agile/1.0/backlog/issue', { issues: input.keys });
+      return { sprint: 'Backlog' };
+    }
+    const sprint = /^\d+$/.test(want) ? { id: Number(want), name: `sprint ${want}` } : await this.findSprint(input.keys[0], want);
+    await this.req('POST', `/rest/agile/1.0/sprint/${sprint.id}/issue`, { issues: input.keys });
+    return { sprint: sprint.name };
+  }
+
+  /** A sprint on the boards of the issue's project, by name ("active"/"current" = the active one, "next" = the next one planned). */
+  private async findSprint(key: string, want: string) {
+    const project = key.split('-')[0];
+    const boards = ((await this.req('GET', `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(project)}&maxResults=50`)).values ?? []) as { id: number }[];
+    const all: { id: number; name: string; state: string; startDate?: string }[] = [];
+    for (const b of boards) {
+      try {
+        all.push(...((await this.req('GET', `/rest/agile/1.0/board/${b.id}/sprint?state=active,future&maxResults=50`)).values ?? []));
+      } catch {
+        /* a board without sprints (e.g. Kanban) */
+      }
+    }
+    const w = want.toLowerCase();
+    const hit =
+      /^(active|current)( sprint)?$/.test(w) ? all.find((s) => s.state === 'active')
+      : /^next( sprint)?$/.test(w) ? all.filter((s) => s.state === 'future').sort((a, b) => (a.startDate ?? '9').localeCompare(b.startDate ?? '9') || a.id - b.id)[0]
+      : (all.find((s) => s.name.toLowerCase() === w) ?? all.find((s) => s.name.toLowerCase().includes(w)));
+    if (!hit) throw new Error(`No open sprint "${want}" for ${project}. Open sprints: ${[...new Set(all.map((s) => s.name))].join(', ') || 'none'}`);
+    return hit;
+  }
+
   async confluenceSearch(query: string, max = 10) {
     const cql = `type=page AND text ~ "${query.replace(/"/g, '\\"')}"`;
     const r = await this.req('GET', `/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${max}`);

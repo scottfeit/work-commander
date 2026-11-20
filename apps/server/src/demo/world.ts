@@ -168,6 +168,19 @@ export class DemoWorld {
     /** Demo issue links, remembered as Jira would. */
     links: [] as { keys: string[]; to: string; relation: string }[],
     linkIssues: async (i: { keys: string[]; to: string; relation: string }) => (this.tickets_.links.push(i), { type: 'Relates', linked: i.keys.map((k) => `${k} ${i.relation} ${i.to}`) }),
+    /** Demo epics and sprints, remembered as Jira would. */
+    epics: new Map<string, string | null>(),
+    sprints: new Map<string, string>(),
+    setEpic: async (i: { keys: string[]; epic: string }) => {
+      const epic = /^none$/i.test(i.epic.trim()) ? null : i.epic.trim().toUpperCase();
+      for (const k of i.keys) this.tickets_.epics.set(k, epic);
+      return { epic };
+    },
+    setSprint: async (i: { keys: string[]; sprint: string }) => {
+      const sprint = /^backlog$/i.test(i.sprint.trim()) ? 'Backlog' : /^(active|current)$/i.test(i.sprint.trim()) ? 'OPS Sprint 12' : i.sprint.trim();
+      for (const k of i.keys) this.tickets_.sprints.set(k, sprint);
+      return { sprint };
+    },
     confluenceSearch: async () => [{ id: '42', title: 'Acme admin console: contractor access policy', url: 'https://wiki.example.com/42', excerpt: 'Contractors receive read-only role "auditor"; group must be approved by Security.' }],
     confluenceRead: async () => ({ title: 'Acme admin console: contractor access policy', url: 'https://wiki.example.com/42', text: 'Contractors receive the read-only "auditor" role via a named group. Security must approve the group.' }),
     listServiceDesks: async () => [{ id: '1', projectKey: 'OPS', name: 'IT Operations' }],

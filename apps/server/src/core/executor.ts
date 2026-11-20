@@ -258,6 +258,23 @@ export class Executor {
         await this.attachInbound(p.streamId, await t.getIssue(String(x.to_key).trim().toUpperCase())).catch(() => undefined);
         return r;
       }
+      case 'ticket_epic':
+      case 'ticket_sprint': {
+        const t = await this.hub.api('tickets');
+        const keys = asList(x.keys).map((k) => k.trim().toUpperCase()).filter(Boolean);
+        if (!keys.length) throw new Error('Name the issues first');
+        let r: Record<string, unknown>;
+        if (p.kind === 'ticket_epic') {
+          if (!t.setEpic) throw new Error('Changing the epic needs Jira connected directly (not through an MCP server)');
+          r = await t.setEpic({ keys, epic: String(x.epic_key ?? '') });
+        } else {
+          if (!t.setSprint) throw new Error('Changing the sprint needs Jira connected directly (not through an MCP server)');
+          if (!String(x.sprint ?? '').trim()) throw new Error('Name the sprint first');
+          r = await t.setSprint({ keys, sprint: String(x.sprint) });
+        }
+        for (const k of keys) await this.attachInbound(p.streamId, await t.getIssue(k)).catch(() => undefined);
+        return { ...r, keys };
+      }
       case 'credential_request': {
         const g = await this.grants.create({ streamId: p.streamId, item: x.item, allowedHosts: asList(x.allowed_hosts), authScheme: (x.auth_scheme || 'bearer') as AuthScheme });
         return { grant_id: g.id, item: g.title, allowed_hosts: g.hosts, expires_at: g.expiresAt };

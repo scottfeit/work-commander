@@ -192,6 +192,8 @@ export type ProposalKind =
   | 'ticket_transition'
   | 'ticket_assign'
   | 'ticket_link'
+  | 'ticket_epic'
+  | 'ticket_sprint'
   | 'playbook'
   | 'credential_request'
   | 'stream_close'

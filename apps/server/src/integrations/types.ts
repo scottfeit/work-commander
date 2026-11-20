@@ -92,6 +92,10 @@ export interface TicketApi {
    * type's name) to `to`. Returns the link type used and how each key was linked.
    */
   linkIssues?(input: { keys: string[]; to: string; relation: string }): Promise<{ type: string; linked: string[] }>;
+  /** Put issues under an epic (its key), or take them out of their epic ("none"). */
+  setEpic?(input: { keys: string[]; epic: string }): Promise<{ epic: string | null }>;
+  /** Move issues to a sprint (its name or id; "active"/"current" or "next" work too), or to the backlog ("backlog"). */
+  setSprint?(input: { keys: string[]; sprint: string }): Promise<{ sprint: string }>;
   confluenceSearch(query: string, max?: number): Promise<{ id: string; title: string; url: string; excerpt: string }[]>;
   confluenceRead(pageId: string): Promise<{ title: string; text: string; url: string }>;
   listServiceDesks(): Promise<{ id: string; projectKey: string; name: string }[]>;
