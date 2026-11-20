@@ -44,6 +44,10 @@ describe('work for Claude Code: ask instead of auto-drafting an acknowledgement'
     expect(TRIAGE_RULES).toMatch(/"handoff"/);
     expect(TRIAGE_RULES).toMatch(/Never use "draft" for a mere "I'll look into it"/);
     expect(STREAM_AGENT_RULES).toMatch(/offer_handoff/);
-    expect(STREAM_AGENT_RULES).toMatch(/Do NOT draft an "I'm looking into it"/);
+    expect(STREAM_AGENT_RULES).toMatch(/do NOT draft an "I'm looking into it"/);
+  });
+  it('the chat agent suggests a hand-off itself instead of saying it cannot, including for the PU\'s own requests', () => {
+    expect(STREAM_AGENT_RULES).toMatch(/whether the PU asked you in chat or someone asked in a message, never answer that you can't do it and never wait for the PU to ask for a hand-off/);
+    expect(STREAM_AGENT_RULES).toMatch(/Say you can't do something only when Claude Code couldn't either/);
   });
 });

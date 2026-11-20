@@ -298,7 +298,7 @@ function HandoffOfferBubble({ m, cc, streamId }: { m: ChatMessage; cc?: ClaudeCo
       setBusy(null);
     }
   };
-  const left = (['reply', 'handoff'] as const).filter((c) => !offer.done.includes(c));
+  const left = (offer.noReply ? (['handoff'] as const) : (['reply', 'handoff'] as const)).filter((c) => !offer.done.includes(c));
   return (
     <div className={`bubble suggestion handoff-offer ${offer.dismissed ? 'dismissed' : ''}`}>
       <div className="small muted">Claude asks</div>

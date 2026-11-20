@@ -316,15 +316,19 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
   add({
     name: 'offer_handoff',
     description:
-      'Use INSTEAD of drafting an "I\'m looking into it" / "on it" acknowledgement when the work itself belongs with Claude Code (software, or a change you have no propose_* tool for, such as editing a Sheet or Doc or changing settings). Posts a question in the chat with one-click buttons: draft the acknowledgement, or hand the work to Claude Code. Then end your turn; do not draft the acknowledgement yourself.',
-    shape: { question: z.string().describe('One or two sentences for the PU: what was asked and why Claude Code suits it.'), task: z.string().describe('What Claude Code should do, written as a self-contained instruction (include links).') },
+      'Suggest handing work to Claude Code. Use it whenever a task needs something you cannot do but Claude Code can (writing or running code or scripts, working with files, editing a Google Sheet or Doc, bulk or scripted changes, changing settings, anything you have no propose_* tool for), whether the PU asked you in chat or someone asked in a message. Never tell the PU you cannot do such a task: offer this instead. When someone else asked, use it INSTEAD of drafting an "I\'m looking into it" acknowledgement. Posts a question in the chat with one-click buttons (hand off to Claude Code; and, when someone else asked, draft the acknowledgement). Then end your turn.',
+    shape: {
+      question: z.string().describe('One or two sentences for the PU: what was asked and why Claude Code suits it.'),
+      task: z.string().describe('What Claude Code should do, written as a self-contained instruction (include links and what "done" looks like).'),
+      asked_by_pu: z.boolean().optional().describe('true when the PU asked you for this in the chat (no acknowledgement to anyone else is needed).'),
+    },
     access: 'internal',
     system: 'internal',
     handler: async (a) => {
       if (d.canHandoff === false) return 'Hand-off to Claude Code is not available here. Draft the reply as usual.';
       const open = (await d.repo.listChat(ctx.streamId)).find((m) => m.meta.handoffOffer && !m.meta.handoffOffer.dismissed && m.meta.handoffOffer.done.length < 2);
       if (open) return 'The PU was already offered this choice and has not answered. End your turn.';
-      await d.repo.addChat({ streamId: ctx.streamId, role: 'suggestion', content: a.question, meta: { suggestion: { instruction: a.task, status: 'open' }, handoffOffer: { task: a.task, done: [] }, runId: ctx.runId } });
+      await d.repo.addChat({ streamId: ctx.streamId, role: 'suggestion', content: a.question, meta: { suggestion: { instruction: a.task, status: 'open' }, handoffOffer: { task: a.task, done: [], ...(a.asked_by_pu ? { noReply: true } : {}) }, runId: ctx.runId } });
       return 'Offer posted with one-click buttons. End your turn now; do not draft the acknowledgement.';
     },
   });

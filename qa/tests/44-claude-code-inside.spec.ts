@@ -108,3 +108,18 @@ test("Claude's own hand-off offer starts Claude Code here when it's on (not Term
   await expect(page.locator('.chat')).toContainText('Claude Code');
   await setCc(false);
 });
+
+test('an offer for something you asked for yourself has no "I\'m looking into it" button', async ({ page }) => {
+  const { demoDataDir } = await import('./helpers');
+  const sid = (await api.post('/api/streams', { title: 'Own ask stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const meta = { handoffOffer: { task: 'Fix the macro in the budget sheet', done: [], noReply: true }, suggestion: { instruction: 'x', status: 'open' } };
+  db.prepare('insert into chat_messages (id, stream_id, role, content, meta, created_at) values (?,?,?,?,?,?)').run('offer-own', sid, 'suggestion', 'I can\'t edit Sheets, but Claude Code can. Hand it over?', JSON.stringify(meta), new Date().toISOString());
+  db.close();
+  await page.goto(WEB);
+  await stream(page, /Own ask stream/).click();
+  const bubble = page.locator('.handoff-offer');
+  await expect(bubble.getByRole('button', { name: 'Hand off to Claude Code' })).toBeVisible();
+  await expect(bubble.getByRole('button', { name: /looking into it/ })).toHaveCount(0);
+});
