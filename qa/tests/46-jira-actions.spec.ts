@@ -141,6 +141,9 @@ test('Claude can change the epic and the sprint: drafts you approve', async ({ p
   const s = (await api.streams()).find((x: any) => x.id === streamId);
   await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
   await expect(page.locator('.draft', { hasText: 'Epic of' })).toBeVisible();
+  // a change, not a message: "Approve", not "Approve & send"
+  await expect(page.locator('.draft', { hasText: 'Epic of' }).getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+  await expect(page.locator('.draft', { hasText: 'Reply:' }).getByRole('button', { name: 'Approve & send' })).toBeVisible();
   await page.locator('.draft', { hasText: 'Sprint of' }).screenshot({ path: 'qa/results/jira-sprint-draft.png' });
   await api.post(`/api/proposals/${epic}/approve`);
   await api.post(`/api/proposals/${sprint}/approve`);

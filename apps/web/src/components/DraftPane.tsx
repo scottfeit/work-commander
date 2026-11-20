@@ -12,6 +12,28 @@ function SystemIcon({ system }: { system: string }) {
   return source ? <SourceBadge source={source} /> : <span className="logo small" role="img" aria-label="Work Commander" title="Work Commander" />;
 }
 
+/** The approve button says what approving does: sends a message, creates a ticket, or just applies a change. */
+function approveLabel(kind: Proposal['kind']) {
+  switch (kind) {
+    case 'email_reply':
+    case 'email_send':
+    case 'slack_post':
+    case 'ticket_comment':
+    case 'mcp_tool_call':
+      return 'Approve & send';
+    case 'ticket_create':
+      return 'Approve & create';
+    case 'credential_request':
+      return 'Grant access';
+    case 'read_approval':
+      return 'Allow';
+    case 'playbook':
+      return 'Save playbook';
+    default:
+      return 'Approve'; // a change: status, assignee, links, epic, sprint
+  }
+}
+
 const STATUS_WORD: Record<string, string> = { executed: 'done', approved: 'approved', executing: 'running', failed: 'failed', rejected: 'rejected', withdrawn: 'withdrawn', pending: 'waiting' };
 
 /** The text a Quick Reply draft is waiting for (a blank one can't be sent). */
@@ -228,7 +250,7 @@ function DraftCard({
             </ConfirmButton>
           ) : (
           <button className="btn small primary" disabled={busy || blank} title={blank ? 'Write a message first' : undefined} onClick={() => act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}>
-            {p.kind === 'credential_request' ? 'Grant access' : p.kind === 'read_approval' ? 'Allow' : p.kind === 'playbook' ? 'Save playbook' : 'Approve & send'}
+            {approveLabel(p.kind)}
           </button>
           )}
           {dirty && (
