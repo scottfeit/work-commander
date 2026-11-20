@@ -10,7 +10,7 @@ const backdate = (id: string, days: number) => {
 };
 const find = async (re: RegExp) => (await api.get('/api/streams')).json.find((s: any) => re.test(s.title));
 
-test('Snooze button is an orange alarm clock, not a check mark', async ({ page }) => {
+test('Snooze button is a coral alarm clock (brand Supercharged coral), not a check mark', async ({ page }) => {
   await api.post('/api/streams', { title: 'Alarm look test', summary: '' });
   await page.goto(WEB);
   await stream(page, /alarm look test/i).click();
@@ -18,10 +18,7 @@ test('Snooze button is an orange alarm clock, not a check mark', async ({ page }
   await expect(btn.locator('svg')).toBeVisible();
   await expect(btn).not.toContainText('✓');
   const [r, g, b] = (await btn.evaluate((el) => getComputedStyle(el).color)).match(/\d+/g)!.map(Number);
-  expect(r).toBeGreaterThan(200); // orange: strong red, medium green, little blue
-  expect(g).toBeGreaterThan(80);
-  expect(g).toBeLessThan(180);
-  expect(b).toBeLessThan(80);
+  expect([r, g, b]).toEqual([0xef, 0x6a, 0x50]); // Dark Supercharged coral #EF6A50 (an icon, never text)
 });
 
 test('A pending stream untouched for 3 days comes back at the top as a Reminder, marked unread', async ({ page }) => {
