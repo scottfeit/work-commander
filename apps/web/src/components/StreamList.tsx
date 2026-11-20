@@ -1,6 +1,7 @@
 import { SnoozeMenu, snoozeLabel } from './SnoozeMenu';
 import { DueChip, dueRank, promisedOption } from './Due';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ClearableInput } from './ClearableInput';
 import type { WorkStream } from '@wc/shared';
 import { GENERAL_STREAM } from '@wc/shared';
 import { get, post, timeAgo } from '../api';
@@ -264,7 +265,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         <span className="muted small">{streams.filter((s) => s.status === 'open').length}</span>
       </button>
       <div className="sidebar-tools">
-        <input className="search" placeholder="Filter streams" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && q.trim().length >= 2 && onSearchAll(q.trim())} />
+        <ClearableInput wrapClass="search-wrap" className="search" placeholder="Filter streams" value={q} onClear={() => setQ('')} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && q.trim().length >= 2 && onSearchAll(q.trim())} />
         <button
           className={`icon-btn ${dropOn === NEW_STREAM ? 'drop-target' : ''}`}
           title="New work stream (or drop a work item here to start one with it)"

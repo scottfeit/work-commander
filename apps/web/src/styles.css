@@ -684,3 +684,10 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 
 /* A work item's buttons: one line, kept together (the whole group moves under the title when space is tight) */
 .item-head-actions { display: flex; flex-wrap: wrap; row-gap: 6px; align-items: center; gap: 10px; flex: 0 1 auto; max-width: 100%; }
+
+/* A text box with an × that clears it */
+.clearable { position: relative; display: flex; align-items: center; min-width: 0; }
+.clearable > input { flex: 1; min-width: 0; padding-right: 28px; }
+.clearable.search-wrap { flex: 1; }
+.clear-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.clear-x:hover, .clear-x:focus-visible { background: var(--line); color: var(--text); }

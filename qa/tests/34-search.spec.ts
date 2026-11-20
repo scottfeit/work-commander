@@ -44,3 +44,23 @@ test('search everything: ⌘K, s, or Enter in the filter; results grouped (close
   await expect(page.getByLabel('Work stream title')).toHaveValue('Archived Northwind kickoff');
   await expect(page.locator('.overview-pane')).toContainText('Reopen');
 });
+
+test('both search boxes have an × that clears them', async ({ page }) => {
+  await page.goto(WEB);
+  const filter = page.getByPlaceholder('Filter streams');
+  const sidebar = page.locator('.sidebar-tools');
+  await expect(sidebar.getByRole('button', { name: 'Clear' })).toHaveCount(0);
+  await filter.fill('zzz-no-such-stream');
+  await expect(page.locator('button.stream-open')).toHaveCount(0);
+  await sidebar.getByRole('button', { name: 'Clear' }).click();
+  await expect(filter).toHaveValue('');
+  await expect(filter).toBeFocused();
+  await expect(page.locator('button.stream-open').first()).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  const box = page.getByRole('textbox', { name: 'Search everything' });
+  await box.fill('kickoff');
+  const dlg = page.getByRole('dialog', { name: 'Search everything' });
+  await dlg.getByRole('button', { name: 'Clear' }).click();
+  await expect(box).toHaveValue('');
+  await expect(box).toBeFocused();
+});

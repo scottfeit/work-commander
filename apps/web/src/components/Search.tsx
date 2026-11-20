@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ClearableInput } from './ClearableInput';
 import type { SearchHit } from '@wc/shared';
 import { get } from '../api';
 import { SourceBadge } from './TabBar';
@@ -68,8 +69,9 @@ export function Search({ open, initial, onClose, onOpen }: { open: boolean; init
   return (
     <div className="shortcuts-backdrop search-backdrop" onMouseDown={onClose}>
       <div className="search" role="dialog" aria-label="Search everything" onMouseDown={(e) => e.stopPropagation()}>
-        <input
+        <ClearableInput
           ref={input}
+          onClear={() => setQ('')}
           className="search-input"
           aria-label="Search everything"
           placeholder='Search work streams, messages and chat (closed work too). "Quotes" for a phrase.'
