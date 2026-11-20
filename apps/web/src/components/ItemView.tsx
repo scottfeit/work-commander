@@ -8,6 +8,7 @@ import { UsagePie } from './usageViz';
 
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
 import { SourceBadge, dragItem } from './TabBar';
+import { waitedFor } from './StreamList';
 import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
@@ -846,6 +847,11 @@ export function StreamOverview({ cc, showReason, stream, items, onOpen, onMarkUn
       {showReason && stream.reason && (
         <div className="ov-reason">
           <span className="muted">Why it's here:</span> {stream.reason}
+        </div>
+      )}
+      {stream.pending && stream.waitingOn && (
+        <div className="ov-waiting">
+          Waiting on <b>{stream.waitingOn.who}</b> · {waitedFor(stream.waitingOn.since)}
         </div>
       )}
       {stream.status === 'open' && <DueLine stream={stream} />}

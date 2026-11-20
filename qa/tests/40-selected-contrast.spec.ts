@@ -164,3 +164,24 @@ test('why a work stream is in front of you: on the card and the Overview, per th
   await expect(page.locator('.overview-pane .ov-reason')).toHaveCount(0);
   await a.call('PUT', '/api/settings', { ...s, ui: { ...s.ui, streamReason: 'both' } });
 });
+
+test('a Pending stream says who it is waiting on and for how long', async ({ page }) => {
+  const { api: a, demoDataDir } = await import('./helpers');
+  const path = await import('node:path');
+  const id = (await a.post('/api/streams', { title: 'Waiting stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const two = new Date(Date.now() - 2 * 86_400_000 - 3_600_000).toISOString();
+  db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run('wait1', id, 'slack', 'slack_thread', 'D0WAIT:dm', 'DM', null, JSON.stringify({ messages: [{ id: '1.1', author: { name: 'Lee Wong' }, text: 'can you check?', at: two }, { id: '1.2', author: { name: 'Alex Rivera' }, text: 'Sent it over, let me know', at: two, isFromPU: true }] }), two);
+  db.close();
+  await page.goto(WEB);
+  await page.locator('.sidebar .stream', { hasText: 'Waiting stream' }).click();
+  await page.locator('.sidebar .stream.active').getByRole('button', { name: 'Mark pending' }).click();
+  const card = page.locator('.sidebar .stream', { hasText: 'Waiting stream' });
+  await expect(card.locator('.stream-waiting')).toHaveText('Waiting on Lee Wong · 2 days');
+  await expect(page.locator('.overview-pane .ov-waiting')).toHaveText('Waiting on Lee Wong · 2 days');
+  await card.screenshot({ path: 'qa/results/waiting-on.png' });
+  // back in Open: no longer waiting
+  await page.locator('.sidebar .stream.active').getByRole('button', { name: 'Pending: put back in Open' }).click();
+  await expect(card.locator('.stream-waiting')).toHaveCount(0);
+});

@@ -52,6 +52,12 @@ interface Props {
   onTogglePolling: () => void;
 }
 
+/** How long you've been waiting: "today", "1 day", "5 days". */
+export function waitedFor(since: string) {
+  const days = Math.floor((Date.now() - Date.parse(since)) / 86_400_000);
+  return days < 1 ? 'today' : `${days} day${days === 1 ? '' : 's'}`;
+}
+
 export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onShowPendingChange, showReason, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
@@ -182,6 +188,7 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           <span className="muted small">{timeAgo(s.lastActivityAt)}</span>
         </div>
         {cardReason && <div className="stream-reason">{cardReason}</div>}
+        {s.pending && s.waitingOn && <div className="stream-waiting">Waiting on {s.waitingOn.who} · {waitedFor(s.waitingOn.since)}</div>}
         {s.summary && <div className="stream-summary">{s.summary}</div>}
         <div className="stream-meta">
           {s.runState === 'running' && <span className="chip running">working…</span>}

@@ -1,3 +1,4 @@
+import { updateWaitingOn } from '../core/waitingOn.js';
 import { applyTransition, setAssignee, transitionOptions } from '../core/jiraActions.js';
 import { currentSignature } from '../core/emailSignature.js';
 import { randomBytes } from 'node:crypto';
@@ -157,6 +158,8 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const t = q(await streamTitle(id));
     const label =
       b.status === 'closed' ? `close ${t}` : b.status === 'open' ? `reopen ${t}` : b.pending === true && b.snoozeUntil ? `snooze ${t}` : b.pending === true ? `mark ${t} pending` : b.pending === false ? `take ${t} out of Pending` : b.due !== undefined ? (b.due ? `set the due date of ${t}` : `clear the due date of ${t}`) : b.promised === null ? `clear the delivery date of ${t}` : b.title !== undefined ? `rename ${t}` : b.summary !== undefined ? `edit the overview of ${t}` : unread ? `mark ${t} unread` : `change ${t}`;
+    // Marked Pending (or snoozed): work out who it's waiting on, in the background.
+    if (b.pending === true) setTimeout(() => void updateWaitingOn({ repo, backend: app.backend, settings: () => settings.get() }, id).catch(() => undefined), 0);
     await undo.capture(label, { streams: [id] }, async () => {
       const { due, promised, ...fields } = b;
       if (Object.keys(fields).length) await repo.updateStream(id, fields, 'you');

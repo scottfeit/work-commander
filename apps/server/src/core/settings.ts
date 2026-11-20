@@ -16,7 +16,7 @@ export function defaultSettings(): Settings {
       splitSlackByTopic: true,
       reopenClosedWithinDays: 14,
       maxTurns: 30,
-      taskModels: { triage: 'haiku', topicSplit: 'haiku', slackContext: 'haiku', mcpIngest: 'haiku', dateParse: 'haiku', writingStyle: 'sonnet', meetingLink: 'haiku', deadlines: 'haiku' },
+      taskModels: { triage: 'haiku', topicSplit: 'haiku', slackContext: 'haiku', mcpIngest: 'haiku', dateParse: 'haiku', writingStyle: 'sonnet', meetingLink: 'haiku', deadlines: 'haiku', waitingOn: 'haiku' },
     },
     secrets: { defaultBackend: 'keychain', gcpProjectId: '' },
     google: {

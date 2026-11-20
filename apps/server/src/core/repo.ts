@@ -102,6 +102,7 @@ export class Repo {
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       itemCount: Number(items?.n ?? 0),
       reason: r.status === 'open' ? await this.streamReason(r, pendingN) : null,
+      waitingOn: r.pending ? pj<{ who: string; since: string } | null>(r.waiting_on ?? null, null) : null,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
   }
@@ -132,6 +133,12 @@ export class Repo {
     if (r.unread && fromOther) return `New message from ${fromOther}`;
     if (r.unread && Date.now() - Date.parse(r.created_at) < 86_400_000) return 'New work stream';
     return null;
+  }
+
+  async setWaitingOn(id: string, w: { who: string; since: string } | null) {
+    await this.db.updateTable('streams').set({ waiting_on: w ? j(w) : null }).where('id', '=', id).execute();
+    const st = await this.getStream(id);
+    if (st) bus.publish({ type: 'stream.updated', stream: st });
   }
 
   async listStreams(includeClosed: boolean) {
@@ -168,6 +175,7 @@ export class Repo {
       deadlines: null,
       reopened_at: null,
       untitled: input.untitled ? 1 : 0,
+      waiting_on: null,
       created_at: t,
       updated_at: t,
       closed_at: null,
@@ -210,6 +218,7 @@ export class Repo {
     if (patch.pending !== undefined) {
       set.pending = patch.pending ? 1 : 0;
       set.pending_at = patch.pending ? t : null;
+      if (!patch.pending) set.waiting_on = null; // out of Pending: no longer waiting on anyone
       set.reminder_at = null; // snoozed again, or new activity: the reminder is answered
       set.back_at = null;
       set.snooze_until = patch.pending ? (patch.snoozeUntil ?? null) : null; // plain Pending, or Pending until a date

@@ -88,6 +88,8 @@ export interface WorkStream {
   itemCount?: number;
   /** Why it's in front of you now, in a few words (e.g. "New message from Priya Shah on Slack"), or null. */
   reason?: string | null;
+  /** Pending: who it's waiting on (from your last message), and since when. */
+  waitingOn?: { who: string; since: string } | null;
   runState: 'idle' | 'running' | 'waiting_approval';
 }
 
@@ -425,7 +427,7 @@ export interface OrgChartSyncStatus {
 }
 
 /** Background calls that can run on their own model. */
-export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse' | 'writingStyle' | 'meetingLink' | 'deadlines';
+export type BackgroundTask = 'triage' | 'topicSplit' | 'slackContext' | 'mcpIngest' | 'dateParse' | 'writingStyle' | 'meetingLink' | 'deadlines' | 'waitingOn';
 export const BACKGROUND_TASKS: { id: BackgroundTask; label: string; hint: string }[] = [
   { id: 'triage', label: 'Triage', hint: 'Whether a message needs you, which work stream it belongs to, and what to do next.' },
   { id: 'topicSplit', label: 'Slack topic splitting', hint: 'Sorting a Slack conversation that runs several topics into the right work streams.' },
@@ -434,6 +436,7 @@ export const BACKGROUND_TASKS: { id: BackgroundTask; label: string; hint: string
   { id: 'writingStyle', label: 'Learning your writing style', hint: 'Describing how you write from your own sent messages (run when you ask, in Settings → Writing style).' },
   { id: 'meetingLink', label: 'Linking meetings', hint: 'Deciding which work stream a calendar meeting is about (only asked when a meeting shares people or words with a stream).' },
   { id: 'deadlines', label: 'Spotting deadlines', hint: 'Reading a deadline ("I need this by Friday") from a message when triage didn\'t already ask Claude (Laya, a rule, or your own message). Only asked when the words look like a deadline.' },
+  { id: 'waitingOn', label: "Who you're waiting on", hint: 'When you mark a work stream Pending and your last message went to several people: picking the one you\'re waiting on. One obvious person needs no call.' },
   { id: 'dateParse', label: 'Reading dates', hint: 'Turning a time you type ("the Thursday after next, 2pm") into a date, e.g. for snoozing a work stream.' },
 ];
 /** 'main' = the main model; otherwise a Claude model alias. */
@@ -452,6 +455,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   writingStyle: 'Learning your writing style',
   meetingLink: 'Linking meetings',
   deadlines: 'Spotting deadlines',
+  waitingOn: 'Who you\'re waiting on',
   claudeCode: 'Claude Code (hand-off work)',
   agent: 'Agent (before categories)',
   agentChat: 'Chatting with you',
@@ -467,7 +471,7 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
 /** What usage is shown by (Settings → Usage, and each work stream's Overview). Fixed order: it is also the colour order. */
 export type UsageCategory = 'triage' | 'reading' | 'drafting' | 'handoff' | 'claudeCode' | 'chat' | 'review' | 'overview' | 'other';
 export const USAGE_CATEGORIES: { id: UsageCategory; label: string; hint: string; kinds: UsageKind[] }[] = [
-  { id: 'triage', label: 'Triage', hint: 'Deciding whether new activity needs you and which work stream it belongs to, naming new streams, sorting Slack conversations by topic', kinds: ['triage', 'newStream', 'topicSplit', 'deadlines'] },
+  { id: 'triage', label: 'Triage', hint: 'Deciding whether new activity needs you and which work stream it belongs to, naming new streams, sorting Slack conversations by topic', kinds: ['triage', 'newStream', 'topicSplit', 'deadlines', 'waitingOn'] },
   { id: 'reading', label: 'Reading Slack and other sources', hint: 'Checking for new activity through MCP servers, and finding the later Slack messages a linked one leads to', kinds: ['mcpIngest', 'slackContext', 'meetingLink'] },
   { id: 'drafting', label: 'Drafting messages', hint: "Claude's turns that prepared replies, messages or ticket changes for you to approve", kinds: ['agentDraft'] },
   { id: 'handoff', label: 'Claude Code hand-offs', hint: 'Taking in what Claude Code reports back', kinds: ['agentHandoff'] },
