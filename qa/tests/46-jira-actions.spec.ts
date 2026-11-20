@@ -235,3 +235,11 @@ test('long ticket fields are cut with … and shown whole on hover; nothing spil
   expect(sel).toBe(true);
   await page.locator('.ticket-fields').screenshot({ path: 'qa/results/ticket-fields-narrow.png' });
 });
+
+test('the Overview title shows in full on hover', async ({ page }) => {
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  const t = page.locator('.overview-pane').getByLabel('Work stream title');
+  await expect(t).toHaveAttribute('title', await t.inputValue());
+  expect(await t.evaluate((e) => getComputedStyle(e).textOverflow)).toBe('ellipsis');
+});

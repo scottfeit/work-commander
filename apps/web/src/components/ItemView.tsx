@@ -805,7 +805,7 @@ export function StreamOverview({ cc, stream, items, onOpen, onMarkUnread, onSetR
   return (
     <div className="item-view overview">
       <div className="item-head">
-        <input className="title-input" aria-label="Work stream title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
+        <input className="title-input" aria-label="Work stream title" title={title} value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== stream.title && save({ title })} />
         <div className="ov-actions" ref={ovRow}>
         {onTogglePending && stream.status === 'open' && (
           <span className="pending-split">
