@@ -87,3 +87,24 @@ test('Settings → Claude Code: CLAUDE.md toggle and a skills picker (none / all
     return [c.loadClaudeMd, c.skills];
   }).toEqual([true, 'all']);
 });
+
+test("Claude's own hand-off offer starts Claude Code here when it's on (not Terminal)", async ({ page }) => {
+  await setCc(true);
+  const { demoDataDir } = await import('./helpers');
+  const sid = (await api.post('/api/streams', { title: 'Offer here stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const meta = { handoffOffer: { task: 'Write the export script', done: [] }, suggestion: { instruction: 'Write the export script', status: 'open' } };
+  db.prepare('insert into chat_messages (id, stream_id, role, content, meta, created_at) values (?,?,?,?,?,?)').run('offer-here', sid, 'suggestion', 'This needs code. Hand it to Claude Code?', JSON.stringify(meta), new Date().toISOString());
+  db.close();
+  await page.goto(WEB);
+  await stream(page, /Offer here stream/).click();
+  const bubble = page.locator('.handoff-offer');
+  await bubble.getByRole('button', { name: 'Hand off to Claude Code' }).click();
+  await expect(bubble).toContainText('Handed off to Claude Code');
+  await expect.poll(async () => (await api.get(`/api/streams/${sid}/claude-code`)).json.session?.state ?? 'none').not.toBe('none');
+  // it ran here: a Run-here session, and no Terminal hand-off recorded
+  expect((await api.get(`/api/streams/${sid}/handoff`)).json.last).toBeNull(); // a Terminal hand-off would be recorded here
+  await expect(page.locator('.chat')).toContainText('Claude Code');
+  await setCc(false);
+});

@@ -665,13 +665,18 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const m = await repo.getChat((req.params as any).id);
     const offer = m?.meta.handoffOffer;
     if (!m || !offer || !m.streamId) throw new Error('Not a hand-off offer');
-    const choice = z.object({ choice: z.enum(['reply', 'handoff', 'dismiss']) }).parse(req.body).choice;
+    const { choice, where } = z.object({ choice: z.enum(['reply', 'handoff', 'dismiss']), where: z.enum(['terminal', 'here']).optional() }).parse(req.body);
     const set = (patch: Partial<NonNullable<typeof offer>>) => repo.updateChatMeta(m.id, { ...m.meta, handoffOffer: { ...offer, ...patch }, suggestion: { instruction: offer.task, status: patch.dismissed ? 'dismissed' : 'accepted' } });
     if (choice === 'dismiss') {
       await set({ dismissed: true });
       return { ok: true };
     }
     if (offer.done.includes(choice)) return { ok: true };
+    if (choice === 'handoff' && where === 'here') {
+      // already started inside WC by the page (with its Claude Code token): just record it
+      await set({ done: [...offer.done, 'handoff'] });
+      return { ok: true, where: 'here' };
+    }
     if (choice === 'handoff') {
       const st = await handoffStream(m.streamId);
       const last = await repo.latestHandoff(st.id);

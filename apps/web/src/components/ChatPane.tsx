@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ClaudeCodeStatus, StreamItem } from '@wc/shared';
-import { ccPost, post, fmtTime } from '../api';
+import { ccPost, get, post, fmtTime } from '../api';
 import { ThinkingMark } from './ThinkingMark';
 
 interface Props {
@@ -64,7 +64,7 @@ export function ChatPane({ streamId, streamTitle, selectedItem, messages, live, 
       <div className="chat-scroll" ref={scroller}>
         {messages.length === 0 && !live && <div className="muted pad">Ask about this work stream, or tell Claude what to do next. Claude also sees every other open stream.</div>}
         {messages.map((m) => (
-          <ChatBubble key={m.id} m={m} onAnswer={(a) => send(a, m.id)} ccToken={cc?.token} />
+          <ChatBubble key={m.id} m={m} onAnswer={(a) => send(a, m.id)} ccToken={cc?.token} cc={cc} streamId={streamId} />
         ))}
         {live !== null && (
           <div className="bubble assistant streaming">
@@ -156,7 +156,7 @@ function CcApproval({ m, token }: { m: ChatMessage; token?: string }) {
   );
 }
 
-function ChatBubble({ m, onAnswer, ccToken }: { m: ChatMessage; onAnswer: (a: string) => void; ccToken?: string }) {
+function ChatBubble({ m, onAnswer, ccToken, cc, streamId }: { m: ChatMessage; onAnswer: (a: string) => void; ccToken?: string; cc?: ClaudeCodeStatus | null; streamId: string }) {
   if (m.meta.ccApproval) return <CcApproval m={m} token={ccToken} />;
   if (m.meta.claudeCode && m.role === 'system') return <div className="sys-note cc-note">{m.content}</div>;
   if (m.meta.claudeCode && (m.role === 'assistant' || m.role === 'user'))
@@ -167,7 +167,7 @@ function ChatBubble({ m, onAnswer, ccToken }: { m: ChatMessage; onAnswer: (a: st
         <div className="meta muted small">{fmtTime(m.createdAt)}</div>
       </div>
     );
-  if (m.role === 'suggestion' && m.meta.handoffOffer) return <HandoffOfferBubble m={m} />;
+  if (m.role === 'suggestion' && m.meta.handoffOffer) return <HandoffOfferBubble m={m} cc={cc} streamId={streamId} />;
   if (m.role === 'suggestion' && m.meta.chatOffer) return <ChatOfferBubble m={m} />;
   if (m.role === 'suggestion') {
     const st = m.meta.suggestion?.status ?? 'open';
@@ -270,14 +270,27 @@ function ChatOfferBubble({ m }: { m: ChatMessage }) {
 }
 
 /** Claude asks: send an "I'm looking into it" reply, or hand the work to Claude Code? One click for either. */
-function HandoffOfferBubble({ m }: { m: ChatMessage }) {
+function HandoffOfferBubble({ m, cc, streamId }: { m: ChatMessage; cc?: ClaudeCodeStatus | null; streamId: string }) {
   const offer = m.meta.handoffOffer!;
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // With "Run Claude Code inside Work Commander" on, the hand-off runs here, in this chat; otherwise in Terminal.
+  const here = !!(cc?.enabled && cc.token && !cc.unavailable);
   const choose = async (choice: 'reply' | 'handoff' | 'dismiss') => {
     setBusy(choice);
     setErr(null);
     try {
+      if (choice === 'handoff' && here) {
+        const st = cc!.session?.state;
+        if (st === 'running' || st === 'waiting') {
+          await ccPost(`/api/streams/${streamId}/claude-code/message`, cc!.token!, { text: offer.task });
+        } else {
+          const { folder } = await get<{ folder: string }>(`/api/streams/${streamId}/handoff`);
+          await ccPost(`/api/streams/${streamId}/claude-code/start`, cc!.token!, { folder, task: offer.task });
+        }
+        await post(`/api/chat/${m.id}/handoff-offer`, { choice, where: 'here' });
+        return;
+      }
       await post(`/api/chat/${m.id}/handoff-offer`, { choice });
     } catch (e: any) {
       setErr(e.message);
@@ -302,7 +315,7 @@ function HandoffOfferBubble({ m }: { m: ChatMessage }) {
             </button>
           )}
           {left.includes('handoff') && (
-            <button className="btn small primary" disabled={!!busy} onClick={() => choose('handoff')}>
+            <button className="btn small primary" disabled={!!busy} title={here ? 'Claude Code works on it here, in this chat (it asks before running commands or changing files)' : 'Opens Claude Code in Terminal with a brief'} onClick={() => choose('handoff')}>
               Hand off to Claude Code
             </button>
           )}
