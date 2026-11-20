@@ -84,6 +84,8 @@ export interface WorkStream {
   deadlines?: { due?: StreamDeadline | null; promised?: StreamDeadline | null };
   /** The tool the most recently updated item came from (shown as an icon on the stream). */
   lastSource?: ItemSource;
+  /** How many work items the stream holds. */
+  itemCount?: number;
   runState: 'idle' | 'running' | 'waiting_approval';
 }
 

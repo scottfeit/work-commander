@@ -670,3 +670,8 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .skills-picker .inline { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .skills-list { display: grid; gap: 4px; max-height: 260px; overflow: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .skill-row { display: flex; gap: 8px; align-items: baseline; font-size: 13px; cursor: pointer; }
+
+/* How many work items a stream holds, in the corner of its tool icon */
+.src-count-wrap { position: relative; display: inline-flex; flex: none; }
+.src-count { position: absolute; right: -6px; bottom: -5px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--text); color: var(--panel); font-size: 9px; font-weight: 700; line-height: 13px; text-align: center; box-shadow: 0 0 0 1.5px var(--panel-2); }
+.stream.active .src-count { box-shadow: 0 0 0 1.5px var(--accent-soft); }

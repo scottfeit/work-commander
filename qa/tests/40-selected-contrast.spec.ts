@@ -60,3 +60,18 @@ test('a stream reopened by new activity shows a "Reopened" chip', async ({ page 
   await api.call('PATCH', `/api/streams/${id}`, { pending: true }); // your next move clears it
   await expect(page.locator('.sidebar .stream', { hasText: 'Reopened chip stream' }).locator('.reopened-chip')).toHaveCount(0);
 });
+
+test('each stream card shows how many work items it holds, in the corner of its tool icon', async ({ page }) => {
+  const { api: a, demoDataDir } = await import('./helpers');
+  const path = await import('node:path');
+  const id = (await a.post('/api/streams', { title: 'Count badge stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  for (const n of [1, 2, 3]) db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run(`cnt${n}`, id, 'gmail', 'email_thread', `cnt-${n}`, `Thread ${n}`, null, '{"messages":[]}', new Date().toISOString());
+  db.close();
+  await page.goto(WEB);
+  const card = page.locator('.sidebar .stream', { hasText: 'Count badge stream' });
+  await expect(card.locator('.src-count')).toHaveText('3');
+  await expect(card.locator('.src-count')).toHaveAttribute('aria-label', '3 work items');
+  await card.locator('.stream-head').screenshot({ path: 'qa/results/item-count.png' });
+});

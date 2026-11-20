@@ -66,6 +66,7 @@ export class Repo {
       .executeTakeFirst();
     const pendingN = Number(pending?.n ?? 0);
     const latest = await this.db.selectFrom('items').select('source').where('stream_id', '=', r.id).orderBy('updated_at', 'desc').limit(1).executeTakeFirst();
+    const items = await this.db.selectFrom('items').select((eb) => eb.fn.countAll<number>().as('n')).where('stream_id', '=', r.id).executeTakeFirst();
     const rs = this.runStates.get(r.id) ?? 'idle';
     return {
       id: r.id,
@@ -90,6 +91,7 @@ export class Repo {
         return { deadlines: d, due: d.due ?? null, promised: d.promised ?? null };
       })(),
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
+      itemCount: Number(items?.n ?? 0),
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
   }

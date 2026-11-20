@@ -151,7 +151,17 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
       <button type="button" className="stream-open" onClick={() => onSelect(s.id)}>
         <div className="stream-head">
           {s.unread && (s.id !== selected || manualRead) && <span className="dot" aria-label="unread" />}
-          {s.lastSource && <SourceBadge source={s.lastSource} />}
+          {s.lastSource && (
+            // the tool of the latest item, with how many work items the stream holds in its corner
+            <span className="src-count-wrap" title={`${s.itemCount ?? 0} work item${s.itemCount === 1 ? '' : 's'}`}>
+              <SourceBadge source={s.lastSource} />
+              {(s.itemCount ?? 0) > 0 && (
+                <span className="src-count" aria-label={`${s.itemCount} work item${s.itemCount === 1 ? '' : 's'}`}>
+                  {(s.itemCount ?? 0) > 99 ? '99+' : s.itemCount}
+                </span>
+              )}
+            </span>
+          )}
           <span className="stream-title">{s.title}</span>
           <span className="muted small">{timeAgo(s.lastActivityAt)}</span>
         </div>
