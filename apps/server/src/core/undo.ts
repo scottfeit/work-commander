@@ -52,8 +52,8 @@ interface Entry {
   chats: { id: string; meta: string }[];
   laya: { itemIds: string[]; examples: DB['laya_examples'][]; compare: { id: number; claude: string; agree: number | null; corrected: number }[] };
   gmail?: { itemId: string; undo: GmailAction; toInbox?: boolean };
-  /** A Jira status change from the item's own control: undo moves it back. */
-  jira?: { itemId: string; status: string };
+  /** A Jira status or assignee change from the item's own controls: undo puts it back. */
+  jira?: { itemId: string; status?: string; assignee?: { accountId: string | null } };
   /** A Slack message move can be undone only while no new message arrives in that conversation. */
   slack?: { channel: string; messageIds: string[] };
 }
@@ -72,6 +72,8 @@ export interface UndoDeps {
   gmail: (itemId: string, action: GmailAction, opts: { toInbox?: boolean }) => Promise<unknown>;
   /** Moves a ticket back to a status. */
   jiraStatus?: (itemId: string, status: string) => Promise<unknown>;
+  /** Gives a ticket back to an account id (null = unassigned). */
+  jiraAssign?: (itemId: string, accountId: string | null) => Promise<unknown>;
   /** Laya re-checks its parts after training examples change. */
   layaChanged?: () => Promise<void>;
 }
@@ -163,6 +165,13 @@ export class UndoLog {
   async recordJiraStatus(label: string, itemId: string, previous: string) {
     const e = this.blank(label, new Date().toISOString());
     e.jira = { itemId, status: previous };
+    await this.serial(async () => this.save([...(await this.prune(await this.load())), e]));
+  }
+
+  /** Assign to me: undo gives the ticket back to whoever had it. */
+  async recordJiraAssign(label: string, itemId: string, previous: string | null) {
+    const e = this.blank(label, new Date().toISOString());
+    e.jira = { itemId, assignee: { accountId: previous } };
     await this.serial(async () => this.save([...(await this.prune(await this.load())), e]));
   }
 
@@ -275,8 +284,13 @@ export class UndoLog {
       return;
     }
     if (e.jira) {
-      if (!this.deps.jiraStatus) throw new Error('Jira is not connected');
-      await this.deps.jiraStatus(e.jira.itemId, e.jira.status);
+      if (e.jira.assignee) {
+        if (!this.deps.jiraAssign) throw new Error('Jira is not connected');
+        await this.deps.jiraAssign(e.jira.itemId, e.jira.assignee.accountId);
+      } else if (e.jira.status) {
+        if (!this.deps.jiraStatus) throw new Error('Jira is not connected');
+        await this.deps.jiraStatus(e.jira.itemId, e.jira.status);
+      }
       return;
     }
     // 1. Streams the action removed come back first, so items and drafts have somewhere to return to.

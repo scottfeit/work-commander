@@ -257,10 +257,18 @@ export class AtlassianCloud implements TicketApi {
     return { status: t.to?.name ?? t.name };
   }
 
+  async assigneeOf(key: string): Promise<string | null> {
+    const r = await this.req('GET', `/rest/api/3/issue/${key}?fields=assignee`);
+    return r?.fields?.assignee?.accountId ?? null;
+  }
+
   async assign(input: { key: string; assignee: string | null }) {
     let accountId: string | null = null;
     let name: string | null = null;
-    if (input.assignee === 'me') {
+    if (input.assignee?.startsWith('accountId:')) {
+      accountId = input.assignee.slice('accountId:'.length);
+      name = accountId;
+    } else if (input.assignee === 'me') {
       const me = await this.myself();
       accountId = me.accountId;
       name = me.displayName;

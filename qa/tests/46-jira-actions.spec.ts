@@ -92,3 +92,37 @@ test('Copy link puts the ticket address on the clipboard', async ({ page, contex
   await expect(jira.getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`https://example.atlassian.net/browse/${key}`);
 });
+
+test('Assign to me takes the ticket right away; Undo gives it back', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  // someone else has it first
+  const other = await insertProposal(streamId, 'ticket_assign', `Assign ${key} to Priya`, { key, assignee: 'priya.shah@example.com' }, []);
+  await api.post(`/api/proposals/${other}/approve`);
+  await api.waitStatus(other, 'executed');
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const assignee = page.locator('.ticket-fields div', { hasText: 'Assignee' }).locator('dd');
+  await expect(assignee).toHaveText('priya.shah@example.com');
+  await page.getByRole('group', { name: 'Jira' }).getByRole('button', { name: 'Assign to me' }).click();
+  await expect(assignee).toHaveText('Alex Rivera');
+  await page.locator('.top-pane .item-head').screenshot({ path: 'qa/results/jira-buttons.png' });
+  await page.locator('.brand').getByRole('button', { name: /^Undo/ }).click();
+  await expect(assignee).toHaveText('priya.shah@example.com');
+});
+
+test('a work item\'s buttons stay together on one line (moving under a long title) and inside the pane', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const row = page.locator('.top-pane .item-head-actions');
+  // one line: every button's vertical middle is the same (they differ in height)
+  const mids = await row.locator('> *').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; }));
+  expect(Math.max(...mids) - Math.min(...mids)).toBeLessThan(4);
+  const [r, pane] = await Promise.all([row.boundingBox(), page.locator('.top-pane .item-head').boundingBox()]);
+  expect(r!.x + r!.width).toBeLessThanOrEqual(pane!.x + pane!.width + 1);
+  await page.locator('.top-pane .item-head').screenshot({ path: 'qa/results/item-head-narrow.png' });
+});

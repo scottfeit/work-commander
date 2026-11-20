@@ -391,12 +391,14 @@ export function ItemView({
         <SourceBadge source={item.source} />
         <h2>{item.title}</h2>
         {peek && <span className="chip subtle">{item.data.proposedStream ? `Proposed work stream: ${item.data.proposedStream.title}` : 'Skipped · preview'}</span>}
-        {item.url && (
-          <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
-            Open ↗
-          </a>
-        )}
-        {!peek && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && <RefreshItem id={item.id} />}
+        {/* The item's buttons stay on one line: when the title leaves too little room they move under it together. */}
+        <span className="item-head-actions">
+          {item.url && (
+            <a className="btn ghost small" href={item.url} target="_blank" rel="noreferrer">
+              Open ↗
+            </a>
+          )}
+          {!peek && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && <RefreshItem id={item.id} />}
         {!peek && onQuickReply && ['gmail', 'slack', 'jira', 'jsm'].includes(item.source) && (
           <button
             className="btn small primary"
@@ -439,7 +441,8 @@ export function ItemView({
             Not relevant
           </button>
         )}
-        {/* Gmail-only actions get their own row under the title and the item buttons. */}
+        </span>
+        {/* Tool-specific actions (Gmail, Slack, Jira) get their own row under the title and the item buttons. */}
         {item.source === 'gmail' && <GmailButtons item={item} />}
         {item.source === 'slack' && <SlackReadButton item={item} />}
         {!!item.data.ticket && <TicketButtons item={item} />}
@@ -898,9 +901,22 @@ function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt:
   );
 }
 
-/** Jira/JSM actions in their own row under the title: Copy link (the ticket's address, to the clipboard). */
+/** Jira/JSM actions in their own row under the title: Copy link (the ticket's address, to the clipboard) and Assign to me. */
 function TicketButtons({ item }: { item: StreamItem }) {
   const [copied, setCopied] = useState<'ok' | 'fail' | null>(null);
+  const [assigning, setAssigning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const assignMe = async () => {
+    setAssigning(true);
+    setErr(null);
+    try {
+      await post(`/api/items/${item.id}/jira/assign-me`);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setAssigning(false);
+    }
+  };
   const url = item.url ?? '';
   const copy = async () => {
     try {
@@ -921,6 +937,10 @@ function TicketButtons({ item }: { item: StreamItem }) {
           </span>
         </button>
       )}
+      <button type="button" className={`btn small gmail-btn${assigning ? ' busy' : ''}`} disabled={assigning} aria-busy={assigning} title="Assign this ticket to you in Jira (Undo gives it back)" onClick={() => void assignMe()}>
+        Assign to me
+      </button>
+      {err && <span className="small error">{err}</span>}
     </span>
   );
 }

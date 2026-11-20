@@ -1,4 +1,4 @@
-import { applyTransition, transitionOptions } from '../core/jiraActions.js';
+import { applyTransition, setAssignee, transitionOptions } from '../core/jiraActions.js';
 import { currentSignature } from '../core/emailSignature.js';
 import { randomBytes } from 'node:crypto';
 import { safeEqual } from '../core/safeEqual.js';
@@ -484,6 +484,14 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await undo.recordJiraStatus(`move ${q(item.title)} to ${item.data.ticket?.status ?? 'a new status'}`, id, from);
     await repo.audit('you', 'jira.transitioned', { itemId: id, from, to: item.data.ticket?.status });
     return { status: item.data.ticket?.status };
+  });
+  // Assign to me, right away (Undo gives it back to whoever had it).
+  f.post('/api/items/:id/jira/assign-me', async (req) => {
+    const id = (req.params as any).id as string;
+    const { item, before } = await setAssignee({ repo, hub }, id, 'me');
+    await undo.recordJiraAssign(`assign ${q(item.title)} to you`, id, before);
+    await repo.audit('you', 'jira.assigned', { itemId: id, to: 'me' });
+    return { assignee: item.data.ticket?.assignee ?? null };
   });
   // System-wide Undo (your last three actions).
   f.get('/api/undo', async () => undo.info());

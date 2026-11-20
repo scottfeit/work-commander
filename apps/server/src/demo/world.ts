@@ -159,8 +159,10 @@ export class DemoWorld {
       this.tickets.get(i.key)!.data.ticket!.status = to;
       return { status: to };
     },
+    /** Demo account ids are the person's name. */
+    assigneeOf: async (key: string) => this.tickets.get(key)!.data.ticket!.assignee ?? null,
     assign: async (i: { key: string; assignee: string | null }) => {
-      this.tickets.get(i.key)!.data.ticket!.assignee = i.assignee === 'me' ? PU.name : (i.assignee ?? undefined);
+      this.tickets.get(i.key)!.data.ticket!.assignee = i.assignee === 'me' ? PU.name : i.assignee?.startsWith('accountId:') ? i.assignee.slice(10) : (i.assignee ?? undefined);
       return { assignee: i.assignee };
     },
     /** Demo issue links, remembered as Jira would. */

@@ -1,4 +1,4 @@
-import { applyTransition } from './core/jiraActions.js';
+import { applyTransition, setAssignee } from './core/jiraActions.js';
 import type { AppConfig } from './config.js';
 import { openDatabase, type Database } from './db/index.js';
 import { SettingsStore } from './core/settings.js';
@@ -102,6 +102,7 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
     repo,
     gmail: (itemId, action, opts) => gmailThreadAction({ repo, hub }, itemId, action, opts),
     jiraStatus: (itemId, status) => applyTransition({ repo, hub }, itemId, { to: status }),
+    jiraAssign: (itemId, accountId) => setAssignee({ repo, hub }, itemId, { accountId }),
     layaChanged: () => laya.examplesRestored(),
   });
   const claudeCode = new ClaudeCodeSessions({

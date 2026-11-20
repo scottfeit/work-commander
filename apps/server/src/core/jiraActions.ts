@@ -20,6 +20,15 @@ export async function transitionOptions(d: Deps, itemId: string): Promise<{ stat
   return { status: item.data.ticket!.status, transitions: await t.transitionOptions(key) };
 }
 
+/** Assign the ticket to the PU (or, for Undo, back to an account id / nobody). Returns who had it before, as an account id. */
+export async function setAssignee(d: Deps, itemId: string, to: 'me' | { accountId: string | null }): Promise<{ item: StreamItem; before: string | null }> {
+  const { item, key, t } = await ticketOf(d, itemId);
+  const before = t.assigneeOf ? await t.assigneeOf(key) : null;
+  await t.assign({ key, assignee: to === 'me' ? 'me' : to.accountId ? `accountId:${to.accountId}` : null });
+  const fresh = await refreshItem(d, item).catch(() => item);
+  return { item: fresh, before };
+}
+
 /** Move the ticket (by transition id, or to a status by name), then bring the item up to date. */
 export async function applyTransition(d: Deps, itemId: string, input: { id?: string; to?: string; fields?: Record<string, string | { id: string }> }): Promise<{ item: StreamItem; from: string }> {
   const { item, key, t } = await ticketOf(d, itemId);
