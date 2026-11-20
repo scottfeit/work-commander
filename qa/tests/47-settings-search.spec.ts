@@ -66,3 +66,18 @@ test('keyboard focus shows a clear ring on buttons (and not on mouse clicks)', a
   await page.getByRole('button', { name: 'All open work' }).click();
   expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('none');
 });
+
+test('with reduced motion on in the system, nothing animates', async ({ browser }) => {
+  const ctx = await browser.newContext({ reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await page.goto(WEB);
+  const slow = await page.evaluate(() =>
+    [...document.querySelectorAll('*')].filter((e) => {
+      const c = getComputedStyle(e);
+      const secs = (v: string) => Math.max(...v.split(',').map((x) => parseFloat(x) * (x.trim().endsWith('ms') ? 0.001 : 1)));
+      return secs(c.transitionDuration) > 0.01 || (c.animationName !== 'none' && secs(c.animationDuration) > 0.01);
+    }).length,
+  );
+  expect(slow).toBe(0);
+  await ctx.close();
+});

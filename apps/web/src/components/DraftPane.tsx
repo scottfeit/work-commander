@@ -177,7 +177,7 @@ function DraftCard({
   useEffect(() => {
     // Quick Reply just opened (or re-opened) this draft: bring it into view with the cursor in the message.
     if (!focus) return;
-    card.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    card.current?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     const ta = card.current?.querySelector('textarea');
     ta?.focus({ preventScroll: true });
     ta?.setSelectionRange(0, 0); // above the signature, if there is one

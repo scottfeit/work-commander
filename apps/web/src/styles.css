@@ -739,3 +739,14 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Reduced motion (the system setting): no movement anywhere; things just appear, change and go */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .catchup-bar.indeterminate > div { animation: none !important; width: 100%; opacity: .5; }
+}
