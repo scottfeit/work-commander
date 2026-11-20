@@ -1,4 +1,20 @@
 /**
+ * Where a closing run of "> " lines starts (blank lines may sit between them), or -1 when the text does not end with one.
+ * Read line by line from the end. (A regex for this backtracked exponentially on a long quoted chain that ended in an
+ * unquoted signature, and froze the page.)
+ */
+function trailingQuoteStart(text: string): number {
+  const lines = text.split('\n');
+  let k = lines.length - 1;
+  while (k >= 0 && lines[k].trim() === '') k--; // blank lines at the very end belong to the end of the text
+  if (k < 0 || !lines[k].startsWith('>')) return -1;
+  while (k > 0 && (lines[k - 1].startsWith('>') || lines[k - 1].trim() === '')) k--;
+  let at = 0;
+  for (let j = 0; j < k; j++) at += lines[j].length + 1;
+  return at;
+}
+
+/**
  * Where the earlier, quoted part of an email starts ("On Wed, Nov 11, 2026, at 1:22 AM, Scott Feit wrote:", Outlook's
  * "From: … Sent: …" header, "-----Original Message-----", or a closing run of "> " lines). Returns the text before it and
  * the quoted part, or no quoted part when there's none (or nothing would be left above it).
@@ -19,11 +35,8 @@ export function splitQuoted(text: string): { visible: string; quoted: string | n
     if (m && (at < 0 || m.index < at)) at = m.index;
   }
   // a trailing block of "> " lines (with blank lines between) with nothing after it
-  const tail = /(?:^|\n)((?:>[^\n]*\n?|[ \t]*\n)*>[^\n]*\s*)$/.exec(text);
-  if (tail) {
-    const i = tail.index + (tail[0].startsWith('\n') ? 1 : 0);
-    if (at < 0 || i < at) at = i;
-  }
+  const i = trailingQuoteStart(text);
+  if (i >= 0 && (at < 0 || i < at)) at = i;
   if (at <= 0) return { visible: text, quoted: null };
   const visible = text.slice(0, at).replace(/\s+$/, '');
   if (!visible.trim()) return { visible: text, quoted: null }; // a bare forward: show it all
