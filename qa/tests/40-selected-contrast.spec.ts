@@ -212,3 +212,20 @@ test('a thread marks where the messages new since you last looked begin, and ope
   await expect(page.locator('.top-pane .msg').first()).toBeVisible();
   await expect(div).toHaveCount(0);
 });
+
+test('hovering a name shows a people card: role and team, email and Slack handle, with copy', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto(WEB);
+  await stream(page, /contractor access/i).click();
+  const name = page.locator('.top-pane .msg header .person', { hasText: 'Priya Shah' }).first();
+  await name.getByRole('button', { name: 'Priya Shah' }).hover();
+  const card = page.getByRole('dialog', { name: 'About Priya Shah' });
+  await expect(card).toContainText('Operations Manager · Operations');
+  await expect(card).toContainText('priya.shah@example.com');
+  await page.locator('.top-pane').screenshot({ path: 'qa/results/person-card.png' });
+  await card.getByRole('button', { name: 'Copy email' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('priya.shah@example.com');
+  // leaving it closes it
+  await page.locator('.overview-pane').hover();
+  await expect(card).toHaveCount(0);
+});

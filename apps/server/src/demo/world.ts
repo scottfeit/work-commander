@@ -99,6 +99,10 @@ export class DemoWorld {
     readMarks: new Map<string, boolean>(),
     readState: async (channel: string) => ({ unread: !this.chat.readMarks.get(channel) }),
     markConversation: async (channel: string, read: boolean) => (this.chat.readMarks.set(channel, read), { unread: !read }),
+    profile: async (id: string) => {
+      const p = PEOPLE.find((x) => (x.slackUserId ?? `U${x.name.split(' ')[0].toUpperCase()}`) === id);
+      return p ? { handle: `@${p.name.toLowerCase().replace(/\s+/g, '.')}`, email: p.email } : null;
+    },
     customEmoji: async () => ({ partyparrot: 'https://emoji.slack-edge.com/T0/partyparrot/abc.gif' }),
     search: async () => [],
     lookupUserByEmail: async (email: string) => {

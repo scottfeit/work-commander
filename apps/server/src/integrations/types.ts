@@ -66,6 +66,8 @@ export interface ChatApi {
   search(query: string, max?: number): Promise<{ channel: string; ts: string; threadTs?: string; user: string; text: string; permalink: string }[]>;
   postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string; files?: OutFile[] }): Promise<{ channel: string; ts: string; permalink?: string }>;
   lookupUserByEmail(email: string): Promise<{ id: string; name: string } | null>;
+  /** A person's Slack handle ("@lee.wong") and email. */
+  profile?(userId: string): Promise<{ handle?: string; email?: string } | null>;
 }
 
 export interface TicketApi {

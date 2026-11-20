@@ -266,6 +266,20 @@ export class SlackWorkspace implements ChatApi {
     }));
   }
 
+  private profiles = new Map<string, { handle?: string; email?: string } | null>();
+  async profile(userId: string) {
+    if (!this.profiles.has(userId)) {
+      try {
+        const r = await this.web.users.info({ user: userId });
+        const handle = r.user?.profile?.display_name || r.user?.name;
+        this.profiles.set(userId, { handle: handle ? `@${handle}` : undefined, email: r.user?.profile?.email ?? undefined });
+      } catch {
+        this.profiles.set(userId, null);
+      }
+    }
+    return this.profiles.get(userId)!;
+  }
+
   async lookupUserByEmail(email: string) {
     try {
       const r = await this.web.users.lookupByEmail({ email });

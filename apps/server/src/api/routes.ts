@@ -1,3 +1,4 @@
+import { personCard } from '../core/personCard.js';
 import { updateWaitingOn } from '../core/waitingOn.js';
 import { applyTransition, setAssignee, transitionOptions } from '../core/jiraActions.js';
 import { currentSignature } from '../core/emailSignature.js';
@@ -950,6 +951,11 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
 
   // ---------- org chart ----------
   f.get('/api/people', async () => repo.listPeople());
+  // A people card: role and team (org chart), email and Slack handle.
+  f.get('/api/person', async (req) => {
+    const q = z.object({ name: z.string().max(200).optional(), email: z.string().max(320).optional(), slackUserId: z.string().max(40).optional() }).parse(req.query);
+    return personCard({ repo, hub }, q);
+  });
   f.get('/api/orgchart/default-mapping/:type', async (req) => DEFAULT_MAPPINGS[(req.params as any).type as keyof typeof DEFAULT_MAPPINGS] ?? null);
   f.post('/api/orgchart/import', async (req) => {
     const s = await settings.get();

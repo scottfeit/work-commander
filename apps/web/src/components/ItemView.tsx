@@ -9,6 +9,7 @@ import { UsagePie } from './usageViz';
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
 import { SourceBadge, dragItem } from './TabBar';
 import { waitedFor } from './StreamList';
+import { PersonName } from './PersonCard';
 import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
 import { AlarmIcon } from './AlarmIcon';
@@ -316,7 +317,7 @@ function Message({ m, compact, html, defaultOriginal, item, itemId, quick, pick 
             onClick={(e) => pick.onClick(e.shiftKey)}
           />
         )}
-        <strong>{m.author.name ?? m.author.email ?? m.author.slackUserId}</strong>
+        <PersonName name={m.author.name ?? m.author.email ?? m.author.slackUserId ?? 'Someone'} email={m.author.email} slackUserId={m.author.slackUserId} />
         {!compact && m.author.email && <span className="muted"> &lt;{m.author.email}&gt;</span>}
         <span className="muted small right">
           {html && (

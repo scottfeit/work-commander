@@ -716,3 +716,13 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 /* Where the messages new since you last looked begin */
 .new-divider { display: flex; align-items: center; gap: 10px; margin: 10px 0; color: var(--accent); font-size: 12px; font-weight: 600; }
 .new-divider::before, .new-divider::after { content: ''; flex: 1; height: 1px; background: var(--accent); opacity: .6; }
+
+/* People cards: hover a name */
+.person { position: relative; display: inline-block; }
+.person-btn { font: inherit; font-weight: 700; color: inherit; background: none; border: 0; padding: 0; cursor: default; border-bottom: 1px dotted transparent; }
+.person-btn:hover, .person-btn:focus-visible { border-bottom-color: var(--muted); outline: none; }
+.person-card { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; display: grid; gap: 4px; min-width: 300px; max-width: 380px; padding: 10px 12px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 6px 20px rgba(0,0,0,.14); font-weight: 400; font-size: 13px; text-align: left; }
+.person-name { font-weight: 600; }
+.person-role { color: var(--text); }
+.person-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 6px; align-items: baseline; }
+.person-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
