@@ -79,3 +79,16 @@ test('a Jira/JSM item has a status drop-down: moves right away, asks for a Resol
   await page.locator('.brand').getByRole('button', { name: /^Undo/ }).click();
   await expect(status.locator('option').first()).toHaveText('In Progress');
 });
+
+test('Copy link puts the ticket address on the clipboard', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { key, streamId } = await demoTicket();
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const jira = page.getByRole('group', { name: 'Jira' });
+  await jira.getByRole('button', { name: 'Copy link' }).click();
+  await expect(jira.getByRole('button', { name: 'Copied' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`https://example.atlassian.net/browse/${key}`);
+});

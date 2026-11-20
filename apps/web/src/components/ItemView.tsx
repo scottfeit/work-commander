@@ -442,6 +442,7 @@ export function ItemView({
         {/* Gmail-only actions get their own row under the title and the item buttons. */}
         {item.source === 'gmail' && <GmailButtons item={item} />}
         {item.source === 'slack' && <SlackReadButton item={item} />}
+        {!!item.data.ticket && <TicketButtons item={item} />}
       </div>
       {t ? (
         <>
@@ -894,6 +895,33 @@ function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt:
       <p className="muted small">Estimated at API prices{u.unit === 'tokens' ? ` · ${formatUsage(u.total, 'tokens')}` : ''}. Background checks for new activity aren't tied to one work stream; they're in Settings → Usage.</p>
       <UsagePie parts={parts} />
     </section>
+  );
+}
+
+/** Jira/JSM actions in their own row under the title: Copy link (the ticket's address, to the clipboard). */
+function TicketButtons({ item }: { item: StreamItem }) {
+  const [copied, setCopied] = useState<'ok' | 'fail' | null>(null);
+  const url = item.url ?? '';
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied('ok');
+    } catch {
+      setCopied('fail');
+    }
+    setTimeout(() => setCopied(null), 1500);
+  };
+  return (
+    <span className="gmail-actions" role="group" aria-label="Jira">
+      {url && (
+        <button type="button" className="btn small gmail-btn" title={`Copy ${url}`} onClick={() => void copy()}>
+          <span>{copied === 'ok' ? 'Copied' : copied === 'fail' ? "Couldn't copy" : 'Copy link'}</span>
+          <span aria-hidden="true" className="gmail-btn-alt">
+            Couldn't copy
+          </span>
+        </button>
+      )}
+    </span>
   );
 }
 
