@@ -53,3 +53,16 @@ test('a connection problem shows a banner (only then), with a way to fix it', as
   await expect(page).toHaveURL(/\/settings\?section=slack/);
   await expect(page.locator('.settings-body h2', { hasText: 'Slack' })).toBeVisible();
 });
+
+test('keyboard focus shows a clear ring on buttons (and not on mouse clicks)', async ({ page }) => {
+  await page.goto(WEB);
+  const btn = page.getByRole('button', { name: 'Settings' });
+  await btn.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const ring = await page.evaluate(() => { const c = getComputedStyle(document.activeElement!); return `${c.outlineStyle} ${c.outlineWidth}`; });
+  expect(ring).toBe('solid 2px');
+  await page.locator('.sidebar').screenshot({ path: 'qa/results/focus-ring.png', clip: { x: 0, y: 0, width: 300, height: 80 } });
+  await page.getByRole('button', { name: 'All open work' }).click();
+  expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('none');
+});
