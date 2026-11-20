@@ -469,9 +469,10 @@ export function ItemView({
         <>
           <dl className="ticket-fields">
             <div><dt>Status</dt><dd><TicketStatus item={item} status={t.status} /></dd></div>
-            <div><dt>Assignee</dt><dd>{t.assignee ?? 'Unassigned'}</dd></div>
-            <div><dt>Requester</dt><dd>{t.requester ?? t.reporter ?? '—'}</dd></div>
-            <div><dt>Type</dt><dd>{t.flavor === 'jsm' ? 'Service request' : 'Jira issue'}</dd></div>
+            {/* long values are cut with … and shown whole on hover */}
+            <div><dt>Assignee</dt><dd className="trunc" title={t.assignee ?? 'Unassigned'}>{t.assignee ?? 'Unassigned'}</dd></div>
+            <div><dt>Requester</dt><dd className="trunc" title={t.requester ?? t.reporter ?? ''}>{t.requester ?? t.reporter ?? '—'}</dd></div>
+            <div><dt>Type</dt><dd className="trunc" title={t.flavor === 'jsm' ? 'Service request' : 'Jira issue'}>{t.flavor === 'jsm' ? 'Service request' : 'Jira issue'}</dd></div>
           </dl>
           {t.description && (
             <div className="body block">

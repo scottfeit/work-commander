@@ -185,6 +185,8 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .ticket-fields div { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
 .ticket-fields dt { font-size: 11px; color: var(--muted); }
 .ticket-fields dd { margin: 0; font-weight: 500; }
+.ticket-fields div { min-width: 0; }
+.ticket-fields dd.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .linked { list-style: none; padding: 0; margin: 0; }
 .link-row { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; background: transparent; border: 0; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
 .link-row:hover { background: var(--panel-2); }
@@ -677,7 +679,8 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 .stream.active .src-count { box-shadow: 0 0 0 1.5px var(--accent-soft); }
 
 /* A Jira/JSM ticket's status drop-down, and the box asking for what a move requires */
-.ticket-status { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.ticket-status { position: relative; display: flex; align-items: center; gap: 6px; max-width: 100%; }
+.ticket-status > select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 .ticket-status > select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .ticket-status-ask { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; display: flex; align-items: center; gap: 8px; white-space: nowrap; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
 .ticket-status-ask select, .ticket-status-ask input { font: inherit; font-size: 12px; }

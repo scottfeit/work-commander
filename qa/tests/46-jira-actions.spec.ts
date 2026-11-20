@@ -218,3 +218,20 @@ test('a draft that waits for another names it, even once that one is done', asyn
   await expect(dep).toHaveText(`Runs after: ${ticket.title} (done)`);
   await expect(dep).not.toContainText('p_');
 });
+
+test('long ticket fields are cut with … and shown whole on hover; nothing spills into the next field', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await page.goto(WEB);
+  await page.addStyleTag({ content: 'html { zoom: 1.2; }' });
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const req = page.locator('.ticket-fields div', { hasText: 'Requester' }).locator('dd');
+  await expect(req).toHaveAttribute('title', /@example\.com$/);
+  const box = await req.evaluate((e) => ({ over: e.scrollWidth > e.clientWidth, right: e.getBoundingClientRect().right, cell: e.parentElement!.getBoundingClientRect().right }));
+  expect(box.right).toBeLessThanOrEqual(box.cell);
+  const sel = await page.locator('.ticket-fields').getByLabel('Status').evaluate((e) => e.getBoundingClientRect().right <= e.closest('div')!.getBoundingClientRect().right);
+  expect(sel).toBe(true);
+  await page.locator('.ticket-fields').screenshot({ path: 'qa/results/ticket-fields-narrow.png' });
+});
