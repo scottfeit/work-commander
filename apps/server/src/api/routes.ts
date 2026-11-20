@@ -393,6 +393,28 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.audit('you', b.add ? 'slack.reacted' : 'slack.unreacted', { itemId: it.id, ts: msg.id, name: b.name });
     return { reactions: next };
   });
+  // Read/unread in Slack itself, for a DM, group DM or channel work item (threads have no read marker Slack lets apps set).
+  const slackConversation = async (id: string) => {
+    const it = await repo.getItem(id);
+    if (!it || it.source !== 'slack') throw Object.assign(new Error('Not a Slack work item'), { statusCode: 400 });
+    const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
+    const isThread = !Repo.slackIsFlat(channel, [it]) && (it.data.messages?.length ?? 0) > 1;
+    if (isThread) throw Object.assign(new Error('Slack threads cannot be marked read or unread by apps'), { statusCode: 400 });
+    const chat = await hub.api('chat');
+    if (!chat.readState || !chat.markConversation) throw Object.assign(new Error('Needs Slack connected directly (not through an MCP server)'), { statusCode: 400 });
+    return { it, channel, chat };
+  };
+  f.get('/api/items/:id/slack-read', async (req) => {
+    const { channel, chat } = await slackConversation((req.params as any).id);
+    return chat.readState!(channel);
+  });
+  f.post('/api/items/:id/slack-read', async (req) => {
+    const b = z.object({ read: z.boolean() }).parse(req.body);
+    const { it, channel, chat } = await slackConversation((req.params as any).id);
+    const r = await chat.markConversation!(channel, b.read);
+    await repo.audit('you', b.read ? 'slack.marked_read' : 'slack.marked_unread', { itemId: it.id, channel });
+    return r;
+  });
   // Re-read a work item from its source now (no triage).
   f.post('/api/items/:id/refresh', async (req) => {
     const it = await repo.getItem((req.params as any).id);

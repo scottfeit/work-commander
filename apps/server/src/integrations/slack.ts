@@ -52,6 +52,42 @@ export class SlackWorkspace implements ChatApi {
     }
   }
 
+  private scopeError(e: any): never {
+    if (e?.data?.error === 'missing_scope') {
+      throw new Error('The Slack app needs the channels:write, groups:write, im:write and mpim:write user scopes to mark conversations read (update it from deploy/slack-app-manifest.yaml and reinstall)');
+    }
+    throw e;
+  }
+
+  /** Is anything in this conversation newer than where the PU's read marker is? */
+  async readState(channel: string): Promise<{ unread: boolean }> {
+    try {
+      const [info, h] = await Promise.all([this.web.conversations.info({ channel }), this.web.conversations.history({ channel, limit: 1 })]);
+      const lastRead = Number((info.channel as any)?.last_read ?? 0);
+      const latest = Number(((h.messages ?? []) as any[])[0]?.ts ?? 0);
+      return { unread: latest > lastRead };
+    } catch (e) {
+      this.scopeError(e);
+    }
+  }
+
+  /**
+   * Mark a whole conversation read (marker on its latest message) or unread (marker just before its latest message, as Slack's own
+   * "Mark unread" does). Threads have no public read marker, so this is for DMs, group DMs and channels.
+   */
+  async markConversation(channel: string, read: boolean): Promise<{ unread: boolean }> {
+    try {
+      const h = await this.web.conversations.history({ channel, limit: 2 });
+      const msgs = ((h.messages ?? []) as any[]).sort((a, b) => Number(b.ts) - Number(a.ts));
+      if (!msgs.length) return { unread: false };
+      const ts = read ? msgs[0].ts : (msgs[1]?.ts ?? (Number(msgs[0].ts) - 0.000001).toFixed(6));
+      await this.web.conversations.mark({ channel, ts });
+      return { unread: !read };
+    } catch (e) {
+      this.scopeError(e);
+    }
+  }
+
   /**
    * The current reactions on some messages of one conversation, in one call: the thread's replies, or (for a DM or channel
    * discussion) the stretch of history they span.

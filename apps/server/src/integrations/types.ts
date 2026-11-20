@@ -50,6 +50,10 @@ export interface ChatApi {
   download?(url: string): Promise<Buffer>;
   /** Add or remove the PU's emoji reaction on a message. */
   react?(channel: string, ts: string, name: string, add: boolean): Promise<void>;
+  /** Whether the PU has unread messages in a conversation (DM, group DM or channel) in Slack. */
+  readState?(channel: string): Promise<{ unread: boolean }>;
+  /** Mark a whole conversation read (up to its latest message) or unread (from its latest message) in Slack. */
+  markConversation?(channel: string, read: boolean): Promise<{ unread: boolean }>;
   /** Current reactions on these messages (one call). */
   reactionsFor?(channel: string, threadTs: string | null, ts: string[]): Promise<Map<string, ThreadMessage['reactions']>>;
   /** The workspace's own emoji: name -> image URL. */

@@ -13,13 +13,16 @@ oauth_config:
     user:
       - channels:history
       - channels:read
+      - channels:write
       - groups:history
       - groups:read
+      - groups:write
       - im:history
       - im:read
       - im:write
       - mpim:history
       - mpim:read
+      - mpim:write
       - users:read
       - users:read.email
       - search:read

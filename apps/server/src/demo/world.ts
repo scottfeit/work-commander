@@ -93,6 +93,10 @@ export class DemoWorld {
     /** Demo reactions are remembered here, as Slack would. */
     reactions: [] as { channel: string; ts: string; name: string; add: boolean }[],
     react: async (channel: string, ts: string, name: string, add: boolean) => void this.chat.reactions.push({ channel, ts, name, add }),
+    /** Demo read markers: channels marked read in "Slack" (anything else counts as unread). */
+    readMarks: new Map<string, boolean>(),
+    readState: async (channel: string) => ({ unread: !this.chat.readMarks.get(channel) }),
+    markConversation: async (channel: string, read: boolean) => (this.chat.readMarks.set(channel, read), { unread: !read }),
     customEmoji: async () => ({ partyparrot: 'https://emoji.slack-edge.com/T0/partyparrot/abc.gif' }),
     search: async () => [],
     lookupUserByEmail: async (email: string) => {

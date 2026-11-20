@@ -81,3 +81,30 @@ test('each stream card shows how many work items it holds, in the corner of its 
   await expect(card.locator('.src-count')).toHaveAttribute('aria-label', '3 work items');
   await card.locator('.stream-head').screenshot({ path: 'qa/results/item-count.png' });
 });
+
+test('a Slack DM can be marked read or unread in Slack itself; a thread cannot', async ({ page }) => {
+  const { api: a, demoDataDir } = await import('./helpers');
+  const path = await import('node:path');
+  const id = (await a.post('/api/streams', { title: 'Slack read stream', summary: '' })).json.id;
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const msg = (ts: string) => ({ id: ts, author: { name: 'Priya' }, text: `hello ${ts}`, at: new Date().toISOString() });
+  const put = (iid: string, ext: string, msgs: any[], when: string) =>
+    db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run(iid, id, 'slack', 'slack_thread', ext, iid, null, JSON.stringify({ messages: msgs, slack: { channel: ext.split(':')[0], threadTs: msgs[0].id } }), when);
+  put('sr-thread', 'C0THREAD1:100.000001', [msg('100.000001'), msg('100.000002')], '2020-01-01T00:00:00Z');
+  put('sr-dm', 'D0READ123:dm', [msg('200.000001')], new Date().toISOString());
+  db.close();
+  await page.goto(WEB);
+  await stream(page, /Slack read stream/).click();
+  await page.getByText('sr-dm', { exact: true }).first().click();
+  const group = page.getByRole('group', { name: 'Slack' });
+  await group.getByRole('button', { name: 'Mark read in Slack' }).click();
+  await expect(group.getByRole('button', { name: 'Mark unread in Slack' })).toBeVisible();
+  expect((await a.get('/api/items/sr-dm/slack-read')).json).toEqual({ unread: false });
+  await group.getByRole('button', { name: 'Mark unread in Slack' }).click();
+  await expect(group.getByRole('button', { name: 'Mark read in Slack' })).toBeVisible();
+  await page.locator('.top-pane .item-head').screenshot({ path: 'qa/results/slack-read.png' });
+  await page.getByText('sr-thread', { exact: true }).first().click();
+  await expect(page.getByRole('group', { name: 'Slack' })).toHaveCount(0);
+  expect((await a.get('/api/items/sr-thread/slack-read')).status).toBe(400);
+});

@@ -441,6 +441,7 @@ export function ItemView({
         )}
         {/* Gmail-only actions get their own row under the title and the item buttons. */}
         {item.source === 'gmail' && <GmailButtons item={item} />}
+        {item.source === 'slack' && <SlackReadButton item={item} />}
       </div>
       {t ? (
         <>
@@ -893,6 +894,46 @@ function StreamUsageLine({ streamId, updatedAt }: { streamId: string; updatedAt:
       <p className="muted small">Estimated at API prices{u.unit === 'tokens' ? ` · ${formatUsage(u.total, 'tokens')}` : ''}. Background checks for new activity aren't tied to one work stream; they're in Settings → Usage.</p>
       <UsagePie parts={parts} />
     </section>
+  );
+}
+
+/**
+ * Mark read / Mark unread in Slack itself, for a DM, group DM or channel item (Slack lets apps set no read marker on a thread, so
+ * threads don't get it). Shows the conversation's state in Slack, re-checked on opening; hidden when Slack can't be asked.
+ */
+function SlackReadButton({ item }: { item: StreamItem }) {
+  const [unread, setUnread] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setUnread(null);
+    setErr(null);
+    get<{ unread: boolean }>(`/api/items/${item.id}/slack-read`)
+      .then((s) => setUnread(s.unread))
+      .catch(() => setUnread(null));
+  }, [item.id]);
+  if (unread === null) return null;
+  const act = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setUnread((await post<{ unread: boolean }>(`/api/items/${item.id}/slack-read`, { read: unread })).unread);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="gmail-actions" role="group" aria-label="Slack">
+      <button type="button" className={`btn small gmail-btn${busy ? ' busy' : ''}`} disabled={busy} aria-busy={busy} title={unread ? 'Mark this conversation read in Slack' : 'Mark this conversation unread in Slack (from its latest message)'} onClick={() => void act()}>
+        <span>{unread ? 'Mark read in Slack' : 'Mark unread in Slack'}</span>
+        <span aria-hidden="true" className="gmail-btn-alt">
+          {unread ? 'Mark unread in Slack' : 'Mark read in Slack'}
+        </span>
+      </button>
+      {err && <span className="small error">{err}</span>}
+    </span>
   );
 }
 
