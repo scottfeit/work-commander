@@ -382,6 +382,39 @@ export function ItemView({
       })
       .catch(() => undefined);
   }, [item.id]);
+  // What's new since you last opened this item: remembered as it was when you opened it (opening it now updates it).
+  const [seenBefore, setSeenBefore] = useState<string | null>(null);
+  useEffect(() => {
+    setSeenBefore(item.data.seenAt ?? null);
+    if (!peek) void post(`/api/items/${item.id}/seen`).catch(() => undefined);
+    // only on opening the item
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+  const isNew = (m: ThreadMessage) => !!seenBefore && !m.isFromPU && m.at > seenBefore;
+  const divider = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (seenBefore) divider.current?.scrollIntoView({ block: 'center' });
+  }, [seenBefore, item.id]);
+  /** Messages in display order, with a "new since you last looked" divider between the new ones and the rest. */
+  const withDivider = (order: ThreadMessage[], render: (m: ThreadMessage) => ReactNode) => {
+    const all = order.length;
+    const fresh = order.filter(isNew).length;
+    if (!fresh || fresh === all) return order.map(render); // nothing new, or never opened before / all of it new
+    const newestFirstOrder = order.length > 1 && order[0].at > order[order.length - 1].at;
+    const out: ReactNode[] = [];
+    order.forEach((m, i) => {
+      const prev = order[i - 1];
+      const boundary = newestFirstOrder ? prev && isNew(prev) && !isNew(m) : isNew(m) && (!prev || !isNew(prev));
+      if (boundary)
+        out.push(
+          <div key="new-divider" ref={divider} className="new-divider" role="separator" aria-label="New since you last looked">
+            <span>{newestFirstOrder ? `↑ ${fresh} new since you last looked` : `${fresh} new since you last looked`}</span>
+          </div>,
+        );
+      out.push(render(m));
+    });
+    return out;
+  };
   const [htmls, setHtmls] = useState<Record<string, string>>({});
   useEffect(() => {
     setHtmls({});
@@ -488,7 +521,7 @@ export function ItemView({
           )}
           <h3>Comments · {t.comments.length}</h3>
           {t.comments.length === 0 && <p className="muted">No comments yet.</p>}
-          {(newestFirst.tickets ? [...t.comments].reverse() : t.comments).map((c) => (
+          {withDivider(newestFirst.tickets ? [...t.comments].reverse() : t.comments, (c) => (
             <Message key={c.id} m={c} itemId={item.id} />
           ))}
         </>
@@ -498,7 +531,7 @@ export function ItemView({
         <SlackSelection item={item} enabled={!peek && item.source === 'slack'} order={((item.source === 'gmail' && newestFirst.email) || (item.source === 'slack' && newestFirst.slack) ? [...item.data.messages].reverse() : item.data.messages)}>
           {(order, pick) => (
             <div className={item.kind === 'slack_thread' ? 'thread slack' : 'thread'}>
-              {order.map((m) => (
+              {withDivider(order, (m) => (
                 <Message key={m.id} m={m} itemId={item.id} quick={quick} compact={item.kind === 'slack_thread'} html={htmls[m.id]} defaultOriginal={emailOriginal} item={!peek && item.source === 'slack' ? item : undefined} pick={pick?.(m)} />
               ))}
             </div>

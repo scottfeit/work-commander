@@ -383,6 +383,13 @@ export class Repo {
     bus.publish({ type: 'item.updated', item: { ...it, data } });
   }
 
+  /** The PU opened this item: remember when (what arrives after is "new since you last looked"). Not broadcast. */
+  async markItemSeen(itemId: string) {
+    const it = await this.getItem(itemId);
+    if (!it) return;
+    await this.db.updateTable('items').set({ data: j({ ...it.data, seenAt: now() }) }).where('id', '=', itemId).execute();
+  }
+
   /** Remember the PU's tab order for a work stream (ids in display order). */
   async setItemOrder(streamId: string, ids: string[]) {
     const at = now();

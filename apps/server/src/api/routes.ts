@@ -335,6 +335,10 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await undo.capture(`${b.muted ? 'silence' : 'unsilence'} ${q(await itemTitle(id))}`, { items: [id] }, () => repo.setItemMuted(id, b.muted));
     return { ok: true };
   });
+  f.post('/api/items/:id/seen', async (req) => {
+    await repo.markItemSeen((req.params as any).id);
+    return { ok: true };
+  });
   f.post('/api/items/:id/read', async (req) => {
     await repo.markItemRead((req.params as any).id);
     return { ok: true };

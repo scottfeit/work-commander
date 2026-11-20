@@ -185,3 +185,30 @@ test('a Pending stream says who it is waiting on and for how long', async ({ pag
   await page.locator('.sidebar .stream.active').getByRole('button', { name: 'Pending: put back in Open' }).click();
   await expect(card.locator('.stream-waiting')).toHaveCount(0);
 });
+
+test('a thread marks where the messages new since you last looked begin, and opens there', async ({ page }) => {
+  const { api: a, demoDataDir } = await import('./helpers');
+  const path = await import('node:path');
+  const id = (await a.post('/api/streams', { title: 'New since stream', summary: '' })).json.id;
+  const t = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  const msgs = [1, 2, 3, 4].map((n) => ({ id: `n${n}`, author: { name: n % 2 ? 'Lee Wong' : 'Priya Shah' }, text: `message ${n}`, at: t(10 - n) }));
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run('ns1', id, 'slack', 'slack_thread', 'D0NEW:dm', 'DM thread', null, JSON.stringify({ messages: msgs, seenAt: t(7.5) }), t(6));
+  db.close();
+  await page.goto(WEB);
+  await stream(page, /New since stream/).click();
+  await page.getByText('DM thread', { exact: true }).first().click();
+  const div = page.getByRole('separator', { name: 'New since you last looked' });
+  await expect(div).toHaveText('2 new since you last looked');
+  // it sits right before message 3
+  const next = await div.evaluate((e) => e.nextElementSibling?.textContent ?? '');
+  expect(next).toContain('message 3');
+  await page.locator('.top-pane .thread').screenshot({ path: 'qa/results/new-divider.png' });
+  // next time: nothing new
+  await page.reload();
+  await stream(page, /New since stream/).click();
+  await page.getByText('DM thread', { exact: true }).first().click();
+  await expect(page.locator('.top-pane .msg').first()).toBeVisible();
+  await expect(div).toHaveCount(0);
+});

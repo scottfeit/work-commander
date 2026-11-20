@@ -712,3 +712,7 @@ img.emoji.custom { width: 16px; height: 16px; object-fit: contain; vertical-alig
 /* Pending: who it's waiting on */
 .stream-waiting { font-size: 12px; color: var(--muted); margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-waiting { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+
+/* Where the messages new since you last looked begin */
+.new-divider { display: flex; align-items: center; gap: 10px; margin: 10px 0; color: var(--accent); font-size: 12px; font-weight: 600; }
+.new-divider::before, .new-divider::after { content: ''; flex: 1; height: 1px; background: var(--accent); opacity: .6; }

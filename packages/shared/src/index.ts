@@ -182,6 +182,8 @@ export interface ItemData {
   gmail?: { threadId: string; lastMessageIdHeader?: string; references?: string; state?: GmailThreadState };
   /** Calendar meeting linked to the stream: when, who, and whether it was briefed / followed up. */
   meeting?: { start: string; end: string; attendees: string[]; briefedAt?: string; followedUpAt?: string };
+  /** When the PU last opened this item in WC (to mark what's new since). */
+  seenAt?: string;
   /** Generic body for docs/other */
   body?: string;
   raw?: unknown;
