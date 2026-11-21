@@ -117,6 +117,8 @@ export interface DB {
   stream_summaries: { id: Generated<number>; stream_id: string; summary: string; by: string; at: string | null };
   /** Work handed off to Claude Code; RESULT.md in `folder` is brought back automatically. */
   handoffs: { id: string; stream_id: string; folder: string; created_at: string; result_mtime: string | null; returned_at: string | null };
+  /** Timed instructions ("in 30 minutes, check…"): waiting, running, done, cancelled or missed (WC wasn't running then). */
+  timers: { id: string; stream_id: string; instruction: string; run_at: string; status: string; chat_id: string | null; created_at: string; done_at: string | null };
   /** Files attached to drafts (uploaded by the PU or taken from a Claude Code hand-off folder). `data` is base64 so it works on SQLite and Postgres alike. */
   attachments: { id: string; stream_id: string | null; filename: string; mime_type: string; size: number; source: string; data: string; created_at: string };
   /** One row per model per Claude (or Laya) call. Kept for a year; usage_daily keeps the totals for good. */
@@ -351,6 +353,18 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('created_at', 'text', (c) => c.notNull())
     .addColumn('result_mtime', 'text')
     .addColumn('returned_at', 'text')
+    .execute();
+  await s
+    .createTable('timers')
+    .ifNotExists()
+    .addColumn('id', 'text', (c) => c.primaryKey())
+    .addColumn('stream_id', 'text', (c) => c.notNull())
+    .addColumn('instruction', 'text', (c) => c.notNull())
+    .addColumn('run_at', 'text', (c) => c.notNull())
+    .addColumn('status', 'text', (c) => c.notNull())
+    .addColumn('chat_id', 'text')
+    .addColumn('created_at', 'text', (c) => c.notNull())
+    .addColumn('done_at', 'text')
     .execute();
   await s
     .createTable('attachments')

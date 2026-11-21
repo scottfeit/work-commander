@@ -118,6 +118,8 @@ async function main() {
 
   // Pending streams untouched for the configured days come back to the top as a Reminder, with a nudge drafted by Claude.
   new ReminderScheduler({ repo: app.repo, settings: () => app.settings.get(), run: (r) => app.runner.run(r) }, (m) => f.log.warn(m)).start();
+  // Timed instructions ("in 30 minutes, check…"): run on time; ones missed while WC was off wait in the chat.
+  app.timers.start();
 
   // On GCP, Jira webhooks arrive through the IAP-free relay service via Pub/Sub.
   if (process.env.WC_JIRA_SUBSCRIPTION) {

@@ -157,6 +157,7 @@ function CcApproval({ m, token }: { m: ChatMessage; token?: string }) {
 }
 
 function ChatBubble({ m, onAnswer, ccToken, cc, streamId }: { m: ChatMessage; onAnswer: (a: string) => void; ccToken?: string; cc?: ClaudeCodeStatus | null; streamId: string }) {
+  if (m.meta.timer) return <TimerBubble m={m} />;
   if (m.meta.ccApproval) return <CcApproval m={m} token={ccToken} />;
   if (m.meta.claudeCode && m.role === 'system') return <div className="sys-note cc-note">{m.content}</div>;
   if (m.meta.claudeCode && (m.role === 'assistant' || m.role === 'user'))
@@ -329,6 +330,47 @@ function HandoffOfferBubble({ m, cc, streamId }: { m: ChatMessage; cc?: ClaudeCo
           {offer.dismissed ? 'Dismissed' : ''}
           {offer.done.includes('reply') ? 'Drafting “I’m looking into it”. ' : ''}
           {offer.done.includes('handoff') ? 'Handed off to Claude Code. ' : ''}
+        </div>
+      )}
+      {err && <div className="error small">{err}</div>}
+    </div>
+  );
+}
+
+/** A timed instruction: when it runs and what it is; Cancel while it waits, Run now / Cancel when it was missed. */
+function TimerBubble({ m }: { m: ChatMessage }) {
+  const t = m.meta.timer!;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const act = async (what: 'cancel' | 'run') => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await post(`/api/timers/${t.id}/${what}`);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const when = new Date(t.at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const state = { waiting: `Runs ${when}`, running: 'Running now…', done: `Ran ${when}`, cancelled: 'Cancelled', missed: `Missed: it was due ${when}, while Work Commander wasn't running` }[t.status];
+  return (
+    <div className={`bubble timer-bubble ${t.status}`} role="group" aria-label="Timed instruction">
+      <div className="small">
+        <span className="timer-icon" aria-hidden="true">⏱</span> <b>Timed instruction</b> · {state}
+      </div>
+      <div className="body">{t.instruction}</div>
+      {(t.status === 'waiting' || t.status === 'missed') && (
+        <div className="actions">
+          {t.status === 'missed' && (
+            <button type="button" className="btn small primary" disabled={busy} onClick={() => void act('run')}>
+              Run now
+            </button>
+          )}
+          <button type="button" className="btn small" disabled={busy} onClick={() => void act('cancel')}>
+            Cancel
+          </button>
         </div>
       )}
       {err && <div className="error small">{err}</div>}

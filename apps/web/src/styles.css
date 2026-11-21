@@ -804,3 +804,10 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 /* Slack drafts: Reply in thread */
 .thread-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 4px 0 8px; }
 .thread-toggle .muted { overflow: hidden; text-overflow: ellipsis; }
+
+/* Timed instructions: a bubble in the chat, a chip on the card */
+.timer-bubble { border-left: 3px solid var(--cta); }
+.timer-bubble.done, .timer-bubble.cancelled { opacity: .7; }
+.timer-bubble .actions { display: flex; gap: 6px; margin-top: 6px; }
+.chip.timer-chip { background: var(--attn-bg); border-color: transparent; color: var(--strong); font-weight: 600; }
+.chip.timer-chip.missed::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 5px; background: var(--attn-mark); vertical-align: 1px; }

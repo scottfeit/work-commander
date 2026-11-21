@@ -88,6 +88,8 @@ export interface WorkStream {
   itemCount?: number;
   /** Why it's in front of you now, in a few words (e.g. "New message from Priya Shah on Slack"), or null. */
   reason?: string | null;
+  /** Timed instructions still to run (or missed, waiting for Run now / Cancel). */
+  timers?: StreamTimer[];
   /** Pending: who it's waiting on (from your last message), and since when. */
   waitingOn?: { who: string; since: string } | null;
   runState: 'idle' | 'running' | 'waiting_approval';
@@ -276,6 +278,8 @@ export interface ChatMessage {
     suggestion?: { instruction: string; status: 'open' | 'accepted' | 'dismissed' };
     question?: { options?: string[]; answered?: boolean };
     /** Claude asks whether to send an "I'm looking into it" reply or hand the work to Claude Code (one click each). */
+    /** A timed instruction ("in 30 minutes, check…") and where it's at. */
+    timer?: StreamTimer;
     /** noReply: the PU asked for this themselves, so there's no "I'm looking into it" to draft for anyone. */
     handoffOffer?: { task: string; done: ('reply' | 'handoff')[]; dismissed?: boolean; noReply?: boolean };
     /** A message said someone added the PU to a chat; WC found a conversation that looks like it and offers to add it to the work stream. */
@@ -292,6 +296,14 @@ export interface ChatMessage {
 }
 
 /** A Claude Code session running inside WC for a work stream. */
+/** A timed instruction on a work stream. */
+export interface StreamTimer {
+  id: string;
+  instruction: string;
+  at: string;
+  status: 'waiting' | 'running' | 'done' | 'cancelled' | 'missed';
+}
+
 /** A status a Jira/JSM ticket can move to now, and the fields Jira requires for it (e.g. Resolution, with its choices). */
 export interface TicketTransitionOption {
   id: string;

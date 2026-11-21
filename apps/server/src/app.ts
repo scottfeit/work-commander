@@ -1,3 +1,4 @@
+import { TimerService } from './core/timers.js';
 import { applyTransition, setAssignee } from './core/jiraActions.js';
 import type { AppConfig } from './config.js';
 import { openDatabase, type Database } from './db/index.js';
@@ -44,10 +45,11 @@ export interface App {
   undo: UndoLog;
   /** Claude Code running inside WC (Settings → Claude Code; off by default, local only). */
   claudeCode: ClaudeCodeSessions;
+  timers: TimerService;
 }
 
 export interface AppOverrides {
-  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya' | 'undo' | 'claudeCode'>) => AgentBackend;
+  backend?: (app: Omit<App, 'backend' | 'runner' | 'triage' | 'laya' | 'undo' | 'claudeCode' | 'timers'>) => AgentBackend;
   /** For tests and the demo: stands in for the Agent SDK's query() in built-in Claude Code sessions. */
   claudeCodeQuery?: (args: any) => AsyncIterable<any>;
   world?: (repo: Repo) => WorldOverride;
@@ -91,6 +93,8 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   const partial = { cfg, db, settings, repo, secrets, hub, grants, executor, attachments, mcpOAuth, usage };
   const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets, usage, sync);
   const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps, usage);
+  const timers = new TimerService({ repo, backend, run: (r) => runner.run(r) });
+  toolDeps.setTimer = (streamId, when, instruction, runId) => timers.create(streamId, when, instruction, runId);
   let laya: LayaService;
   const layaManager = new LayaManager(cfg.dataDir, () => laya?.notify());
   laya = new LayaService(db, repo, layaManager, get, cfg.hosting === 'local');
@@ -115,5 +119,5 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
       void runner.run({ streamId, origin: 'system', purpose: 'handoff', allowDrafts: reportHasDraft(report), prompt: handoffResultPrompt(folder, report) }),
     query: o.claudeCodeQuery,
   });
-  return { ...partial, backend, runner, triage, laya, undo, claudeCode };
+  return { ...partial, backend, runner, triage, laya, undo, claudeCode, timers };
 }

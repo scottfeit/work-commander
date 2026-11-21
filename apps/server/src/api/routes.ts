@@ -507,6 +507,9 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     await repo.audit('you', 'jira.assigned', { itemId: id, to: 'me' });
     return { assignee: item.data.ticket?.assignee ?? null };
   });
+  // Timed instructions: cancel one, or run a missed one now.
+  f.post('/api/timers/:id/cancel', async (req) => ({ ok: await app.timers.cancel((req.params as any).id) }));
+  f.post('/api/timers/:id/run', async (req) => ({ ok: await app.timers.runNow((req.params as any).id) }));
   // System-wide Undo (your last three actions).
   f.get('/api/undo', async () => undo.info());
   f.post('/api/undo', async () => ({ undone: await undo.undo(), ...(await undo.info()) }));

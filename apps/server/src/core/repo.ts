@@ -102,6 +102,14 @@ export class Repo {
       lastSource: (latest?.source as WorkStream['lastSource']) ?? undefined,
       itemCount: Number(items?.n ?? 0),
       reason: r.status === 'open' ? await this.streamReason(r, pendingN) : null,
+      timers: await this.db
+        .selectFrom('timers')
+        .select(['id', 'instruction', 'run_at', 'status'])
+        .where('stream_id', '=', r.id)
+        .where('status', 'in', ['waiting', 'missed', 'running'])
+        .orderBy('run_at')
+        .execute()
+        .then((rows) => rows.map((t) => ({ id: t.id, instruction: t.instruction, at: t.run_at, status: t.status as 'waiting' | 'missed' | 'running' }))),
       waitingOn: r.pending ? pj<{ who: string; since: string } | null>(r.waiting_on ?? null, null) : null,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };

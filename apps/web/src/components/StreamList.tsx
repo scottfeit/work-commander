@@ -52,6 +52,13 @@ interface Props {
   onTogglePolling: () => void;
 }
 
+/** When a timer runs: the time today, or the day and time ("Mon 2:00 PM") on another day. */
+function timerWhen(at: string) {
+  const d = new Date(at);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+}
+
 /** How long you've been waiting: "today", "1 day", "5 days". */
 export function waitedFor(since: string) {
   const days = Math.floor((Date.now() - Date.parse(since)) / 86_400_000);
@@ -194,6 +201,11 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           {s.runState === 'running' && <span className="chip running">working…</span>}
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
           {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}
+          {(s.timers ?? []).map((t) => (
+            <span key={t.id} className={`chip timer-chip ${t.status}`} title={`Timed instruction: ${t.instruction}`}>
+              <span aria-hidden="true">⏱</span> {t.status === 'missed' ? 'missed' : t.status === 'running' ? 'running' : timerWhen(t.at)}
+            </span>
+          ))}
           {s.backAt && <span className="chip reminder" title="Back from snooze">Back</span>}
           {s.reopenedAt && s.status === 'open' && (
             <span className="chip reopened-chip" title={`Reopened by new activity ${new Date(s.reopenedAt).toLocaleString()}. Goes away when you reply, mark it Pending, or close it again.`}>

@@ -37,6 +37,8 @@ export interface ToolDeps {
   structured?: (i: StructuredInput<any>) => Promise<any>;
   /** Hand-off to Claude Code is available (Work Commander runs on the PU's own machine). */
   canHandoff?: boolean;
+  /** Sets a timed instruction on a stream ("in 30 minutes", "at 3pm"). */
+  setTimer?: (streamId: string, when: string, instruction: string, runId?: string) => Promise<{ at: string; note?: string | null }>;
 }
 
 type RawTool = ToolDef & { kind?: ProposalKind };
@@ -311,6 +313,24 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
     handler: async (a) => {
       await d.repo.addChat({ streamId: ctx.streamId, role: 'question', content: a.question, meta: { question: { options: a.options }, runId: ctx.runId } });
       return 'Question posted. End your turn now.';
+    },
+  });
+  add({
+    name: 'set_timer',
+    description:
+      'Set a timed instruction: when the PU asks you to do something later in this stream ("in 30 minutes, check for tickets on this topic", "at 3pm remind me to…", "tomorrow morning, see if Lee replied"). At that time you are asked to carry it out, as if the PU had just asked. Do not do the work now. when: the time as the PU said it ("in 30 minutes", "at 3pm", "tomorrow 9am"). instruction: what to do then, self-contained.',
+    shape: { when: z.string(), instruction: z.string() },
+    access: 'internal',
+    system: 'internal',
+    handler: async (a) => {
+      if (!ctx.streamId) return 'Timed instructions belong to a work stream: ask the PU which one, or do it in that stream.';
+      if (!d.setTimer) return 'Timed instructions are not available here.';
+      try {
+        const t = await d.setTimer(ctx.streamId, a.when, a.instruction, ctx.runId);
+        return `Timer set for ${new Date(t.at).toString()}${t.note ? ` (${t.note})` : ''}. It shows in the chat and on the stream, and the PU can cancel it there. Tell the PU in one sentence when it will run, then end your turn.`;
+      } catch (e: any) {
+        return `Could not set the timer: ${e.message}. Ask the PU when they mean.`;
+      }
     },
   });
   add({

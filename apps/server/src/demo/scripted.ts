@@ -126,6 +126,13 @@ export class ScriptedBackend implements AgentBackend {
         after: [pid],
       });
       text = await say('Lee asked you to open a request. I drafted an access-request ticket (requester: Priya, assigned to you) and a reply-all with the ticket number. Review both in the draft pane.');
+    } else if (/\bin \d+ (?:minutes?|hours?),/i.test(p) && !/^\[A timed instruction/.test(p)) {
+      // a timed instruction: "in 30 minutes, check for tickets on this topic"
+      const m = /\b(in \d+ (?:minutes?|hours?)),\s*([^\n"\]]*)/i.exec(p)!;
+      await call('set_timer', { when: m[1], instruction: m[2].trim() || 'do that' });
+      text = await say(`Will do: I'll ${m[2] || 'do that'} then.`);
+    } else if (/^\[A timed instruction the PU set earlier is due now/.test(p)) {
+      text = await say('Checked: no new tickets on this topic yet.');
     } else if (p.startsWith('[Dashboard event]')) {
       if (/rejected by the PU|\) failed/.test(p)) text = await say('Understood. I left those undone. Tell me how you want to handle it.');
       else if (/stream_close/.test(p)) text = await say('Work stream closed. Nice work.');
