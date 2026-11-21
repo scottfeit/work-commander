@@ -50,7 +50,11 @@ export function buildQuickReply(item: StreamItem, s: Settings): QuickDraft {
     const person = /^DM (?:with|from) (.+)$/.exec(item.title)?.[1];
     // A channel thread is answered in that thread. (A DM or group DM is one flowing conversation: its item is "<channel>:dm", with no thread.)
     const flat = dm || /:dm(?:@.*)?$/.test(item.externalId);
-    const threadTs = !flat ? item.data.slack?.threadTs || undefined : undefined;
+    // In thread by default when the conversation is going on in a thread: a channel thread, or a DM / group DM whose latest
+    // message is a reply in a thread. (The draft's "Reply in thread" box can change it.)
+    const latest = [...(item.data.messages ?? [])].sort((x, y) => x.at.localeCompare(y.at)).pop();
+    const latestInThread = latest?.threadTs && latest.threadTs !== latest.id ? latest.threadTs : undefined;
+    const threadTs = !flat ? item.data.slack?.threadTs || undefined : latestInThread;
     const label = dm ? (person ? `DM with ${person}` : 'Slack DM') : (named ?? `Slack channel ${channel}`);
     const to = threadTs ? `${label} (in thread)` : label;
     if (s.slack.mode === 'mcp') {

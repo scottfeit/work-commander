@@ -800,3 +800,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .sidebar .stream-meta:has(> .btn) { flex-wrap: nowrap; }
 .sidebar .stream-meta:has(> .btn) > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar .stream-meta:has(> .btn) > .pending-split, .sidebar .stream-meta:has(> .btn) > .chip { flex: none; }
+
+/* Slack drafts: Reply in thread */
+.thread-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 4px 0 8px; }
+.thread-toggle .muted { overflow: hidden; text-overflow: ellipsis; }

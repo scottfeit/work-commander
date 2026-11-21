@@ -9,6 +9,7 @@ import { UsagePie } from './usageViz';
 const ago = (iso: string) => (timeAgo(iso) === 'just now' ? 'just now' : `${timeAgo(iso)} ago`);
 import { SourceBadge, dragItem } from './TabBar';
 import { waitedFor } from './StreamList';
+import { setOpenSlackItem } from '../slackSelection';
 import { PersonName } from './PersonCard';
 import { Linkified } from './Linkified';
 import { ConfirmButton } from './ConfirmButton';
@@ -234,6 +235,11 @@ function SlackSelection({ item, enabled, order, children }: { item: StreamItem; 
     const have = new Set(ids.split(','));
     setSel((s) => ([...s].every((id) => have.has(id)) ? s : new Set([...s].filter((id) => have.has(id)))));
   }, [ids]);
+  // tell the Drafts pane which Slack conversation is open and what's ticked in it ("Reply in thread" uses it)
+  useEffect(() => {
+    setOpenSlackItem(item.source === 'slack' ? item : null, [...sel]);
+  }, [item, sel]);
+  useEffect(() => () => setOpenSlackItem(null), []);
   useEffect(() => {
     if (enabled && sel.size) get<WorkStream[]>('/api/streams').then((x) => setStreams(x.filter((s) => s.status === 'open' && s.id !== item.streamId))).catch(() => undefined);
   }, [enabled, sel.size > 0, item.streamId]);

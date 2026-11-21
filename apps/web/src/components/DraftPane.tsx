@@ -2,6 +2,7 @@ import { MentionTextarea, usePeople } from './Mentions';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ATTACHABLE_KINDS, type AttachmentRef, type DraftMention, type EditableField, type Proposal } from '@wc/shared';
 import { api, get, patch, post } from '../api';
+import { getOpenSlackItem, subscribeOpenSlackItem, threadFor } from '../slackSelection';
 import { SourceBadge } from './TabBar';
 import { ConfirmButton } from './ConfirmButton';
 
@@ -204,6 +205,7 @@ function DraftCard({
       </div>
       {p.rationale && <div className="muted small">{p.rationale}</div>}
       {dependsOn.length > 0 && <div className="small dep">Runs after: {dependsOn.join(', ')}</div>}
+      <ThreadToggle p={p} payload={payload} onChange={onEdit} />
       <div className="fields">
         {p.editable.map((f) => (
           <Field
@@ -401,6 +403,52 @@ function Attachments({ streamId, value, disabled, onChange }: { streamId: string
         </button>
         {err && <div className="error small">{err}</div>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Slack drafts: "Reply in thread". Checked, the reply goes in the thread of the message you've ticked in the open item (or the
+ * latest message there); unchecked, it posts straight to the DM, group DM or channel.
+ */
+function ThreadToggle({ p, payload, onChange }: { p: Proposal; payload: Record<string, any>; onChange: (v: Record<string, any>) => void }) {
+  const isMcp = p.kind === 'mcp_tool_call' && payload.system === 'slack' && /send_message/.test(String(payload.tool ?? ''));
+  const channel: string | undefined = isMcp ? (payload.args?.channel_id ?? payload.args?.channel) : p.kind === 'slack_post' ? payload.channel : undefined;
+  const key = isMcp ? 'args.thread_ts' : 'thread_ts';
+  const cur = getPath(payload, key) as string | undefined;
+  const [, rerender] = useState(0);
+  useEffect(() => subscribeOpenSlackItem(() => rerender((n) => n + 1)), []);
+  const open = getOpenSlackItem();
+  const here = open && channel && open.channel === channel ? open : null;
+  // while checked, ticking a message in the item moves the reply to that message's thread
+  const picked = here?.selected.join(',') ?? '';
+  useEffect(() => {
+    if (!cur || !here || !here.selected.length) return;
+    const t = threadFor(here);
+    if (t && t.ts !== cur) onChange(setPath(payload, key, t.ts));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked]);
+  if (!channel) return null; // a new DM to someone: no thread to reply in yet
+  const target = cur ? here?.messages.find((m) => m.id === cur) ?? here?.messages.find((m) => m.threadTs === cur) : undefined;
+  const canCheck = !!cur || !!here || !!payload.last_thread_ts;
+  const toggle = (on: boolean) => {
+    if (on) {
+      const t = here ? threadFor(here) : null;
+      onChange(setPath(payload, key, t?.ts ?? payload.last_thread_ts));
+    } else onChange(setPath(setPath(payload, key, undefined), 'last_thread_ts', cur));
+  };
+  return (
+    <div className="thread-toggle small">
+      <label className="toggle" title={canCheck ? undefined : "Open this conversation's work item to pick a thread"}>
+        <input type="checkbox" checked={!!cur} disabled={!canCheck} onChange={(e) => toggle(e.target.checked)} /> Reply in thread
+      </label>
+      <span className="muted">
+        {cur
+          ? target
+            ? `In the thread of ${target.author.name ?? 'a message'}: “${target.text.slice(0, 60)}${target.text.length > 60 ? '…' : ''}”${here && !here.selected.length ? ' (tick a message to choose another)' : ''}`
+            : 'In a thread'
+          : 'Posts in the conversation'}
+      </span>
     </div>
   );
 }

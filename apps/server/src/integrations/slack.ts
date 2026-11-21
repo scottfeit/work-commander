@@ -21,6 +21,11 @@ export function reactionsOf(m: { reactions?: any[] }, me: string): { reactions?:
   return r.length ? { reactions: r } : {};
 }
 
+/** The Slack thread a message is in (a reply), or starts (a parent with replies); nothing for a plain message. */
+export function threadOf(m: { ts?: string; thread_ts?: string; reply_count?: number }): { threadTs?: string } {
+  return m.thread_ts ? { threadTs: String(m.thread_ts) } : m.reply_count && m.ts ? { threadTs: String(m.ts) } : {};
+}
+
 /** A Slack message's files, as attachments (fetched through the server with the token). */
 export function filesOf(m: { files?: any[] }): { attachments?: MessageAttachment[] } {
   const a = (m.files ?? [])
@@ -189,6 +194,7 @@ export class SlackWorkspace implements ChatApi {
         ...filesOf(m), ...reactionsOf(m, me),
         at: new Date(Number(m.ts) * 1000).toISOString(),
         isFromPU: m.user === me,
+        ...threadOf(m),
       });
     }
     const chName = await this.channelName(channel);
@@ -217,7 +223,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me, ...threadOf(m) });
     }
     return { messages, channelLabel: await this.channelName(channel) };
   }
@@ -241,7 +247,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me, ...threadOf(m) });
     }
     const chName = await this.channelName(channel);
     return {

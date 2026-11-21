@@ -121,6 +121,8 @@ export interface ThreadMessage {
   author: { name?: string; email?: string; slackUserId?: string; accountId?: string };
   to?: string[];
   cc?: string[];
+  /** Slack: the thread this message is in (a reply) or starts (a parent with replies). */
+  threadTs?: string;
   /** An email notice Google sent as the PU (an RSVP, a Drive share request): never starts or updates a work stream. */
   automated?: boolean;
   subject?: string;
