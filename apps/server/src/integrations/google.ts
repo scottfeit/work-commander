@@ -51,6 +51,32 @@ function bodies(part?: gmail_v1.Schema$MessagePart): { plain?: string; html?: st
 }
 
 /** Files attached to a message: every part with a file name whose bytes are held as an attachment. */
+/** Does a message part tree carry a calendar reply (an RSVP Google sends when you accept, decline or answer "maybe")? */
+function hasCalendarReply(part?: gmail_v1.Schema$MessagePart): boolean {
+  if (!part) return false;
+  if ((part.mimeType ?? '').toLowerCase() === 'text/calendar') {
+    const raw = part.body?.data ? Buffer.from(part.body.data, 'base64').toString('utf8') : '';
+    const method = /method=([a-z]+)/i.exec(part.headers?.find((h) => h.name?.toLowerCase() === 'content-type')?.value ?? '')?.[1] ?? /METHOD:([A-Z]+)/.exec(raw)?.[1];
+    if (!method || method.toUpperCase() === 'REPLY') return true;
+  }
+  return (part.parts ?? []).some(hasCalendarReply);
+}
+
+/**
+ * A notice Google sent as the PU, not something they wrote: an RSVP (Accepted / Declined / Tentative), or mail sent through
+ * Google Drive, Docs or Calendar on their behalf (share requests, "shared with you", access requests). These never start or
+ * update a work stream.
+ */
+export function automatedFromYou(m: gmail_v1.Schema$Message, isFromPU: boolean): boolean {
+  const from = header(m, 'From');
+  const sender = header(m, 'Sender');
+  const viaGoogle = /\(via Google (Drive|Docs|Sheets|Slides|Forms|Calendar|Chat)\)/i.test(from) || /@(docs|calendar|drive)\.google\.com\b|(drive-shares|calendar-notification|comments)-[\w-]*noreply@google\.com|drive-shares-noreply@google\.com/i.test(`${from} ${sender}`);
+  if (!isFromPU && !viaGoogle) return false;
+  if (isFromPU && hasCalendarReply(m.payload)) return true;
+  if (isFromPU && /^(Accepted|Declined|Tentatively accepted|Tentative|Maybe)( \(.*?\))?:/i.test(header(m, 'Subject'))) return true;
+  return isFromPU && viaGoogle;
+}
+
 export function attachmentsOf(part?: gmail_v1.Schema$MessagePart, out: MessageAttachment[] = []): MessageAttachment[] {
   if (!part) return out;
   if (part.filename && part.body?.attachmentId) out.push({ id: part.partId || part.body.attachmentId.slice(0, 24), name: part.filename, mimeType: part.mimeType || 'application/octet-stream', size: part.body.size ?? undefined, ref: part.body.attachmentId });
@@ -159,6 +185,7 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
         ...((a) => (a.length ? { attachments: a } : {}))(attachmentsOf(m.payload)),
         at: new Date(Number(m.internalDate ?? Date.now())).toISOString(),
         isFromPU: from.email === puEmail.toLowerCase() || (m.labelIds ?? []).includes('SENT'),
+        ...(automatedFromYou(m, from.email === puEmail.toLowerCase() || (m.labelIds ?? []).includes('SENT')) ? { automated: true } : {}),
       };
     });
     const last = msgs[msgs.length - 1];
@@ -372,6 +399,12 @@ export class GmailIngestor implements Ingestor {
     await this.sub?.close();
   }
 
+  /** Hand a thread on without the notices Google sent as the PU; a thread of nothing else isn't handed on at all. */
+  private async deliverThread(item: InboundItem) {
+    const kept = withoutAutomated(item);
+    if (kept) await this.sink(kept);
+  }
+
   async pollOnce() {
     if (this.busy) return;
     this.busy = true;
@@ -381,7 +414,7 @@ export class GmailIngestor implements Ingestor {
         // First run: backfill recent threads matching the PU's query, then start from now.
         const prof = await this.g.profile();
         const r = await this.g.gmail.users.threads.list({ userId: 'me', q: `${this.s.oauth.gmailQuery} newer_than:3d`, maxResults: 25 });
-        for (const t of r.data.threads ?? []) await this.sink(await this.g.getThread(t.id!));
+        for (const t of r.data.threads ?? []) await this.deliverThread(await this.g.getThread(t.id!));
         await this.repo.setSync('gmail.historyId', prof.historyId);
       } else {
         let pageToken: string | undefined;
@@ -403,7 +436,7 @@ export class GmailIngestor implements Ingestor {
           latest = h.data.historyId ?? latest;
           pageToken = h.data.nextPageToken ?? undefined;
         } while (pageToken);
-        for (const [threadId, msgId] of threads) await this.sink(await this.g.getThread(threadId, msgId));
+        for (const [threadId, msgId] of threads) await this.deliverThread(await this.g.getThread(threadId, msgId));
         await this.repo.setSync('gmail.historyId', latest);
       }
       this.status(true, 'Gmail synced');
@@ -414,4 +447,13 @@ export class GmailIngestor implements Ingestor {
       this.busy = false;
     }
   }
+}
+
+/** A Gmail thread without the notices Google sent as the PU (RSVPs, Drive share requests); null when nothing else is left. */
+export function withoutAutomated(item: InboundItem): InboundItem | null {
+  const msgs = item.data.messages ?? [];
+  if (!msgs.some((m) => m.automated)) return item;
+  const kept = msgs.filter((m) => !m.automated);
+  if (!kept.length) return null;
+  return { ...item, data: { ...item.data, messages: kept }, eventId: kept[kept.length - 1].id };
 }
