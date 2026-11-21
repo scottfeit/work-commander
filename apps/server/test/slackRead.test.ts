@@ -9,7 +9,7 @@ function fake(history: { ts: string }[], lastRead: string, err?: string) {
   };
   (sl as any).web = {
     conversations: {
-      info: async () => (fail(), { channel: { last_read: lastRead } }),
+      info: async ({ channel }: any) => (fail(), { channel: { last_read: lastRead, is_im: channel.startsWith('D'), is_mpim: channel.startsWith('G') } }),
       history: async ({ limit }: any) => (fail(), { messages: history.slice(0, limit) }),
       mark: async (a: any) => (fail(), void marked.push(a)),
     },
@@ -19,8 +19,8 @@ function fake(history: { ts: string }[], lastRead: string, err?: string) {
 
 describe('Slack read/unread for a conversation', () => {
   it('reads the state from the read marker and the latest message', async () => {
-    expect(await fake([{ ts: '200.000002' }], '100.000001').sl.readState('D1')).toEqual({ unread: true });
-    expect(await fake([{ ts: '200.000002' }], '200.000002').sl.readState('D1')).toEqual({ unread: false });
+    expect(await fake([{ ts: '200.000002' }], '100.000001').sl.readState('D1')).toMatchObject({ unread: true });
+    expect(await fake([{ ts: '200.000002' }], '200.000002').sl.readState('D1')).toMatchObject({ unread: false });
   });
 
   it('marks read on the latest message, and unread on the one before it', async () => {
@@ -35,5 +35,11 @@ describe('Slack read/unread for a conversation', () => {
     await sl.markConversation('G1', false);
     expect(marked[0]).toEqual({ channel: 'G1', ts: '300.000002' });
     await expect(fake([], '0', 'missing_scope').sl.markConversation('C1', true)).rejects.toThrow(/channels:write.*reinstall/);
+  });
+
+  it('says what kind of conversation it is (a group DM is one conversation)', async () => {
+    expect((await fake([{ ts: '2.0' }], '1.0').sl.readState('D1')).kind).toBe('im');
+    expect((await fake([{ ts: '2.0' }], '1.0').sl.readState('G1')).kind).toBe('mpim');
+    expect((await fake([{ ts: '2.0' }], '1.0').sl.readState('C1')).kind).toBe('channel');
   });
 });

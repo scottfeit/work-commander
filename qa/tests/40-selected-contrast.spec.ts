@@ -89,6 +89,8 @@ test('a Slack DM can be marked read or unread in Slack itself; a thread cannot',
   const { default: SQLite } = await import('better-sqlite3');
   const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
   const msg = (ts: string) => ({ id: ts, author: { name: 'Priya' }, text: `hello ${ts}`, at: new Date().toISOString() });
+  const put2 = (d: any, iid: string, ext: string, msgs: any[]) =>
+    d.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run(iid, id, 'slack', 'slack_thread', ext, iid, null, JSON.stringify({ messages: msgs, slack: { channel: ext.split(':')[0], threadTs: msgs[0].id } }), new Date(Date.now() - 1000).toISOString());
   const put = (iid: string, ext: string, msgs: any[], when: string) =>
     db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run(iid, id, 'slack', 'slack_thread', ext, iid, null, JSON.stringify({ messages: msgs, slack: { channel: ext.split(':')[0], threadTs: msgs[0].id } }), when);
   put('sr-thread', 'C0THREAD1:100.000001', [msg('100.000001'), msg('100.000002')], '2020-01-01T00:00:00Z');
@@ -100,13 +102,23 @@ test('a Slack DM can be marked read or unread in Slack itself; a thread cannot',
   const group = page.getByRole('group', { name: 'Slack' });
   await group.getByRole('button', { name: 'Mark read in Slack' }).click();
   await expect(group.getByRole('button', { name: 'Mark unread in Slack' })).toBeVisible();
-  expect((await a.get('/api/items/sr-dm/slack-read')).json).toEqual({ unread: false });
+  expect((await a.get('/api/items/sr-dm/slack-read')).json).toMatchObject({ unread: false, kind: 'im' });
   await group.getByRole('button', { name: 'Mark unread in Slack' }).click();
   await expect(group.getByRole('button', { name: 'Mark read in Slack' })).toBeVisible();
   await page.locator('.top-pane .item-head').screenshot({ path: 'qa/results/slack-read.png' });
   await page.getByText('sr-thread', { exact: true }).first().click();
   await expect(page.getByRole('group', { name: 'Slack' })).toHaveCount(0);
   expect((await a.get('/api/items/sr-thread/slack-read')).status).toBe(400);
+  // a group DM (MPDM) whose messages came in live is stored like a thread, but it's one conversation: it gets the button
+  const { default: SQLite2 } = await import('better-sqlite3');
+  const db2 = new SQLite2(path.join(demoDataDir(), 'work-commander.sqlite'));
+  put2(db2, 'sr-mpdm', 'G0GROUP12:300.000001', [msg('300.000001'), msg('300.000002')]);
+  db2.close();
+  await page.reload();
+  await stream(page, /Slack read stream/).click();
+  await page.getByText('sr-mpdm', { exact: true }).first().click();
+  await page.getByRole('group', { name: 'Slack' }).getByRole('button', { name: 'Mark read in Slack' }).click();
+  await expect(page.getByRole('group', { name: 'Slack' }).getByRole('button', { name: 'Mark unread in Slack' })).toBeVisible();
 });
 
 test('marking the open stream Pending while Pending is hidden opens the next stream', async ({ page }) => {

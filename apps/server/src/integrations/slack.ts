@@ -60,12 +60,13 @@ export class SlackWorkspace implements ChatApi {
   }
 
   /** Is anything in this conversation newer than where the PU's read marker is? */
-  async readState(channel: string): Promise<{ unread: boolean }> {
+  async readState(channel: string): Promise<{ unread: boolean; kind?: 'im' | 'mpim' | 'channel' }> {
     try {
       const [info, h] = await Promise.all([this.web.conversations.info({ channel }), this.web.conversations.history({ channel, limit: 1 })]);
       const lastRead = Number((info.channel as any)?.last_read ?? 0);
       const latest = Number(((h.messages ?? []) as any[])[0]?.ts ?? 0);
-      return { unread: latest > lastRead };
+      const c = info.channel as any;
+      return { unread: latest > lastRead, kind: c?.is_im ? 'im' : c?.is_mpim ? 'mpim' : 'channel' };
     } catch (e) {
       this.scopeError(e);
     }

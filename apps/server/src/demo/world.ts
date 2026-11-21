@@ -97,7 +97,7 @@ export class DemoWorld {
     react: async (channel: string, ts: string, name: string, add: boolean) => void this.chat.reactions.push({ channel, ts, name, add }),
     /** Demo read markers: channels marked read in "Slack" (anything else counts as unread). */
     readMarks: new Map<string, boolean>(),
-    readState: async (channel: string) => ({ unread: !this.chat.readMarks.get(channel) }),
+    readState: async (channel: string) => ({ unread: !this.chat.readMarks.get(channel), kind: (channel.startsWith('D') ? 'im' : channel.startsWith('G') ? 'mpim' : 'channel') as 'im' | 'mpim' | 'channel' }),
     markConversation: async (channel: string, read: boolean) => (this.chat.readMarks.set(channel, read), { unread: !read }),
     profile: async (id: string) => {
       const p = PEOPLE.find((x) => (x.slackUserId ?? `U${x.name.split(' ')[0].toUpperCase()}`) === id);

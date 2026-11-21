@@ -410,10 +410,15 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const it = await repo.getItem(id);
     if (!it || it.source !== 'slack') throw Object.assign(new Error('Not a Slack work item'), { statusCode: 400 });
     const channel = it.data.slack?.channel ?? it.externalId.split(':')[0];
-    const isThread = !Repo.slackIsFlat(channel, [it]) && (it.data.messages?.length ?? 0) > 1;
-    if (isThread) throw Object.assign(new Error('Slack threads cannot be marked read or unread by apps'), { statusCode: 400 });
     const chat = await hub.api('chat');
     if (!chat.readState || !chat.markConversation) throw Object.assign(new Error('Needs Slack connected directly (not through an MCP server)'), { statusCode: 400 });
+    // A thread in a channel has no read marker apps can set. A DM or group DM (MPDM) is one conversation, however its
+    // messages arrived (group-DM messages that came in live are stored like threads), so ask Slack what it is.
+    const looksLikeThread = !Repo.slackIsFlat(channel, [it]) && (it.data.messages?.length ?? 0) > 1;
+    if (looksLikeThread) {
+      const kind = (await chat.readState(channel)).kind;
+      if (kind !== 'im' && kind !== 'mpim') throw Object.assign(new Error('Slack threads cannot be marked read or unread by apps'), { statusCode: 400 });
+    }
     return { it, channel, chat };
   };
   f.get('/api/items/:id/slack-read', async (req) => {
