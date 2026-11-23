@@ -6,7 +6,7 @@ import { addWorkItemFromUrl, urlInPuMessages } from '../core/addByUrl.js';
 import { gatherSlackContext } from '../core/slackContext.js';
 import { z } from 'zod';
 import type { EditableField, ProposalKind, Settings, SystemId } from '@wc/shared';
-import type { Repo } from '../core/repo.js';
+import { Repo } from '../core/repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
 import type { GrantService } from '../onepassword/grants.js';
 import type { Executor } from '../core/executor.js';
@@ -132,9 +132,12 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
       handler: async (a: any) => {
         const out = await inner(a);
         if (a.replaces?.length) {
-          const mine = (await d.repo.listProposals({ streamId: ctx.streamId, status: ['pending'] })).map((x) => x.id);
-          const n = await d.repo.withdrawProposals(a.replaces.filter((id: string) => mine.includes(id)), 'replaced by a newer draft');
-          return `${out}\n(${n} earlier draft${n === 1 ? '' : 's'} discarded.)`;
+          const pending = await d.repo.listProposals({ streamId: ctx.streamId, status: ['pending'] });
+          const named = pending.filter((x) => a.replaces.includes(x.id));
+          // A draft the PU has edited is theirs: it is kept, and this one is shown next to it.
+          const kept = named.filter((x) => Repo.editedByPU(x));
+          const n = await d.repo.withdrawProposals(named.filter((x) => !kept.includes(x)).map((x) => x.id), 'replaced by a newer draft');
+          return `${out}\n(${n} earlier draft${n === 1 ? '' : 's'} discarded.${kept.length ? ` ${kept.length} the PU had edited ${kept.length === 1 ? 'was' : 'were'} kept and shown next to this one; do not tell the PU to reject ${kept.length === 1 ? 'it' : 'them'}.` : ''})`;
         }
         return out;
       },

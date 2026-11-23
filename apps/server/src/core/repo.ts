@@ -1159,9 +1159,16 @@ export class Repo {
     // Drafts the PU started themselves (Quick Reply) never replace Claude's, and Claude's never replace theirs.
     if (target && !input.quick) {
       const older = (await this.listProposals({ streamId: p.streamId, status: ['pending'] })).filter((x) => x.id !== p.id && x.runId !== p.runId && draftTarget(x) === target && !(x.payload as any).quick);
-      await this.withdrawProposals(older.map((x) => x.id), `replaced by the new draft "${p.title}"`);
+      // A draft the PU has changed is theirs: it stays, and the new one is shown next to it.
+      await this.withdrawProposals(older.filter((x) => !Repo.editedByPU(x)).map((x) => x.id), `replaced by the new draft "${p.title}"`);
     }
     return p;
+  }
+
+  /** Has the PU changed this draft from what was proposed? (The mentions list is worked out from the text, so it does not count.) */
+  static editedByPU(p: Pick<Proposal, 'payload' | 'originalPayload'>) {
+    const plain = (x: Record<string, unknown>) => JSON.stringify(Object.entries(x ?? {}).filter(([k]) => k !== 'mentions').sort(([a], [b]) => a.localeCompare(b)));
+    return plain(p.payload) !== plain(p.originalPayload);
   }
 
   async getProposal(id: string) {
