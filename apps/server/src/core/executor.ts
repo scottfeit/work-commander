@@ -2,7 +2,7 @@ import { emailHtml, withoutSignature } from './emailSignature.js';
 import { notFound, conflict } from './errors.js';
 import { isQuickRun } from './quickReply.js';
 import type { Proposal, Settings, ThreadMessage } from '@wc/shared';
-import type { Repo } from './repo.js';
+import { Repo } from './repo.js';
 import type { IntegrationHub } from '../integrations/hub.js';
 import type { GrantService, AuthScheme } from '../onepassword/grants.js';
 import type { SecretStore } from '../secrets/store.js';
@@ -215,7 +215,12 @@ export class Executor {
         const chat = await this.hub.api('chat');
         const r = await chat.postMessage({ channel: x.channel, userEmail: x.recipient_email, text: await slackMentions(chat, String(x.text ?? ''), x.mentions), threadTs: x.thread_ts, files });
         // Track the thread so replies flow back into this stream.
-        await this.attachInbound(p.streamId, await chat.getThread(r.channel, x.thread_ts ?? r.ts));
+        const sent = await chat.getThread(r.channel, x.thread_ts ?? r.ts);
+        // A DM or group DM is one flowing conversation: a message posted into it (not in a thread) joins that conversation's item,
+        // not a new "thread" of its own.
+        const flat = !x.thread_ts && (Repo.slackIsFlat(r.channel, await this.repo.slackFamily(r.channel)) || Repo.isGroupDmName(sent.data.slack?.channelName));
+        const dmChat = chat as { getDmConversation?: (c: string, trigger?: string, after?: number) => Promise<Parameters<Executor['attachInbound']>[1]> };
+        await this.attachInbound(p.streamId, flat && dmChat.getDmConversation ? await dmChat.getDmConversation(r.channel, r.ts, Number(r.ts) - 1) : sent);
         return { ...r, ...attached };
       }
       case 'ticket_create': {

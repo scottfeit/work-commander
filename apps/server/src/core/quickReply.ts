@@ -49,7 +49,7 @@ export function buildQuickReply(item: StreamItem, s: Settings): QuickDraft {
     const named = /^(#[^\s:]+)/.exec(item.title)?.[1] ?? (item.data.slack?.channelName ? `#${item.data.slack.channelName.replace(/^#/, '')}` : null);
     const person = /^DM (?:with|from) (.+)$/.exec(item.title)?.[1];
     // A channel thread is answered in that thread. (A DM or group DM is one flowing conversation: its item is "<channel>:dm", with no thread.)
-    const flat = dm || /:dm(?:@.*)?$/.test(item.externalId);
+    const flat = dm || Repo.slackIsFlat(channel, [item]);
     // In thread by default when the conversation is going on in a thread: a channel thread, or a DM / group DM whose latest
     // message is a reply in a thread. (The draft's "Reply in thread" box can change it.)
     const latest = [...(item.data.messages ?? [])].sort((x, y) => x.at.localeCompare(y.at)).pop();

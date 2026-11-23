@@ -614,7 +614,12 @@ export class Repo {
 
   /** A DM or group DM is one flowing conversation (as opposed to a channel, whose threads are separate discussions). */
   static slackIsFlat(channel: string, family: StreamItem[]) {
-    return channel.startsWith('D') || family.some((i) => /:dm(?:@.*)?$/.test(i.externalId));
+    return channel.startsWith('D') || family.some((i) => /:dm(?:@.*)?$/.test(i.externalId) || Repo.isGroupDmName(i.data.slack?.channelName));
+  }
+
+  /** A group DM is named "#mpdm-a--b--c-1" by Slack (or "Group DM" over MCP); its id starts with C, like a channel's. */
+  static isGroupDmName(name?: string | null) {
+    return /^#?mpdm-|^Group DM/i.test(name ?? '');
   }
 
   /**
