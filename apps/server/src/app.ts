@@ -23,6 +23,7 @@ import { LayaService } from './laya/service.js';
 import { UndoLog } from './core/undo.js';
 import { ClaudeCodeSessions } from './core/claudeCodeLive.js';
 import { handoffResultPrompt, reportHasDraft } from './core/handoff.js';
+import { slackMarkUnread } from './core/trashItem.js';
 import { gmailThreadAction } from './core/gmailActions.js';
 
 export interface App {
@@ -114,6 +115,7 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
     jiraStatus: (itemId, status) => applyTransition({ repo, hub }, itemId, { to: status }),
     jiraAssign: (itemId, accountId) => setAssignee({ repo, hub }, itemId, { accountId }),
     layaChanged: () => laya.examplesRestored(),
+    slackUnread: (itemId) => slackMarkUnread({ repo, hub }, itemId),
   });
   const claudeCode = new ClaudeCodeSessions({
     cfg,

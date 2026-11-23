@@ -18,6 +18,7 @@ import os from 'node:os';
 import { z } from 'zod';
 import { GENERAL_STREAM, type EnvironmentInfo, type SecretBackend, type Settings } from '@wc/shared';
 import type { App } from '../app.js';
+import { trashOption, trashUnderlying } from '../core/trashItem.js';
 import { gmailThreadAction } from '../core/gmailActions.js';
 import type { StructuredInput } from '../agent/backend.js';
 import { bus } from '../core/bus.js';
@@ -514,17 +515,39 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   f.get('/api/undo', async () => undo.info());
   f.post('/api/undo', async () => ({ undone: await undo.undo(), ...(await undo.info()) }));
   f.get('/api/items/skipped', async (req) => repo.listSkipped(14, (req.query as any).dismissed === '1'));
-  f.post('/api/items/:id/decline', async (req) => {
-    const b = z.object({ mute: z.boolean().optional() }).parse(req.body ?? {});
-    const id = (req.params as any).id as string;
-    await undo.capture(`${b.mute ? 'decline & mute' : 'decline'} ${q(await itemTitle(id))}`, { items: [id] }, () => app.triage.declineProposed(id, !!b.mute));
+  // Decline (a proposed stream) / dismiss (a skipped item); `mute` stops it coming back, `trash` also deletes the email
+  // thread (Gmail Trash) or marks the Slack DM read ("delete and mute"). Undo reverses all of it.
+  const declineOrDismiss = (decline: (id: string, mute: boolean) => Promise<unknown>) => async (req: any) => {
+    const b = z.object({ mute: z.boolean().optional(), trash: z.boolean().optional() }).parse(req.body ?? {});
+    const id = req.params.id as string;
+    const title = await itemTitle(id);
+    if (b.trash) {
+      const item = await repo.getItem(id);
+      if (!item) throw notFound('Item');
+      const label = `${item.source === 'gmail' ? 'delete' : 'mark read'} & mute ${q(title)}`;
+      await undo.capture(
+        label,
+        { items: [id] },
+        async () => {
+          const done = await trashUnderlying({ repo, hub }, item);
+          await decline(id, true);
+          return done;
+        },
+        { external: (done) => (done.what === 'gmail' ? { gmail: { itemId: id, undo: 'untrash', toInbox: done.wasInInbox } } : { slackRead: { itemId: id } }) },
+      );
+      await repo.audit('pu', 'item.trashed_muted', { itemId: id, source: item.source });
+      return { ok: true };
+    }
+    await undo.capture(`${b.mute ? 'decline & mute' : 'decline'} ${q(title)}`, { items: [id] }, () => decline(id, !!b.mute));
     return { ok: true };
-  });
-  f.post('/api/items/:id/dismiss', async (req) => {
-    const b = z.object({ mute: z.boolean().optional() }).parse(req.body ?? {});
-    const id = (req.params as any).id as string;
-    await undo.capture(`${b.mute ? 'decline & mute' : 'decline'} ${q(await itemTitle(id))}`, { items: [id] }, () => repo.dismissSkipped(id, !!b.mute));
-    return { ok: true };
+  };
+  f.post('/api/items/:id/decline', declineOrDismiss((id, mute) => app.triage.declineProposed(id, mute)));
+  f.post('/api/items/:id/dismiss', declineOrDismiss((id, mute) => repo.dismissSkipped(id, mute)));
+  // Whether the trash button ("delete and mute") applies to this item.
+  f.get('/api/items/:id/trash-option', async (req) => {
+    const item = await repo.getItem((req.params as any).id);
+    if (!item) throw notFound('Item');
+    return trashOption({ hub }, item);
   });
   // "Accept": make a skipped item a work stream (or file it into the existing stream it belongs to).
   f.post('/api/items/:id/accept', async (req) => {

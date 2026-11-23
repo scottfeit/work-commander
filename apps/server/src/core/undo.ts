@@ -56,6 +56,8 @@ interface Entry {
   jira?: { itemId: string; status?: string; assignee?: { accountId: string | null } };
   /** A Slack message move can be undone only while no new message arrives in that conversation. */
   slack?: { channel: string; messageIds: string[] };
+  /** "Delete and mute" marked a Slack DM read: undo marks it unread again. */
+  slackRead?: { itemId: string };
 }
 
 export interface CaptureTarget {
@@ -76,6 +78,8 @@ export interface UndoDeps {
   jiraAssign?: (itemId: string, accountId: string | null) => Promise<unknown>;
   /** Laya re-checks its parts after training examples change. */
   layaChanged?: () => Promise<void>;
+  /** Marks an item's Slack conversation unread. */
+  slackUnread?: (itemId: string) => Promise<unknown>;
 }
 
 const uniq = <T>(xs: (T | null | undefined)[]) => [...new Set(xs.filter((x): x is T => x !== null && x !== undefined))];
@@ -134,7 +138,7 @@ export class UndoLog {
    * Run one of the PU's actions and remember how to undo it. `fn` returns the work streams and items it created
    * (when it knows them), so undo can remove them.
    */
-  async capture<T>(label: string | ((r: T) => string), target: CaptureTarget, fn: () => Promise<T>, opts: { created?: (r: T) => { streams?: (string | null | undefined)[]; items?: (string | null | undefined)[] }; draftsFor?: (r: T) => Entry['draftsFor'] } = {}): Promise<T> {
+  async capture<T>(label: string | ((r: T) => string), target: CaptureTarget, fn: () => Promise<T>, opts: { created?: (r: T) => { streams?: (string | null | undefined)[]; items?: (string | null | undefined)[] }; draftsFor?: (r: T) => Entry['draftsFor']; external?: (r: T) => Pick<Entry, 'gmail' | 'slackRead'> } = {}): Promise<T> {
     const at = new Date().toISOString();
     const before = await this.snapshot(target, !!target.items?.length || !!target.slackChannel);
     const result = await fn();
@@ -146,6 +150,7 @@ export class UndoLog {
       const after = await this.snapshot({ ...target, streams: [...(target.streams ?? []), ...createdStreams] });
       const entry = this.diff(typeof label === 'function' ? label(result) : label, at, before, after, createdStreams, uniq(created.items ?? []));
       entry.draftsFor = opts.draftsFor?.(result);
+      Object.assign(entry, opts.external?.(result) ?? {});
       if (this.isEmpty(entry)) return result;
       await this.serial(async () => this.save([...(await this.prune(await this.load())), entry]));
     } catch (e: any) {
@@ -225,7 +230,7 @@ export class UndoLog {
     return { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, label, at, items: [], createdItems: [], streams: [], deletedStreams: [], createdStreams: [], newSummaryIds: [], proposalMoves: [], newProposals: [], chats: [], laya: { itemIds: [], examples: [], compare: [] } };
   }
   private isEmpty(e: Entry) {
-    return !e.items.length && !e.createdItems.length && !e.streams.length && !e.deletedStreams.length && !e.createdStreams.length && !e.proposalMoves.length && !e.newProposals.length && !e.chats.length && !e.laya.itemIds.length && !e.gmail && !e.jira;
+    return !e.items.length && !e.createdItems.length && !e.streams.length && !e.deletedStreams.length && !e.createdStreams.length && !e.proposalMoves.length && !e.newProposals.length && !e.chats.length && !e.laya.itemIds.length && !e.gmail && !e.jira && !e.slackRead;
   }
 
   private diff(label: string, at: string, b: Awaited<ReturnType<UndoLog['snapshot']>>, a: Awaited<ReturnType<UndoLog['snapshot']>>, createdStreams: string[], createdItemsHint: string[]): Entry {
@@ -279,10 +284,10 @@ export class UndoLog {
   private async apply(e: Entry) {
     const { repo } = this.deps;
     const db = this.db;
-    if (e.gmail) {
-      await this.deps.gmail(e.gmail.itemId, e.gmail.undo, { toInbox: e.gmail.toInbox });
-      return;
-    }
+    // Undo outside first (Gmail, Slack), then what WC holds. An entry that is only a Gmail action stops there.
+    if (e.gmail) await this.deps.gmail(e.gmail.itemId, e.gmail.undo, { toInbox: e.gmail.toInbox });
+    if (e.slackRead) await this.deps.slackUnread?.(e.slackRead.itemId);
+    if (e.gmail && !e.items.length && !e.streams.length && !e.createdStreams.length && !e.deletedStreams.length) return;
     if (e.jira) {
       if (e.jira.assignee) {
         if (!this.deps.jiraAssign) throw new Error('Jira is not connected');

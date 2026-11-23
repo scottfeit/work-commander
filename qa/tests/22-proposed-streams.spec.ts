@@ -89,9 +89,10 @@ test('Skipped ("?") items have Decline & mute too', async ({ page }) => {
   await page.goto(WEB);
   const t = page.locator('.skipped-tile:not(.proposed-tile)', { hasText: /Your trial has started/ });
   await expect(t.getByRole('button', { name: 'Decline', exact: true })).toBeVisible();
-  // Accept, Decline and Decline & mute sit on one line
+  // Accept, Decline, the bell (decline & mute) and the trash can (delete & mute) sit on one line
+  await expect(t.getByRole('button', { name: 'Delete & mute' })).toBeVisible();
   const ys = await t.locator('.stream-meta .btn').evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().top)));
-  expect(ys).toHaveLength(3);
+  expect(ys).toHaveLength(4);
   expect(new Set(ys).size).toBe(1);
   await t.screenshot({ path: 'qa/results/skipped-tile.png' });
   await t.getByRole('button', { name: 'Decline & mute' }).click();

@@ -241,6 +241,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .ticket-fields dd.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-form { margin: 0 0 12px; }
 /* a forwarded Slack message: indented under a bar, as Slack shows it */
+.btn.small.icon-only { display: inline-flex; align-items: center; justify-content: center; padding-left: 8px; padding-right: 8px; }
 .forwarded { margin: 6px 0 4px; padding: 2px 0 2px 12px; border-left: 4px solid var(--line-2); }
 .forwarded-head { font-weight: 600; margin-bottom: 2px; }
 .form-answers { margin: 0; border: 1px solid var(--line); border-radius: var(--radius); }

@@ -496,12 +496,20 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
       setBusy(false);
     }
   };
-  const dismiss = async (mute = false) => {
-    await post(`/api/items/${i.id}/dismiss`, { mute }).catch(() => undefined);
+  const dismiss = async (mute = false, trash = false) => {
+    try {
+      await post(`/api/items/${i.id}/dismiss`, { mute, trash });
+    } catch (e: any) {
+      if (trash) return setErr(e.message); // nothing was declined: say why
+    }
     onDismissed();
   };
-  const decline = async (mute: boolean) => {
-    await post(`/api/items/${i.id}/decline`, { mute }).catch(() => undefined);
+  const decline = async (mute: boolean, trash = false) => {
+    try {
+      await post(`/api/items/${i.id}/decline`, { mute, trash });
+    } catch (e: any) {
+      if (trash) return setErr(e.message);
+    }
     onDismissed();
   };
   const p = i.proposed;
@@ -535,9 +543,7 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
               <button className="btn small" title="Don't make this a work stream. It comes back if there is new activity." onClick={() => void decline(false)}>
                 Decline
               </button>
-              <button className="btn small" title="Don't make this a work stream, and don't propose it again when there is new activity on this message or thread" onClick={() => void decline(true)}>
-                Decline &amp; mute
-              </button>
+              <MuteButtons item={i} what="propose" onMute={(trash) => void decline(true, trash)} />
             </>
           )}
         </div>
@@ -573,14 +579,69 @@ function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: Skippe
             <button className="btn small" title="Hide this until it has new activity" onClick={() => void dismiss()}>
               Decline
             </button>
-            <button className="btn small" title="Hide this, and don't bring it back when there is new activity on this message or thread" onClick={() => void dismiss(true)}>
-              Decline &amp; mute
-            </button>
+            <MuteButtons item={i} what="show" onMute={(trash) => void dismiss(true, trash)} />
           </>
         )}
       </div>
       {err && <div className="small error">{err}</div>}
     </div>
+  );
+}
+
+/**
+ * On a proposed or skipped tile: the crossed-out bell declines and mutes; the trash can also deletes the email thread (to
+ * Gmail's Trash) or marks the Slack DM / group DM read. No trash for Jira/JSM or Slack channel threads.
+ */
+function MuteButtons({ item, what, onMute }: { item: { id: string; source: string }; what: 'propose' | 'show'; onMute: (trash: boolean) => void }) {
+  const [trash, setTrash] = useState<'gmail' | 'slack' | null>(null);
+  useEffect(() => {
+    if (item.source !== 'gmail' && item.source !== 'slack') return;
+    let live = true;
+    get<{ can: boolean; what?: 'gmail' | 'slack' }>(`/api/items/${item.id}/trash-option`)
+      .then((r) => live && setTrash(r.can && r.what ? r.what : null))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [item.id, item.source]);
+  const again = what === 'propose' ? "don't propose it again" : "don't bring it back";
+  return (
+    <>
+      <button className="btn small icon-only" aria-label="Decline & mute" title={`Decline and mute: ${again} when there is new activity on this message or thread`} onClick={() => onMute(false)}>
+        <BellOffIcon />
+      </button>
+      {trash && (
+        <button
+          className="btn small icon-only"
+          aria-label={trash === 'gmail' ? 'Delete & mute' : 'Mark read & mute'}
+          title={trash === 'gmail' ? `Delete and mute: moves the email thread to Gmail's Trash, declines it, and ${again}` : `Mark read and mute: marks the conversation read in Slack, declines it, and ${again}`}
+          onClick={() => onMute(true)}
+        >
+          <TrashIcon />
+        </button>
+      )}
+    </>
+  );
+}
+function BellOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+      <path d="M18.6 13A17.9 17.9 0 0 1 18 8" />
+      <path d="M6.3 6.3A5.9 5.9 0 0 0 6 8c0 7-3 9-3 9h14" />
+      <path d="M18 8a6 6 0 0 0-9.3-5" />
+      <path d="m2 2 20 20" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
   );
 }
 
