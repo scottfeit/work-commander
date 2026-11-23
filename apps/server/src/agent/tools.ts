@@ -1,3 +1,4 @@
+import { textWithForwards } from '@wc/shared';
 import { ticketFormsText } from '@wc/shared';
 import { currentSignature, signDraft } from '../core/emailSignature.js';
 import { attachDriveFile } from '../core/docs.js';
@@ -71,7 +72,7 @@ export const page = (s: string, offset = 0) => {
 };
 const fmtThread = (msgs: { author: { name?: string; email?: string }; at: string; text: string; to?: string[]; cc?: string[] }[] = []) =>
   msgs
-    .map((m) => `--- ${m.author.name ?? ''} <${m.author.email ?? ''}> at ${m.at}${m.to?.length ? `\nTo: ${m.to.join(', ')}` : ''}${m.cc?.length ? `\nCc: ${m.cc.join(', ')}` : ''}\n${m.text}`)
+    .map((m) => `--- ${m.author.name ?? ''} <${m.author.email ?? ''}> at ${m.at}${m.to?.length ? `\nTo: ${m.to.join(', ')}` : ''}${m.cc?.length ? `\nCc: ${m.cc.join(', ')}` : ''}\n${textWithForwards(m)}`)
     .join('\n');
 
 /**

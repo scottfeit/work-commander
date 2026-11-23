@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useFoldWhenTight } from './useFoldWhenTight';
-import type { ClaudeCodeStatus, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, TicketTransitionOption, WorkStream } from '@wc/shared';
+import type { ClaudeCodeStatus, ForwardedMessage, GmailAction, GmailThreadState, MessageAttachment, StreamItem, StreamUsage, ThreadMessage, TicketTarget, TicketTransitionOption, WorkStream } from '@wc/shared';
 import { USAGE_CATEGORIES, formatUsage } from '@wc/shared';
 import { ccPost, fmtTime, get, patch, post, timeAgo } from '../api';
 import { UsagePie } from './usageViz';
@@ -305,6 +305,31 @@ function SlackSelection({ item, enabled, order, children }: { item: StreamItem; 
   );
 }
 
+/** A message forwarded from another Slack conversation, inside the message that forwarded it (as Slack shows it). */
+function Forwarded({ f, itemId }: { f: ForwardedMessage; itemId?: string }) {
+  return (
+    <blockquote className="forwarded" aria-label={`Forwarded message${f.author ? ` from ${f.author}` : ''}`}>
+      <div className="forwarded-head">
+        {f.author ? <PersonName name={f.author} slackUserId={f.slackUserId} /> : <strong>Forwarded message</strong>}
+      </div>
+      <TextBody text={f.text} fold />
+      {itemId && !!f.attachments?.length && <Attachments itemId={itemId} list={f.attachments} />}
+      <div className="muted small">
+        {f.channel ? `Posted in ${f.channel}` : 'Forwarded'}
+        {f.at ? ` · ${fmtTime(f.at)}` : ''}
+        {f.url && (
+          <>
+            {' · '}
+            <a href={f.url} target="_blank" rel="noreferrer">
+              View message
+            </a>
+          </>
+        )}
+      </div>
+    </blockquote>
+  );
+}
+
 function Message({ m, compact, html, defaultOriginal, item, itemId, quick, pick }: { m: ThreadMessage; compact?: boolean; html?: string; defaultOriginal?: boolean; item?: StreamItem; itemId?: string; quick?: string[]; pick?: Pick }) {
   const [choice, setOriginal] = useState<boolean | null>(null); // null: follow the Settings default
   const [moving, setMoving] = useState(false);
@@ -351,6 +376,9 @@ function Message({ m, compact, html, defaultOriginal, item, itemId, quick, pick 
       ) : (
         <TextBody text={m.text} fold={!compact} />
       )}
+      {(m.forwarded ?? []).map((f, i) => (
+        <Forwarded key={i} f={f} itemId={itemId} />
+      ))}
       {itemId && !!m.attachments?.length && <Attachments itemId={itemId} list={m.attachments} />}
       {item?.source === 'slack' && <Reactions item={item} m={m} quick={quick ?? DEFAULT_QUICK} />}
     </article>

@@ -7,7 +7,7 @@ export const INLINE_IMAGE = /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i;
 /** Find an attachment on an item: on one of its messages or comments, or on the ticket itself. */
 export function findAttachment(item: StreamItem, id: string): { a: MessageAttachment; messageId?: string } | null {
   for (const m of [...(item.data.messages ?? []), ...(item.data.ticket?.comments ?? [])]) {
-    const a = m.attachments?.find((x) => x.id === id);
+    const a = [...(m.attachments ?? []), ...(m.forwarded ?? []).flatMap((f) => f.attachments ?? [])].find((x) => x.id === id);
     if (a) return { a, messageId: m.id };
   }
   const t = item.data.ticket?.attachments?.find((x) => x.id === id);

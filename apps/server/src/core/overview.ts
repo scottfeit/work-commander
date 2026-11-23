@@ -1,3 +1,4 @@
+import { textWithForwards } from '@wc/shared';
 import { ticketFormsText } from '@wc/shared';
 import { z } from 'zod';
 import type { Settings, StreamItem } from '@wc/shared';
@@ -32,7 +33,7 @@ function itemText(i: StreamItem) {
     ...[...msgs, ...(t?.comments ?? [])]
       .sort((a, b) => a.at.localeCompare(b.at))
       .slice(-12)
-      .map((m) => `${m.at.slice(0, 16)} ${m.author.name ?? m.author.email ?? 'someone'}: ${m.text.replace(/\s+/g, ' ').slice(0, 600)}`),
+      .map((m) => `${m.at.slice(0, 16)} ${m.author.name ?? m.author.email ?? 'someone'}: ${textWithForwards(m).replace(/\s+/g, ' ').slice(0, 600)}`),
   ];
   return `<item>\n${lines.join('\n')}\n</item>`;
 }

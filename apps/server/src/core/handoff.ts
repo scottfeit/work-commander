@@ -1,3 +1,4 @@
+import { textWithForwards } from '@wc/shared';
 import { ticketFormsText } from '@wc/shared';
 /**
  * Hand a work stream off to Claude Code: create a project folder, write BRIEF.md with everything the
@@ -116,7 +117,7 @@ export function buildBrief(stream: WorkStream, items: StreamItem[], chat: ChatMe
       if (t.forms?.length) out.push(quote(ticketFormsText(t.forms)), '');
       for (const c of t.comments ?? []) out.push(`**${who(c)}**, ${c.at}:`, '', quote(c.text), '');
     }
-    for (const m of it.data.messages ?? []) out.push(`**${who(m)}**, ${m.at}${m.subject ? ` · ${m.subject}` : ''}:`, '', quote(m.text), '');
+    for (const m of it.data.messages ?? []) out.push(`**${who(m)}**, ${m.at}${m.subject ? ` · ${m.subject}` : ''}:`, '', quote(textWithForwards(m)), '');
     if (it.data.body) out.push(quote(it.data.body), '');
   }
 

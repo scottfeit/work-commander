@@ -117,6 +117,29 @@ export interface MessageAttachment {
   ref: string;
 }
 
+/** A Slack message forwarded from another conversation, shown inside the message that forwarded it. */
+export interface ForwardedMessage {
+  author?: string;
+  slackUserId?: string;
+  /** Where it was first posted, e.g. "#ops" or "a DM". */
+  channel?: string;
+  at?: string;
+  text: string;
+  url?: string;
+  attachments?: MessageAttachment[];
+}
+
+/** A message's text with what it forwards, for Claude and triage. */
+export function textWithForwards(m: { text: string; forwarded?: ForwardedMessage[] }): string {
+  if (!m.forwarded?.length) return m.text;
+  const fw = m.forwarded.map((f) => {
+    const from = [f.author, f.channel ? `in ${f.channel}` : '', f.at ? `at ${f.at}` : ''].filter(Boolean).join(' ');
+    const files = f.attachments?.length ? `\n> [files: ${f.attachments.map((a) => a.name).join(', ')}]` : '';
+    return `[Forwarded message${from ? ` from ${from}` : ''}]\n${f.text.split('\n').map((l) => `> ${l}`).join('\n')}${files}`;
+  });
+  return [m.text, ...fw].filter(Boolean).join('\n\n');
+}
+
 export interface ThreadMessage {
   id: string;
   attachments?: MessageAttachment[];
@@ -127,6 +150,8 @@ export interface ThreadMessage {
   cc?: string[];
   /** Slack: the thread this message is in (a reply) or starts (a parent with replies). */
   threadTs?: string;
+  /** Slack: messages forwarded (shared) into this one from other conversations. */
+  forwarded?: ForwardedMessage[];
   /** An email notice Google sent as the PU (an RSVP, a Drive share request): never starts or updates a work stream. */
   automated?: boolean;
   subject?: string;

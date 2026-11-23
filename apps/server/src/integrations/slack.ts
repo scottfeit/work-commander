@@ -1,7 +1,7 @@
 import { slackMessageUrl } from './slackUrl.js';
 import type { WebClient } from '@slack/web-api';
 import { slackClient } from './slackClient.js';
-import type { MessageAttachment, SlackSettings, ThreadMessage } from '@wc/shared';
+import type { ForwardedMessage, MessageAttachment, SlackSettings, ThreadMessage } from '@wc/shared';
 import type { ChatApi, InboundItem, InboundSink, Ingestor } from './types.js';
 import type { Repo } from '../core/repo.js';
 import type { OutFile } from '../core/attachments.js';
@@ -24,6 +24,32 @@ export function reactionsOf(m: { reactions?: any[] }, me: string): { reactions?:
 /** The Slack thread a message is in (a reply), or starts (a parent with replies); nothing for a plain message. */
 export function threadOf(m: { ts?: string; thread_ts?: string; reply_count?: number }): { threadTs?: string } {
   return m.thread_ts ? { threadTs: String(m.thread_ts) } : m.reply_count && m.ts ? { threadTs: String(m.ts) } : {};
+}
+
+/**
+ * Messages forwarded into this one (Slack's "Forward message", or a pasted message link it unfurls): the attachments
+ * marked is_share / is_msg_unfurl. `render` turns <@U…> mentions into names.
+ */
+export async function forwardsOf(m: { attachments?: any[] }, render: (t: string) => Promise<string>, nameOf: (id: string) => Promise<string | undefined>): Promise<{ forwarded?: ForwardedMessage[] }> {
+  const out: ForwardedMessage[] = [];
+  for (const a of m.attachments ?? []) {
+    if (!a || !(a.is_share || a.is_msg_unfurl)) continue;
+    const text = String(a.text ?? a.fallback ?? '');
+    const files = filesOf(a).attachments;
+    if (!text && !files) continue;
+    const author = a.author_name || a.author_subname || (a.author_id ? await nameOf(String(a.author_id)) : undefined);
+    const ch = a.channel_name ? `#${String(a.channel_name).replace(/^#/, '')}` : a.channel_id && /^D/.test(String(a.channel_id)) ? 'a DM' : undefined;
+    out.push({
+      ...(author ? { author: String(author) } : {}),
+      ...(a.author_id ? { slackUserId: String(a.author_id) } : {}),
+      ...(ch ? { channel: ch } : {}),
+      ...(a.ts ? { at: new Date(Number(a.ts) * 1000).toISOString() } : {}),
+      text: await render(text),
+      ...(a.from_url || a.original_url ? { url: String(a.from_url || a.original_url) } : {}),
+      ...(files ? { attachments: files } : {}),
+    });
+  }
+  return out.length ? { forwarded: out } : {};
 }
 
 /** A Slack message's files, as attachments (fetched through the server with the token). */
@@ -172,6 +198,10 @@ export class SlackWorkspace implements ChatApi {
     }
   }
 
+  private forwards(m: any) {
+    return forwardsOf(m, (t) => this.render(t), async (id) => (await this.user(id).catch(() => null))?.name);
+  }
+
   /** Replace <@U123> mentions with names so the model sees readable text. */
   private async render(text: string) {
     const ids = [...new Set([...text.matchAll(/<@([A-Z0-9]+)>/g)].map((m) => m[1]))];
@@ -191,7 +221,7 @@ export class SlackWorkspace implements ChatApi {
         id: m.ts,
         author: { name: u.name, email: (u as any).email, slackUserId: m.user },
         text: await this.render(m.text ?? ''),
-        ...filesOf(m), ...reactionsOf(m, me),
+        ...filesOf(m), ...reactionsOf(m, me), ...(await this.forwards(m)),
         at: new Date(Number(m.ts) * 1000).toISOString(),
         isFromPU: m.user === me,
         ...threadOf(m),
@@ -208,7 +238,7 @@ export class SlackWorkspace implements ChatApi {
       source: 'slack',
       kind: 'slack_thread',
       externalId: `${channel}:${threadTs}`,
-      title: `${chName}: ${(messages[0]?.text ?? '').slice(0, 80)}`,
+      title: `${chName}: ${(messages[0]?.text || messages[0]?.forwarded?.[0]?.text || '').slice(0, 80)}`,
       url,
       data: { messages, slack: { channel, channelName: chName, threadTs } },
       eventId: `${channel}:${triggerTs ?? msgs[msgs.length - 1]?.ts ?? threadTs}`,
@@ -223,7 +253,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me, ...threadOf(m) });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), ...(await this.forwards(m)), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me, ...threadOf(m) });
     }
     return { messages, channelLabel: await this.channelName(channel) };
   }
@@ -247,7 +277,7 @@ export class SlackWorkspace implements ChatApi {
     const messages: ThreadMessage[] = [];
     for (const m of msgs) {
       const u = m.user ? await this.user(m.user) : { name: m.username ?? 'bot' };
-      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me, ...threadOf(m) });
+      messages.push({ id: m.ts, author: { name: u.name, email: (u as any).email, slackUserId: m.user }, text: await this.render(m.text ?? ''), ...filesOf(m), ...reactionsOf(m, me), ...(await this.forwards(m)), at: new Date(Number(m.ts) * 1000).toISOString(), isFromPU: m.user === me, ...threadOf(m) });
     }
     const chName = await this.channelName(channel);
     return {

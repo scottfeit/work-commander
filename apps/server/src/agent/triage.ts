@@ -1,3 +1,4 @@
+import { textWithForwards } from '@wc/shared';
 import { ticketFormsText } from '@wc/shared';
 import { describeRule, matchRule } from '../core/rules.js';
 import { DeadlineFound, applyDeadline, findDeadline } from '../core/deadlines.js';
@@ -82,7 +83,7 @@ type Upserted = { item: StreamItem; newMessages: ThreadMessage[]; created: boole
 
 // Message bodies are wrapped as data: they are written to the PU by other people, never instructions or questions for the triage model.
 const fmt = (m: ThreadMessage) =>
-  `<message from="${m.author.name ?? ''} <${m.author.email ?? m.author.slackUserId ?? ''}>"${m.isFromPU ? ' pu="true"' : ''} at="${m.at}"${m.to?.length ? ` to="${m.to.join(', ')}"` : ''}${m.cc?.length ? ` cc="${m.cc.join(', ')}"` : ''}>\n${stripQuoted(m.text).slice(0, 2500).replace(/<\/?message\b[^>]*>/gi, '')}\n</message>`;
+  `<message from="${m.author.name ?? ''} <${m.author.email ?? m.author.slackUserId ?? ''}>"${m.isFromPU ? ' pu="true"' : ''} at="${m.at}"${m.to?.length ? ` to="${m.to.join(', ')}"` : ''}${m.cc?.length ? ` cc="${m.cc.join(', ')}"` : ''}>\n${textWithForwards({ ...m, text: stripQuoted(m.text) }).slice(0, 2500).replace(/<\/?message\b[^>]*>/gi, '')}\n</message>`;
 
 /**
  * The inbound pipeline: store the item, skip what's already seen or authored by the PU, ask
