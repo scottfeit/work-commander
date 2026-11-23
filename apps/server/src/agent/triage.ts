@@ -433,6 +433,8 @@ export class TriagePipeline {
       const rule = matchRule((await this.settings()).rules ?? [], item, fromOthers);
       if (rule && (await this.applyRule(rule, inbound, item, fresh))) return null;
     }
+    // Judged where the item is now: it may have been filed into a (closed) stream moments ago, and the model must be told so.
+    item = (await this.repo.getItem(item.id)) ?? item;
     return { inbound, item, fresh, brokeThrough, also: [] };
   }
 
@@ -639,6 +641,7 @@ export class TriagePipeline {
 
   /** Steps after the decision: pick or create the stream, then draft or offer. */
   private async route(inbound: InboundItem, item: StreamItem, decision: TriageDecision, s: Settings, ask = s.triage?.newStreams === 'ask') {
+    item = (await this.repo.getItem(item.id)) ?? item; // where it is now, not where it was when the decision began
     if (!item.streamId) {
       // Anything new a VIP starts always becomes a work stream, straight away (never a "?" tile, never "New?" to accept).
       const all = item.data.messages ?? item.data.ticket?.comments ?? [];
@@ -671,6 +674,7 @@ export class TriagePipeline {
     }
 
     let streamId = item.streamId;
+    let newStreamId: string | null = null; // a stream made just now for this item
     if (!streamId) {
       const open = await this.repo.listStreams(false);
       const recentClosed = await this.repo.recentlyClosedStreams(s.claude.reopenClosedWithinDays ?? 14);
@@ -693,6 +697,7 @@ export class TriagePipeline {
         streamId = (await this.repo.createStream({ title: decision.stream.title || inbound.title.slice(0, 80), summary: decision.stream.summary || decision.reason, labels: decision.stream.labels ?? [] })).id;
       }
       if (streamId) await this.repo.attachItem(item.id, streamId);
+      newStreamId = streamId && decision.stream.action === 'new' ? streamId : null;
     } else {
       const prev = await this.repo.getStream(streamId);
       if (prev?.status === 'closed' && decision.relevant) {
@@ -715,6 +720,8 @@ export class TriagePipeline {
       }
     }
     if (!streamId) return;
+    // A stream is never left without the item it was made for.
+    if (newStreamId && (await this.repo.getItem(item.id))?.streamId !== newStreamId) await this.repo.attachItem(item.id, newStreamId);
     await this.repo.updateStream(streamId, { touch: true, unread: true, pending: false, ...(decision.updatedSummary ? { summary: decision.updatedSummary } : {}) });
     await this.repo.withdrawStaleClose(streamId, `new activity arrived (${inbound.title.slice(0, 60)})`);
     if (!decision.relevant) return;

@@ -88,4 +88,56 @@ describe('a follow-up to work that closed recently', () => {
     expect(att!.streamId).not.toBe(closedId);
     expect(att!.streamId).not.toBe(other);
   });
+  it('an item filed into a closed stream by its ticket key is not given a second, empty stream when the model says "new"', async () => {
+    reply = () => decision(null, true); // the model does not name the closed stream
+    await t.handle(mail('t6', 'Can I get eyes on IT-75653?', 'Please look at IT-75653, it is blocking people.'));
+    expect(await streams()).toHaveLength(1); // no new stream
+    expect((await repo.getStream(closedId))!.status).toBe('open'); // the old one reopened, holding the message
+    expect((await repo.findItem('gmail', 't6'))!.streamId).toBe(closedId);
+  });
+  it('...and the model is told which closed stream the item was filed in', async () => {
+    reply = () => decision(closedId, true);
+    await t.handle(mail('t7', 'Can I get eyes on IT-75653?', 'Please look at IT-75653.'));
+    expect(prompts[0]).toContain(closedId);
+    expect(prompts[0]).toMatch(/CLOSED/);
+  });
+
+  it('a Slack thread already stored, then a new message that names the ticket: filed in the closed stream, no second stream', async () => {
+    const slack = (msgs: { id: string; who: string; text: string; at: string }[]) => ({
+      source: 'slack' as const,
+      kind: 'slack_thread' as const,
+      externalId: 'C0HELP:100.000001',
+      title: '#helpdesk',
+      eventId: `C0HELP:100.000001@${msgs[msgs.length - 1].id}`,
+      data: { messages: msgs.map((m) => ({ id: m.id, author: { name: m.who }, text: m.text, at: m.at })), slack: { channel: 'C0HELP', channelName: '#helpdesk', threadTs: '100.000001' } },
+    });
+    const t0 = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    await repo.upsertItem(slack([{ id: '100.000001', who: 'Karen', text: 'my emails stopped', at: t0 }]));
+    reply = () => decision(null, true);
+    await t.handle(slack([{ id: '100.000001', who: 'Karen', text: 'my emails stopped', at: t0 }, { id: '200.000001', who: 'Tina', text: 'can I get eyes on IT-75653?', at: new Date().toISOString() }]));
+    expect(await streams()).toHaveLength(1);
+    expect((await repo.findItem('slack', 'C0HELP:100.000001'))!.streamId).toBe(closedId);
+    expect((await repo.getStream(closedId))!.status).toBe('open');
+  });
+
+  it('in a batch (several updates at once), the same: no second, empty stream', async () => {
+    const slack = (id: string, text: string) => ({
+      source: 'slack' as const, kind: 'slack_thread' as const, externalId: 'C0HELP:100.000001', title: '#helpdesk', eventId: `C0HELP:100.000001@${id}`,
+      data: { messages: [{ id: '100.000001', author: { name: 'Karen' }, text: 'my emails stopped', at: new Date(Date.now() - 5 * 86_400_000).toISOString() }, { id, author: { name: 'Tina' }, text, at: new Date().toISOString() }], slack: { channel: 'C0HELP', channelName: '#helpdesk', threadTs: '100.000001' } },
+    });
+    await repo.upsertItem({ ...slack('x', 'x'), data: { ...slack('x', 'x').data, messages: [slack('x', 'x').data.messages[0]] } });
+    const batchT = new TriagePipeline(repo, { structured: async (a: any) => (a.prompt.includes('one decision per update key') ? { decisions: [{ ...decision(null, true), key: 'u1' }, { ...decision(null, false), key: 'u2' }] } : decision(null, true)) } as any, { run: async () => undefined } as any, async () => ({ ...defaultSettings(), pu: { ...defaultSettings().pu, name: 'Scott', email: 'scott@x.com' } as any }) as any);
+    await batchT.handleBatch([slack('200.000001', 'can I get eyes on IT-75653?'), mail('zz', 'unrelated', 'hello')]);
+    expect((await streams()).filter((x) => x.id !== closedId)).toHaveLength(0);
+    expect((await repo.findItem('slack', 'C0HELP:100.000001'))!.streamId).toBe(closedId);
+  });
+
+  it('the item is filed into the closed stream while the model is still deciding: the answer "new" reopens that stream instead of making an empty one', async () => {
+    reply = () => decision(null, true);
+    const racing = new TriagePipeline(repo, { structured: async () => { const it = await repo.findItem('gmail', 't8'); await repo.attachItem(it!.id, closedId); return decision(null, true); } } as any, { run: async () => undefined } as any, async () => ({ ...defaultSettings(), pu: { ...defaultSettings().pu, name: 'Scott', email: 'scott@x.com' } as any }) as any);
+    await racing.handle(mail('t8', 'Outage follow-up', 'Can someone take a look at the outage again?'));
+    expect(await streams()).toHaveLength(1);
+    expect((await repo.getStream(closedId))!.status).toBe('open');
+    expect((await repo.findItem('gmail', 't8'))!.streamId).toBe(closedId);
+  });
 });
