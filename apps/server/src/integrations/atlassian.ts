@@ -1,4 +1,4 @@
-import type { AtlassianSettings, ThreadMessage } from '@wc/shared';
+import type { AtlassianSettings, ThreadMessage, TicketForm } from '@wc/shared';
 import type { InboundItem, InboundSink, Ingestor, TicketApi } from './types.js';
 import { htmlToText } from './types.js';
 import type { Repo } from '../core/repo.js';
@@ -97,6 +97,51 @@ export class AtlassianCloud implements TicketApi {
     return hit?.accountId ?? null;
   }
 
+  private cloudId?: Promise<string>;
+  private formCache = new Map<string, TicketForm>();
+
+  /** The JSM forms on a request, with their answers (Atlassian Forms API). A site without Forms, or no permission, gives none. */
+  async forms(key: string): Promise<TicketForm[]> {
+    try {
+      this.cloudId ??= this.req<{ cloudId: string }>('GET', '/_edge/tenant_info').then((r) => r.cloudId);
+      const cloud = await this.cloudId.catch((e) => {
+        this.cloudId = undefined;
+        throw e;
+      });
+      const root = `https://api.atlassian.com/jira/forms/cloud/${encodeURIComponent(cloud)}/issue/${encodeURIComponent(key)}/form`;
+      const index = await this.req<any[]>('GET', root, undefined, true);
+      const out: TicketForm[] = [];
+      for (const f of index ?? []) {
+        if (!f?.id) continue;
+        // a form's answers are fetched again only when it changes
+        const tag = `${key}:${f.id}:${f.updated ?? ''}`;
+        let form = this.formCache.get(tag);
+        if (!form) {
+          const answers = await this.req<any[]>('GET', `${root}/${encodeURIComponent(f.id)}/format/answers`, undefined, true);
+          form = {
+            id: String(f.id),
+            name: String(f.name ?? 'Form'),
+            submitted: typeof f.submitted === 'boolean' ? f.submitted : undefined,
+            answers: (answers ?? []).filter((a) => a?.label).map((a) => ({ label: String(a.label), answer: String(a.answer ?? a.choice ?? '') })),
+          };
+          this.formCache.set(tag, form);
+        }
+        out.push(form);
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  /** A JSM item with its forms added (Jira issues are left as they are). */
+  async withForms(item: InboundItem): Promise<InboundItem> {
+    const t = item.data.ticket;
+    if (!t || t.flavor !== 'jsm') return item;
+    const forms = await this.forms(t.key);
+    return forms.length ? { ...item, data: { ...item.data, ticket: { ...t, forms } } } : item;
+  }
+
   issueUrl(key: string) {
     return `${this.base}/browse/${key}`;
   }
@@ -147,7 +192,7 @@ export class AtlassianCloud implements TicketApi {
   async getIssue(key: string) {
     await this.myself();
     const issue = await this.req('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${FIELDS.join(',')}`);
-    return this.toInbound(issue);
+    return this.withForms(this.toInbound(issue));
   }
 
   async searchIssues(jql: string, max = 25) {
@@ -409,7 +454,7 @@ export class JiraIngestor implements Ingestor {
       // Relative minutes avoid JQL interpreting absolute times in the Jira user's time zone.
       const minutes = Math.ceil((Date.now() - Date.parse(since)) / 60_000) + 2;
       const issues = await this.api.searchIssues(`${base} AND updated >= -${minutes}m ORDER BY updated ASC`, 50);
-      for (const i of issues) await this.sink(this.api.toInbound(i));
+      for (const i of issues) await this.sink(await this.api.withForms(this.api.toInbound(i)));
       // A full page means there may be more: the bookmark only moves as far as what was read (oldest first), so the next poll
       // carries on from there and nothing in a long gap is skipped.
       const lastUpdated = issues[issues.length - 1]?.fields?.updated;

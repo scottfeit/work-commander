@@ -1,3 +1,4 @@
+import { ticketFormsText } from '@wc/shared';
 import { currentSignature, signDraft } from '../core/emailSignature.js';
 import { attachDriveFile } from '../core/docs.js';
 import { addWorkItemFromUrl, urlInPuMessages } from '../core/addByUrl.js';
@@ -159,7 +160,7 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
       if (!it) return 'No such item';
       const t = it.data.ticket;
       const body = t
-        ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? '-'} requester=${t.requester ?? '-'}\nSummary: ${t.summary}\n\n${t.description ?? ''}\n\nComments:\n${fmtThread(t.comments)}`
+        ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? '-'} requester=${t.requester ?? '-'}\nSummary: ${t.summary}\n\n${t.description ?? ''}${t.forms?.length ? `\n\n${ticketFormsText(t.forms)}` : ''}\n\nComments:\n${fmtThread(t.comments)}`
         : it.data.messages
           ? fmtThread(it.data.messages)
           : (it.data.body ?? JSON.stringify(it.data));

@@ -243,3 +243,19 @@ test('the Overview title shows in full on hover', async ({ page }) => {
   await expect(t).toHaveAttribute('title', await t.inputValue());
   expect(await t.evaluate((e) => getComputedStyle(e).textOverflow)).toBe('ellipsis');
 });
+
+test("a JSM request's form shows under the description, question by question", async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const form = page.getByRole('region', { name: 'Form: Access request' });
+  await expect(form).toBeVisible();
+  await expect(form.locator('dt').first()).toHaveText('What do you need?');
+  await expect(form.locator('div', { hasText: 'Needed by' }).locator('dd')).toHaveText('—');
+  // it sits below the description
+  const desc = await page.locator('.top-pane .body.block').first().boundingBox();
+  expect((await form.boundingBox())!.y).toBeGreaterThan(desc!.y);
+  await form.screenshot({ path: 'qa/results/jsm-form.png' });
+});

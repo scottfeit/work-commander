@@ -181,6 +181,8 @@ export interface ItemData {
     comments: ThreadMessage[];
     /** Files attached to the issue. */
     attachments?: MessageAttachment[];
+    /** JSM forms on the request, with their answers. */
+    forms?: TicketForm[];
   };
   /** Slack-specific */
   slack?: { channel: string; channelName?: string; threadTs: string };
@@ -788,6 +790,21 @@ export interface EnvironmentInfo {
 }
 
 // ---------- Server-sent events ----------
+
+/** A form on a JSM request (Atlassian Forms), flattened to question/answer pairs. */
+export interface TicketForm {
+  id: string;
+  name: string;
+  submitted?: boolean;
+  answers: { label: string; answer: string }[];
+}
+
+/** A ticket's forms as plain text, for Claude and triage. */
+export function ticketFormsText(forms: TicketForm[] | undefined): string {
+  return (forms ?? [])
+    .map((f) => [`Form: ${f.name}${f.submitted === false ? ' (not submitted)' : ''}`, ...f.answers.map((a) => `- ${a.label}: ${a.answer || '(blank)'}`)].join('\n'))
+    .join('\n\n');
+}
 
 /** Where an email thread is in Gmail: unread (any message), in the Inbox (not archived), in Trash. */
 export interface GmailThreadState {

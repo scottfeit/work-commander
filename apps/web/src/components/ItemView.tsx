@@ -520,6 +520,26 @@ export function ItemView({
               <Linkified text={t.description} />
             </div>
           )}
+          {(t.forms ?? []).map((f) => (
+            <section key={f.id} className="ticket-form" aria-label={`Form: ${f.name}`}>
+              <h3>
+                Form: {f.name}
+                {f.submitted === false && <> <span className="chip">not submitted</span></>}
+              </h3>
+              {f.answers.length === 0 ? (
+                <p className="muted small">No answers.</p>
+              ) : (
+                <dl className="form-answers">
+                  {f.answers.map((a, i) => (
+                    <div key={i}>
+                      <dt>{a.label}</dt>
+                      <dd>{a.answer ? <Linkified text={a.answer} /> : <span className="muted">—</span>}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </section>
+          ))}
           {!!t.attachments?.length && (
             <>
               <h3>Attachments · {t.attachments.length}</h3>

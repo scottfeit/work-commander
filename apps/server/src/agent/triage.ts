@@ -1,3 +1,4 @@
+import { ticketFormsText } from '@wc/shared';
 import { describeRule, matchRule } from '../core/rules.js';
 import { DeadlineFound, applyDeadline, findDeadline } from '../core/deadlines.js';
 import { z } from 'zod';
@@ -871,7 +872,7 @@ export class TriagePipeline {
       hints.join('\n'),
       pastBlock,
       `Incoming ${inbound.source} ${inbound.kind}: "${inbound.title}" ${inbound.url ?? ''}`,
-      t ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? 'unassigned'} requester=${t.requester ?? '?'}\n${(t.description ?? '').slice(0, 2000)}` : '',
+      t ? `Ticket ${t.key} [${t.flavor}] status=${t.status} assignee=${t.assignee ?? 'unassigned'} requester=${t.requester ?? '?'}\n${(t.description ?? '').slice(0, 2000)}${t.forms?.length ? `\n${ticketFormsText(t.forms).slice(0, 2000)}` : ''}` : '',
       `Earlier context:\n${msgs.filter((m) => !fresh.includes(m)).slice(-4).map(fmt).join('\n\n') || '(none)'}`,
       `NEW activity:\n${fresh.map(fmt).join('\n\n')}`,
     ];

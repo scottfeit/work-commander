@@ -233,6 +233,13 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .ticket-fields dd { margin: 0; font-weight: 500; }
 .ticket-fields div { min-width: 0; }
 .ticket-fields dd.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-form { margin: 0 0 12px; }
+.form-answers { margin: 0; border: 1px solid var(--line); border-radius: var(--radius); }
+.form-answers > div { display: grid; grid-template-columns: minmax(120px, 2fr) 3fr; gap: 12px; padding: 6px 10px; }
+.form-answers > div + div { border-top: 1px solid var(--line); }
+.form-answers dt { color: var(--muted); overflow-wrap: anywhere; }
+.form-answers dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .form-answers > div { grid-template-columns: 1fr; gap: 2px; } }
 .linked { list-style: none; padding: 0; margin: 0; }
 .link-row { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; background: transparent; border: 0; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
 .link-row:hover { background: var(--panel-2); }

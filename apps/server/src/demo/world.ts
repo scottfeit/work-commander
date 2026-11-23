@@ -199,7 +199,13 @@ export class DemoWorld {
       externalId: key,
       title: `${key}: ${summary}`,
       url: `https://example.atlassian.net/browse/${key}`,
-      data: { ticket: { key, summary, status: 'Open', assignee: PU.name, requester, reporter: requester, description, flavor, comments: [] } },
+      data: {
+        ticket: {
+          key, summary, status: 'Open', assignee: PU.name, requester, reporter: requester, description, flavor, comments: [],
+          // a JSM request comes with its request form, as a real service desk's would
+          ...(flavor === 'jsm' ? { forms: [{ id: 'form-1', name: 'Access request', submitted: true, answers: [{ label: 'What do you need?', answer: summary }, { label: 'Requested for', answer: requester }, { label: 'Needed by', answer: '' }] }] } : {}),
+        },
+      },
       eventId: key,
     });
     return { key, url: `https://example.atlassian.net/browse/${key}` };

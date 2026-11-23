@@ -1,3 +1,4 @@
+import { ticketFormsText } from '@wc/shared';
 import { z } from 'zod';
 import type { Settings, StreamItem } from '@wc/shared';
 import type { Repo } from './repo.js';
@@ -26,6 +27,7 @@ function itemText(i: StreamItem) {
   const lines = [
     `[${i.source}] ${i.title}${t ? ` (ticket ${t.key}, status ${t.status})` : ''}`,
     ...(t?.description ? [`Description: ${t.description.slice(0, 1500)}`] : []),
+    ...(t?.forms?.length ? [ticketFormsText(t.forms).slice(0, 1500)] : []),
     ...(i.data.body ? [i.data.body.slice(0, 1500)] : []),
     ...[...msgs, ...(t?.comments ?? [])]
       .sort((a, b) => a.at.localeCompare(b.at))
