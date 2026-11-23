@@ -5,7 +5,7 @@ import type { ClaudeCodeStatus, Settings } from '@wc/shared';
 import type { AppConfig } from '../config.js';
 import type { Repo } from './repo.js';
 import { bus } from './bus.js';
-import { buildSkillsPlugin, listSkills, readClaudeMd, userSkills } from './claudeCodeExtras.js';
+import { buildSkillsPlugin, dedupeSkills, listSkills, readClaudeMd, userSkills } from './claudeCodeExtras.js';
 import { realPath } from './handoff.js';
 
 /**
@@ -226,7 +226,8 @@ export class ClaudeCodeSessions {
     const claudeMd = cc.loadClaudeMd ? readClaudeMd(se.folder, off, home) : '';
     // Skills: copies of the chosen ones in a private plugin made for this session (nothing in it runs without asking)
     const want = cc.skills ?? [];
-    const pool = [...userSkills(home), ...(want === 'all' ? listSkills(path.join(se.folder, '.claude', 'skills'), 'project') : [])];
+    const { kept: pool, dropped } = dedupeSkills([...userSkills(home), ...(want === 'all' ? listSkills(path.join(se.folder, '.claude', 'skills'), 'project') : [])]);
+    if (dropped.length) console.log(`[claude code] skills with the same name as another (the synced copy is left out): ${dropped.map((k) => k.name).join(', ')}`);
     const chosen = want === 'all' ? pool : pool.filter((k) => want.includes(k.name));
     const plugin = buildSkillsPlugin(chosen, path.join(os.tmpdir(), `wc-cc-skills-${se.streamId.replace(/[^\w-]/g, '')}`));
     const auto = !!cc.autoMode;

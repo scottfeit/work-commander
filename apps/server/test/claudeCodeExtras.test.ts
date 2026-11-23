@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildSkillsPlugin, listSkills, readClaudeMd, sanitizeSkill } from '../src/core/claudeCodeExtras.js';
+import { buildSkillsPlugin, dedupeSkills, listSkills, readClaudeMd, sanitizeSkill } from '../src/core/claudeCodeExtras.js';
 import { openDatabase } from '../src/db/index.js';
 import { Repo } from '../src/core/repo.js';
 import { defaultSettings } from '../src/core/settings.js';
@@ -71,6 +71,19 @@ describe('CLAUDE.md and skills for Claude Code inside WC', () => {
     expect(fs.existsSync(path.join(p.path, 'skills', 'pdf', 'hooks'))).toBe(false);
     expect(fs.existsSync(path.join(p.path, 'skills', 'other'))).toBe(false);
     expect(buildSkillsPlugin([], path.join(home, 'plug2'))).toBeNull();
+  });
+
+  it('skills synced from your account (skills/synced/<id>/<skill>) are found too, and your own copy beats a synced one of the same name', () => {
+    write(path.join(home, '.claude', 'skills', 'resolve-ticket', 'SKILL.md'), '---\nname: resolve-ticket\ndescription: the full one\n---\nlong');
+    write(path.join(home, '.claude', 'skills', 'synced', 'abc_123', 'resolve-ticket', 'SKILL.md'), '---\nname: resolve-ticket\ndescription: the stub\n---\nshort');
+    write(path.join(home, '.claude', 'skills', 'synced', 'abc_123', 'docx', 'SKILL.md'), '---\nname: docx\ndescription: Word\n---\nx');
+    const all = listSkills(path.join(home, '.claude', 'skills'), 'user');
+    expect(all.map((k) => k.description).sort()).toEqual(['Word', 'the full one', 'the stub']);
+    const { kept, dropped } = dedupeSkills(all);
+    expect(kept.map((k) => [k.name, k.description])).toEqual([['docx', 'Word'], ['resolve-ticket', 'the full one']]);
+    expect(dropped.map((k) => k.description)).toEqual(['the stub']);
+    // the same, whichever order they were found in
+    expect(dedupeSkills([...all].reverse()).kept.find((k) => k.name === 'resolve-ticket')!.description).toBe('the full one');
   });
 
   it('a session gets CLAUDE.md in its instructions and the picked skills, with hooks, rules and inline shell switched off', async () => {

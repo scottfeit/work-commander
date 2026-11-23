@@ -6,7 +6,7 @@ import { currentSignature } from '../core/emailSignature.js';
 import { randomBytes } from 'node:crypto';
 import { safeEqual } from '../core/safeEqual.js';
 import { isOwnOrigin } from '../auth/guard.js';
-import { userSkills } from '../core/claudeCodeExtras.js';
+import { dedupeSkills, userSkills } from '../core/claudeCodeExtras.js';
 import { nameNewStream } from '../agent/triage.js';
 import { standardEmoji } from '../core/emoji.js';
 import { INLINE_IMAGE, fetchAttachment, findAttachment } from '../core/itemAttachments.js';
@@ -246,7 +246,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   const startHandoff = async (id: string, input: { folder: string; openTerminal: boolean; task?: string }) => {
     const st = await handoffStream(id);
     const folder = resolveHandoffFolder(input.folder.trim());
-    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id), input.task));
+    writeHandoff(folder, buildBrief(st, await repo.listItems(id), await repo.listChat(id), input.task, cfg.hosting === 'local' ? dedupeSkills(userSkills()).kept.map((k) => k.name) : []));
     await repo.createHandoff(id, folder);
     const opened = input.openTerminal ? await openInTerminal(folder) : false;
     await repo.audit('pu', 'stream.handoff', { streamId: id, folder, opened, task: !!input.task?.trim() });
@@ -263,14 +263,14 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   };
   f.get('/api/streams/:id/claude-code', async (req) => app.claudeCode.status((req.params as any).id));
   // Your skills (~/.claude/skills), for the picker in Settings → Claude Code. Names and descriptions only; this machine only.
-  f.get('/api/claude-code/skills', async () => (cfg.hosting === 'local' ? userSkills().map(({ name, description }) => ({ name, description })) : []));
+  f.get('/api/claude-code/skills', async () => (cfg.hosting === 'local' ? dedupeSkills(userSkills()).kept.map(({ name, description }) => ({ name, description })) : []));
   f.post('/api/streams/:id/claude-code/start', async (req) => {
     ccGuard(req);
     const id = (req.params as any).id as string;
     const b = z.object({ folder: z.string().min(1), task: z.string().max(5000).optional() }).parse(req.body);
     const st = await handoffStream(id);
     const folder = resolveHandoffFolder(b.folder.trim());
-    const brief = buildBrief(st, await repo.listItems(id), await repo.listChat(id), b.task);
+    const brief = buildBrief(st, await repo.listItems(id), await repo.listChat(id), b.task, cfg.hosting === 'local' ? dedupeSkills(userSkills()).kept.map((k) => k.name) : []);
     writeHandoff(folder, brief);
     return app.claudeCode.start(id, folder, brief);
   });

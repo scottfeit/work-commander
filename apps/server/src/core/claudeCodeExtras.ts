@@ -80,7 +80,7 @@ function frontmatter(md: string): { data: Record<string, string>; head: string; 
   return { data, head: m[1], body: md.slice(m[0].length) };
 }
 
-/** Skills in a skills folder (each a directory with SKILL.md; ~/.claude/skills/synced is looked into too). */
+/** Skills in a skills folder (each a directory with SKILL.md; folders of skills inside it, such as ~/.claude/skills/synced/<id>/, are looked into too). */
 export function listSkills(dir: string, from: SkillInfo['from']): SkillInfo[] {
   const out: SkillInfo[] = [];
   const scan = (d: string, depth: number) => {
@@ -97,7 +97,7 @@ export function listSkills(dir: string, from: SkillInfo['from']): SkillInfo[] {
       if (fs.existsSync(md)) {
         const { data } = frontmatter(fs.readFileSync(md, 'utf8'));
         out.push({ name: data.name || e.name, description: data.description || '', dir: sd, from });
-      } else if (depth === 0) scan(sd, 1);
+      } else if (depth < 2) scan(sd, depth + 1); // skills/<group>/<skill>, and skills/synced/<id>/<skill>
     }
   };
   scan(dir, 0);
@@ -105,6 +105,21 @@ export function listSkills(dir: string, from: SkillInfo['from']): SkillInfo[] {
 }
 
 export const userSkills = (home = os.homedir()) => listSkills(path.join(home, '.claude', 'skills'), 'user');
+
+/**
+ * One skill per name. Two with the same name (your own copy and one synced from your account, say) are two different procedures:
+ * your own copy, kept directly in ~/.claude/skills, is used and the synced one left out.
+ */
+export function dedupeSkills(skills: SkillInfo[]): { kept: SkillInfo[]; dropped: SkillInfo[] } {
+  const synced = (k: SkillInfo) => k.dir.split(path.sep).includes('synced');
+  const best = new Map<string, SkillInfo>();
+  for (const k of skills) {
+    const cur = best.get(k.name);
+    if (!cur || (synced(cur) && !synced(k))) best.set(k.name, k);
+  }
+  const kept = [...best.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return { kept, dropped: skills.filter((k) => !kept.includes(k)) };
+}
 
 /** A skill's SKILL.md made safe: only harmless frontmatter kept, and inline shell commands (!`…`) replaced. */
 export function sanitizeSkill(md: string) {
