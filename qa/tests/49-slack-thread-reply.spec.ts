@@ -51,3 +51,37 @@ test('a reply in a DM with no thread starts unchecked (posts in the conversation
   await expect(draft.getByRole('checkbox', { name: 'Reply in thread' })).not.toBeChecked();
   await expect(draft.locator('.thread-toggle')).toContainText('Posts in the conversation');
 });
+
+test('ticking a message with no thread yet starts a new thread under it, even in a conversation stored as a thread', async ({ page }) => {
+  const sid = (await api.post('/api/streams', { title: 'Group DM stream', summary: '' })).json.id;
+  const t = (m: number) => new Date(Date.now() - (60 - m) * 60_000).toISOString();
+  // a group DM (C id) that came in live: stored like a thread, with an older thread and a later plain message
+  const msgs = [
+    { id: '300.000001', author: { name: 'Priya Shah' }, text: 'old thread starts', at: t(1), threadTs: '300.000001' },
+    { id: '300.000002', author: { name: 'Lee Wong' }, text: 'old thread reply', at: t(2), threadTs: '300.000001' },
+    { id: '300.000003', author: { name: 'Marco Diaz' }, text: 'brand new topic', at: t(3) },
+  ];
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run('gdm1', sid, 'slack', 'slack_thread', 'C0GROUP:300.000001', 'Group DM', null, JSON.stringify({ messages: msgs, slack: { channel: 'C0GROUP', threadTs: '300.000001' } }), t(3));
+  db.close();
+  await page.goto(WEB);
+  await stream(page, /Group DM stream/).click();
+  await page.getByText('Group DM', { exact: true }).first().click();
+  await page.locator('.top-pane .item-head').getByRole('button', { name: 'Quick reply' }).click();
+  const draft = page.locator('.draft', { hasText: 'Quick reply' });
+  await expect(draft.getByRole('checkbox', { name: 'Reply in thread' })).toBeChecked();
+  await page.getByRole('checkbox', { name: 'Select message from Marco Diaz' }).check();
+  await expect(draft.locator('.thread-toggle')).toContainText('In the thread of Marco Diaz: “brand new topic”');
+  // ticking a message already in a thread goes to that thread
+  await page.getByRole('checkbox', { name: 'Select message from Marco Diaz' }).uncheck();
+  await page.getByRole('checkbox', { name: 'Select message from Lee Wong' }).check();
+  await expect(draft.locator('.thread-toggle')).toContainText('In the thread of Priya Shah: “old thread starts”');
+  await page.getByRole('checkbox', { name: 'Select message from Lee Wong' }).uncheck();
+  await page.getByRole('checkbox', { name: 'Select message from Marco Diaz' }).check();
+  await draft.getByLabel('Message').fill('Starting a thread');
+  await draft.getByRole('button', { name: 'Approve & send' }).click();
+  const p = (await api.proposals()).find((x: any) => x.payload.quick && x.payload.channel === 'C0GROUP')!;
+  const done = (await api.waitStatus(p.id, 'executed')) as any;
+  expect(done.payload.thread_ts).toBe('300.000003');
+});

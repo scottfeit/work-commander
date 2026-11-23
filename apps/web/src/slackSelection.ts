@@ -32,10 +32,16 @@ export function subscribeOpenSlackItem(f: () => void) {
   return () => void subs.delete(f);
 }
 
-/** The thread to reply in for this conversation: the ticked message's (or else the latest one's); a plain message starts one. */
+/**
+ * The thread to reply in: the ticked message's thread, or a new thread under it when it has none yet (even in an item
+ * stored as a thread, such as a group DM that came in live). With nothing ticked: the item's own thread, else the latest
+ * message's.
+ */
 export function threadFor(o: OpenSlackItem): { ts: string; m?: ThreadMessage } | null {
-  if (o.itemThreadTs) return { ts: o.itemThreadTs, m: o.messages[0] };
   const byTime = [...o.messages].sort((a, b) => a.at.localeCompare(b.at));
-  const m = byTime.filter((x) => o.selected.includes(x.id)).pop() ?? byTime.pop();
+  const picked = byTime.filter((x) => o.selected.includes(x.id)).pop();
+  if (picked) return { ts: picked.threadTs ?? picked.id, m: picked };
+  if (o.itemThreadTs) return { ts: o.itemThreadTs, m: o.messages.find((x) => x.id === o.itemThreadTs) ?? o.messages[0] };
+  const m = byTime.pop();
   return m ? { ts: m.threadTs ?? m.id, m } : null;
 }
