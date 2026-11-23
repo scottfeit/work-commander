@@ -17,28 +17,59 @@ export function adfToText(node: any): string {
   return inner;
 }
 
-/** Plain text to Atlassian Document Format. `mentions` turns each "@Name" into a real mention of that account. */
+/** Fenced ```code``` blocks and the text between them. */
+function splitFences(text: string): { code: boolean; text: string }[] {
+  const out: { code: boolean; text: string }[] = [];
+  const re = /```[^\S\n]*([^\n`]*)\n?([\s\S]*?)\n?```/g;
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index! > last) out.push({ code: false, text: text.slice(last, m.index) });
+    // ```one line``` (nothing after the opening fence on its own line) is a block too
+    out.push({ code: true, text: m[2] || m[1] });
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) out.push({ code: false, text: text.slice(last) });
+  return out;
+}
+
+/**
+ * Plain text to Atlassian Document Format. `word` becomes monospace (a code mark) and ```lines``` a code block, as when
+ * typing in Jira. `mentions` turns each "@Name" into a real mention of that account.
+ */
 export function textToAdf(text: string, mentions: { text: string; accountId: string }[] = []) {
   const ms = mentions.filter((m) => m.text && m.accountId).sort((a, b) => b.text.length - a.text.length);
   const re = ms.length ? new RegExp(`(${ms.map((m) => m.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`) : null;
-  const inline = (line: string): any[] => {
-    if (!re) return line ? [{ type: 'text', text: line }] : [];
-    return line
+  const plain = (part: string): any[] => {
+    if (!re) return part ? [{ type: 'text', text: part }] : [];
+    return part
       .split(re)
       .filter(Boolean)
-      .map((part) => {
-        const m = ms.find((x) => x.text === part);
-        return m ? { type: 'mention', attrs: { id: m.accountId, text: m.text } } : { type: 'text', text: part };
+      .map((x) => {
+        const m = ms.find((y) => y.text === x);
+        return m ? { type: 'mention', attrs: { id: m.accountId, text: m.text } } : { type: 'text', text: x };
       });
   };
-  return {
-    type: 'doc',
-    version: 1,
-    content: text.split(/\n{2,}/).map((para) => ({
-      type: 'paragraph',
-      content: para.split('\n').flatMap((line, i, arr) => [...inline(line), ...(i < arr.length - 1 ? [{ type: 'hardBreak' }] : [])]),
-    })),
-  };
+  const inline = (line: string): any[] => line.split(/`([^`\n]+)`/).flatMap((part, i) => (i % 2 ? [{ type: 'text', text: part, marks: [{ type: 'code' }] }] : plain(part)));
+  const content: any[] = [];
+  for (const seg of splitFences(text)) {
+    if (seg.code) {
+      content.push({ type: 'codeBlock', attrs: {}, content: seg.text ? [{ type: 'text', text: seg.text }] : [] });
+      continue;
+    }
+    const body = seg.text.replace(/^\n+|\n+$/g, '');
+    if (!body && content.length) continue;
+    for (const para of body.split(/\n{2,}/))
+      content.push({ type: 'paragraph', content: para.split('\n').flatMap((line, i, arr) => [...inline(line), ...(i < arr.length - 1 ? [{ type: 'hardBreak' }] : [])]) });
+  }
+  return { type: 'doc', version: 1, content: content.length ? content : [{ type: 'paragraph', content: [] }] };
+}
+
+/** The same for JSM's wiki-markup text: `word` → {{word}}, ```lines``` → {code}…{code}. */
+export function textToWiki(text: string): string {
+  return splitFences(text)
+    .map((seg) => (seg.code ? `{code}\n${seg.text}\n{code}` : seg.text.replace(/^\n+|\n+$/g, '').replace(/`([^`\n]+)`/g, (_, w: string) => `{{${w}}}`)))
+    .filter(Boolean)
+    .join('\n');
 }
 
 const FIELDS = ['summary', 'status', 'assignee', 'reporter', 'description', 'comment', 'updated', 'project', 'issuetype', 'created', 'attachment'];
@@ -216,7 +247,7 @@ export class AtlassianCloud implements TicketApi {
     const r = await this.req('POST', '/rest/servicedeskapi/request', {
       serviceDeskId: input.serviceDeskId,
       requestTypeId: input.requestTypeId,
-      requestFieldValues: { summary: input.summary, description: input.description },
+      requestFieldValues: { summary: input.summary, description: textToWiki(input.description) },
       raiseOnBehalfOf,
     });
     const key = r.issueKey as string;
@@ -264,12 +295,12 @@ export class AtlassianCloud implements TicketApi {
       const r = await this.req('POST', `/rest/servicedeskapi/request/${input.key}/attachment`, {
         temporaryAttachmentIds: tmp.temporaryAttachments.map((t) => t.temporaryAttachmentId),
         public: input.public,
-        additionalComment: { body: input.body },
+        additionalComment: { body: textToWiki(input.body) },
       });
       return { id: String(r?.comment?.id ?? '') };
     }
     if (input.flavor === 'jsm') {
-      const r = await this.req('POST', `/rest/servicedeskapi/request/${input.key}/comment`, { body: input.body, public: input.public });
+      const r = await this.req('POST', `/rest/servicedeskapi/request/${input.key}/comment`, { body: textToWiki(input.body), public: input.public });
       return { id: String(r.id) };
     }
     const r = await this.req('POST', `/rest/api/3/issue/${input.key}/comment`, { body: textToAdf(input.body, found) });
