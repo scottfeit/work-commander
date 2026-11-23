@@ -63,6 +63,12 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   const settings = new SettingsStore(db);
   const get = () => settings.get();
   const repo = new Repo(db);
+  const puEmails = async () => {
+    const pu = (await get()).pu;
+    return [pu.email, ...(pu.aliases ?? [])].filter(Boolean);
+  };
+  // New managers in the PU's lineage become VIPs when the org chart changes (once the Settings button turned that on).
+  repo.onPeopleChanged = async () => repo.vips.syncLineage(await puEmails());
   const secrets = new SecretStore(db, cfg, get);
   const attachments = new AttachmentStore(db, repo);
   const mcpOAuth = new McpOAuth({

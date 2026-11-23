@@ -120,6 +120,10 @@ async function main() {
   new ReminderScheduler({ repo: app.repo, settings: () => app.settings.get(), run: (r) => app.runner.run(r) }, (m) => f.log.warn(m)).start();
   // Timed instructions ("in 30 minutes, check…"): run on time; ones missed while WC was off wait in the chat.
   app.timers.start();
+  // VIP lineage: catch up at start and every 10 minutes too (a changed PU email, say), not only when the org chart changes.
+  const vipSync = () => void app.repo.onPeopleChanged?.().catch(() => undefined);
+  vipSync();
+  setInterval(vipSync, 10 * 60_000).unref();
 
   // On GCP, Jira webhooks arrive through the IAP-free relay service via Pub/Sub.
   if (process.env.WC_JIRA_SUBSCRIPTION) {

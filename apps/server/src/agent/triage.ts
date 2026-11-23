@@ -13,6 +13,7 @@ import { TOPIC_SPLIT_RULES, TRIAGE_BATCH_RULES, TRIAGE_RULES, playbookBlock, puB
 import { referencesPU } from '../core/mentions.js';
 import { mentionsAddedToChat } from '../core/chatHint.js';
 import { timeAgo } from '../core/time.js';
+import { startedByVip } from '../core/vip.js';
 import type { UsageEntry, UsageLog } from '../core/usage.js';
 import type { LayaService } from '../laya/service.js';
 
@@ -637,6 +638,22 @@ export class TriagePipeline {
 
   /** Steps after the decision: pick or create the stream, then draft or offer. */
   private async route(inbound: InboundItem, item: StreamItem, decision: TriageDecision, s: Settings, ask = s.triage?.newStreams === 'ask') {
+    if (!item.streamId) {
+      // Anything new a VIP starts always becomes a work stream, straight away (never a "?" tile, never "New?" to accept).
+      const all = item.data.messages ?? item.data.ticket?.comments ?? [];
+      const lastPU = all.map((m) => !!m.isFromPU).lastIndexOf(true);
+      if (startedByVip(await this.repo.vips.index(), all.slice(lastPU + 1), item.data)) {
+        ask = false;
+        if (!decision.relevant || decision.stream.action === 'none')
+          decision = {
+            ...decision,
+            relevant: true,
+            reason: `From a VIP. Triage said: ${decision.reason}`,
+            stream: decision.stream.action === 'existing' && decision.stream.streamId ? decision.stream : { action: 'new', streamId: null, title: decision.stream.title || inbound.title.slice(0, 80), summary: decision.stream.summary || decision.reason, labels: decision.stream.labels ?? [] },
+            next: decision.relevant ? decision.next : { type: 'none', instruction: '', offerLabel: null },
+          };
+      }
+    }
     if (!decision.relevant && !item.streamId) {
       // No action needed, but if triage says it belongs to an open stream, file it there anyway.
       const home = decision.stream.action === 'existing' ? decision.stream.streamId : null;

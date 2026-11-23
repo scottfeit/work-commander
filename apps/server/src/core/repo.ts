@@ -20,6 +20,7 @@ import type {
 import type { Database, DB } from '../db/index.js';
 import { j, now, pj } from '../db/index.js';
 import { bus } from './bus.js';
+import { Vips, vipActivity, type VipIndex } from './vip.js';
 import { slackBaseOf, slackMessageUrl } from '../integrations/slackUrl.js';
 
 /** Where a draft goes: two pending drafts with the same target are versions of one message. null = not comparable. */
@@ -54,7 +55,37 @@ type ProposalRow = DB['proposals'];
 /** Data access for streams, items, proposals and chat. Every mutation publishes a bus event. */
 export class Repo {
   private runStates = new Map<string, WorkStream['runState']>();
-  constructor(public db: Database) {}
+  /** VIPs: who they are, and the managerial-lineage sync. */
+  readonly vips: Vips;
+  constructor(public db: Database) {
+    this.vips = new Vips(db);
+  }
+  private vipMemo = new Map<string, { key: string; idx: VipIndex; act: ReturnType<typeof vipActivity> }>();
+
+  /**
+   * The red VIP chip: a VIP wrote in this (open) stream, and it isn't dealt with yet. It stays, read or unread, until someone else
+   * has written after the VIP and the stream has been read since; then it is cleared for those messages.
+   */
+  private async streamVip(r: StreamRow): Promise<boolean> {
+    if (r.status !== 'open') return false;
+    const idx = await this.vips.index();
+    if (!idx.emails.size) return false;
+    const stamps = await this.db.selectFrom('items').select(['id', 'updated_at']).where('stream_id', '=', r.id).execute();
+    const key = stamps.map((x) => `${x.id}@${x.updated_at}`).sort().join('|');
+    let memo = this.vipMemo.get(r.id);
+    if (!memo || memo.key !== key || memo.idx !== idx) {
+      const rows = await this.db.selectFrom('items').select('data').where('stream_id', '=', r.id).execute();
+      memo = { key, idx, act: vipActivity(rows, idx) };
+      this.vipMemo.set(r.id, memo);
+    }
+    const { vipAt, otherAfter } = memo.act;
+    if (vipAt === null || (r.vip_cleared_at != null && vipAt <= r.vip_cleared_at)) return false;
+    if (!r.unread && otherAfter) {
+      await this.db.updateTable('streams').set({ vip_cleared_at: vipAt }).where('id', '=', r.id).execute();
+      return false;
+    }
+    return true;
+  }
 
   // ---------- streams ----------
   private async toStream(r: StreamRow): Promise<WorkStream> {
@@ -110,6 +141,7 @@ export class Repo {
         .orderBy('run_at')
         .execute()
         .then((rows) => rows.map((t) => ({ id: t.id, instruction: t.instruction, at: t.run_at, status: t.status as 'waiting' | 'missed' | 'running' }))),
+      vip: await this.streamVip(r),
       waitingOn: r.pending ? pj<{ who: string; since: string } | null>(r.waiting_on ?? null, null) : null,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
@@ -1246,6 +1278,7 @@ export class Repo {
     return r ? toPerson(r) : null;
   }
   async replacePeople(source: Person['source'], people: Omit<Person, 'id' | 'source'>[]) {
+    this.vips.invalidate();
     await this.db.transaction().execute(async (tx) => {
       await tx.deleteFrom('people').where('source', '=', source).execute();
       for (const p of people) {
@@ -1265,7 +1298,11 @@ export class Repo {
           .execute();
       }
     });
+    this.vips.invalidate();
+    await this.onPeopleChanged?.().catch(() => undefined);
   }
+  /** Set by the app: runs after the org chart changes (new managers in the PU's lineage become VIPs). */
+  onPeopleChanged?: () => Promise<unknown>;
 
   // ---------- sync state & audit ----------
   async getSync(key: string) {

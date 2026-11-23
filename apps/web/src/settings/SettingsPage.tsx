@@ -636,9 +636,31 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
   const [sync, setSync] = useState<OrgChartSyncStatus>({});
   const [updating, setUpdating] = useState(false);
   const loadSync = () => get<OrgChartSyncStatus>('/api/orgchart/sync').then(setSync).catch(() => undefined);
+  // VIPs: email → VIP or not (false = removed by hand). Saved right away, apart from the other settings.
+  const [vips, setVips] = useState<Record<string, boolean>>({});
+  const [lineage, setLineage] = useState(false);
+  const [vipMsg, setVipMsg] = useState<string | null>(null);
+  const loadVips = () =>
+    get<{ list: { email: string; vip: boolean }[]; followingLineage: boolean }>('/api/vips')
+      .then((r) => {
+        setVips(Object.fromEntries(r.list.map((v) => [v.email, v.vip])));
+        setLineage(r.followingLineage);
+      })
+      .catch(() => undefined);
+  const setVip = async (email: string, vip: boolean) => {
+    setVips((v) => ({ ...v, [email.toLowerCase()]: vip }));
+    await post('/api/vips', { email, vip }).catch(() => loadVips());
+  };
+  const followLineage = async () => {
+    const r = await post<{ added: string[] }>('/api/vips/lineage').catch((e) => (setVipMsg(e.message), null));
+    if (!r) return;
+    setVipMsg(r.added.length ? `Made ${r.added.length} manager${r.added.length === 1 ? '' : 's'} VIP${r.added.length === 1 ? '' : 's'}.` : 'No managers found above you in the org chart yet. They become VIPs when they appear.');
+    void loadVips();
+  };
   useEffect(() => {
     void loadPeople();
     void loadSync();
+    void loadVips();
   }, []);
   const updateNow = async () => {
     setOut(null);
@@ -836,6 +858,22 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
         </>
       )}
       <h3>People · {people.length}</h3>
+      <div className="vip-lineage">
+        {lineage ? (
+          <span className="small">
+            <span className="chip vip-chip">VIP</span> Your managers are VIPs, up to the top of the org chart, and new ones become VIPs when they appear. You can still change anyone below.
+          </span>
+        ) : (
+          <>
+            <button className="btn small" onClick={() => void followLineage()} title="Makes everyone above you in the org chart a VIP, and any manager who joins your chain later. This can't be turned off, but you can untick anyone.">
+              Make my managers VIPs
+            </button>
+            <span className="small muted">Your manager, their manager, and so on, now and in future.</span>
+          </>
+        )}
+        {vipMsg && <div className="small ok">{vipMsg}</div>}
+      </div>
+      <p className="small muted">VIPs: a work stream with a message from one gets a red VIP chip, and anything new a VIP starts always becomes a work stream.</p>
       <input className="search" placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />
       <table className="table">
         <thead>
@@ -846,6 +884,7 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
             <th>Department</th>
             <th>Manager</th>
             <th>Source</th>
+            <th>VIP</th>
           </tr>
         </thead>
         <tbody>
@@ -857,6 +896,9 @@ function PuSection({ s, up, credProps }: { s: Settings; up: Up; credProps: any }
               <td>{p.department}</td>
               <td>{p.managerEmail}</td>
               <td className="small muted">{p.source}</td>
+              <td>
+                <input type="checkbox" aria-label={`VIP: ${p.name}`} checked={!!vips[p.email.toLowerCase()]} onChange={(e) => void setVip(p.email, e.target.checked)} />
+              </td>
             </tr>
           ))}
         </tbody>

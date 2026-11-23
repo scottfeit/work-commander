@@ -1000,6 +1000,27 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
     const st = await refreshOrgChart({ repo, secrets, settings: () => settings.get() });
     return st;
   });
+  // ---------- VIPs ----------
+  const puEmails = async () => {
+    const pu = (await settings.get()).pu;
+    return [pu.email, ...(pu.aliases ?? [])].filter(Boolean);
+  };
+  f.get('/api/vips', async () => {
+    await repo.vips.syncLineage(await puEmails());
+    return { list: await repo.vips.list(), followingLineage: await repo.vips.followingLineage() };
+  });
+  f.post('/api/vips', async (req) => {
+    const b = z.object({ email: z.string().min(3), vip: z.boolean() }).parse(req.body);
+    await repo.vips.set(b.email, b.vip);
+    await repo.audit('pu', b.vip ? 'vip.added' : 'vip.removed', { email: b.email.toLowerCase() });
+    return { ok: true };
+  });
+  f.post('/api/vips/lineage', async () => {
+    const added = await repo.vips.followLineage(await puEmails());
+    await repo.audit('pu', 'vip.lineage', { added });
+    return { added };
+  });
+
   f.post('/api/people', async (req) => {
     const b = z.object({ name: z.string(), email: z.string(), title: z.string().optional(), department: z.string().optional(), managerEmail: z.string().optional() }).parse(req.body);
     const existing = (await repo.listPeople()).filter((p) => p.source === 'manual').map(({ id: _id, source: _s, ...rest }) => rest);

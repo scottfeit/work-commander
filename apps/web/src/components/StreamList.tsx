@@ -198,6 +198,11 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         {s.pending && s.waitingOn && <div className="stream-waiting">Waiting on {s.waitingOn.who} · {waitedFor(s.waitingOn.since)}</div>}
         {s.summary && <div className="stream-summary">{s.summary}</div>}
         <div className="stream-meta">
+          {s.vip && (
+            <span className="chip vip-chip" title="A VIP wrote here. Goes away once someone else has replied after them and you've read the work stream.">
+              VIP
+            </span>
+          )}
           {s.runState === 'running' && <span className="chip running">working…</span>}
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
           {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}

@@ -46,6 +46,8 @@ export interface DB {
     untitled: number | null;
     /** JSON { who, since }: who a Pending stream is waiting on. */
     waiting_on: string | null;
+    /** VIP messages up to this time are dealt with (someone else replied and the stream was read since): no VIP chip for them. */
+    vip_cleared_at?: string | null;
     created_at: string;
     updated_at: string;
     closed_at: string | null;
@@ -118,6 +120,8 @@ export interface DB {
   /** Work handed off to Claude Code; RESULT.md in `folder` is brought back automatically. */
   handoffs: { id: string; stream_id: string; folder: string; created_at: string; result_mtime: string | null; returned_at: string | null };
   /** Timed instructions ("in 30 minutes, check…"): waiting, running, done, cancelled or missed (WC wasn't running then). */
+  /** VIPs (by email). vip = 0 is a VIP removed by hand, which the managerial-lineage sync leaves alone. origin: 'manual' | 'lineage'. */
+  vips: { email: string; vip: number; origin: string; updated_at: string };
   timers: { id: string; stream_id: string; instruction: string; run_at: string; status: string; chat_id: string | null; created_at: string; done_at: string | null };
   /** Files attached to drafts (uploaded by the PU or taken from a Claude Code hand-off folder). `data` is base64 so it works on SQLite and Postgres alike. */
   attachments: { id: string; stream_id: string | null; filename: string; mime_type: string; size: number; source: string; data: string; created_at: string };
@@ -355,6 +359,14 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     .addColumn('returned_at', 'text')
     .execute();
   await s
+    .createTable('vips')
+    .ifNotExists()
+    .addColumn('email', 'text', (c) => c.primaryKey())
+    .addColumn('vip', 'integer', (c) => c.notNull())
+    .addColumn('origin', 'text', (c) => c.notNull())
+    .addColumn('updated_at', 'text', (c) => c.notNull())
+    .execute();
+  await s
     .createTable('timers')
     .ifNotExists()
     .addColumn('id', 'text', (c) => c.primaryKey())
@@ -471,6 +483,7 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS reopened_at text`.execute(db);
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS untitled integer`.execute(db);
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS waiting_on text`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS vip_cleared_at text`.execute(db);
   } else {
     const cols = await sql<{ name: string }>`PRAGMA table_info(streams)`.execute(db);
     if (!cols.rows.some((c) => c.name === 'pending')) await sql`ALTER TABLE streams ADD COLUMN pending integer NOT NULL DEFAULT 0`.execute(db);
@@ -482,6 +495,7 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     if (!cols.rows.some((c) => c.name === 'reopened_at')) await sql`ALTER TABLE streams ADD COLUMN reopened_at text`.execute(db);
     if (!cols.rows.some((c) => c.name === 'untitled')) await sql`ALTER TABLE streams ADD COLUMN untitled integer`.execute(db);
     if (!cols.rows.some((c) => c.name === 'waiting_on')) await sql`ALTER TABLE streams ADD COLUMN waiting_on text`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'vip_cleared_at')) await sql`ALTER TABLE streams ADD COLUMN vip_cleared_at text`.execute(db);
   }
 }
 

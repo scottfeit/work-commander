@@ -92,6 +92,8 @@ export interface WorkStream {
   timers?: StreamTimer[];
   /** Pending: who it's waiting on (from your last message), and since when. */
   waitingOn?: { who: string; since: string } | null;
+  /** A VIP wrote here and it isn't dealt with yet (the red VIP chip). */
+  vip?: boolean;
   runState: 'idle' | 'running' | 'waiting_approval';
 }
 
