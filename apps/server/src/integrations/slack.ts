@@ -326,6 +326,25 @@ export class SlackWorkspace implements ChatApi {
     }
   }
 
+  /** The timestamp of the message Slack made for an upload (the upload call does not return it): from the file's shares, else the conversation. */
+  async sharedMessageTs(channel: string, up: any, threadTs?: string): Promise<string> {
+    const ids: string[] = ((up?.files ?? []) as any[]).flatMap((f) => (f?.files ?? [f]) as any[]).map((f) => f?.id).filter(Boolean);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      for (const id of ids) {
+        const info: any = await this.web.files.info({ file: id }).catch(() => null);
+        const shares = { ...(info?.file?.shares?.public ?? {}), ...(info?.file?.shares?.private ?? {}) };
+        const ts = (shares[channel] as any[] | undefined)?.[0]?.ts;
+        if (ts) return String(ts);
+      }
+      // Shares can lag behind a little: look for the message that carries the file.
+      const recent: any = await (threadTs ? this.web.conversations.replies({ channel, ts: threadTs, limit: 15 }) : this.web.conversations.history({ channel, limit: 15 })).catch(() => null);
+      const hit = ((recent?.messages ?? []) as any[]).filter((m) => (m.files ?? []).some((f: any) => ids.includes(f.id))).sort((x, y) => Number(y.ts) - Number(x.ts))[0];
+      if (hit) return String(hit.ts);
+      await new Promise((r) => setTimeout(r, attempt < 2 ? 400 : 1000));
+    }
+    throw new Error('The message was sent with its files, but Slack did not say where it landed');
+  }
+
   async postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string; files?: OutFile[] }) {
     let channel = input.channel;
     if (!channel) {
@@ -334,16 +353,22 @@ export class SlackWorkspace implements ChatApi {
       const dm = await this.web.conversations.open({ users: uid });
       channel = dm.channel!.id!;
     }
-    const r = await this.web.chat.postMessage({ channel, text: input.text, thread_ts: input.threadTs });
+    let ts: string;
     if (input.files?.length) {
-      // Files go in the same thread as the message (a new thread under it when the message is top-level).
+      // One message: the text goes in as the upload's own comment, so the files are attached to it (not a separate post, and not a
+      // thread of their own under it).
+      let up: any;
       try {
-        await this.web.files.uploadV2({ channel_id: channel, thread_ts: input.threadTs ?? r.ts!, file_uploads: input.files.map((f) => ({ file: f.data, filename: f.filename })) } as any);
+        up = await this.web.files.uploadV2({ channel_id: channel, initial_comment: input.text, ...(input.threadTs ? { thread_ts: input.threadTs } : {}), file_uploads: input.files.map((f) => ({ file: f.data, filename: f.filename })) } as any);
       } catch (e: any) {
         const scope = /missing_scope|not_allowed_token_type/.test(e?.data?.error ?? e?.message ?? '');
-        throw new Error(`Message posted, but attaching files failed: ${scope ? 'the Slack app needs the files:write user scope (update it from deploy/slack-app-manifest.yaml and reinstall)' : e.message}`);
+        throw new Error(`Could not send the message with its files: ${scope ? 'the Slack app needs the files:write user scope (update it from deploy/slack-app-manifest.yaml and reinstall)' : e.message}`);
       }
+      ts = await this.sharedMessageTs(channel, up, input.threadTs);
+    } else {
+      ts = (await this.web.chat.postMessage({ channel, text: input.text, thread_ts: input.threadTs })).ts!;
     }
+    const r = { ts };
     let permalink: string | undefined;
     try {
       permalink = (await this.web.chat.getPermalink({ channel, message_ts: r.ts! })).permalink as string;
