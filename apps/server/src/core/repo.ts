@@ -142,6 +142,7 @@ export class Repo {
         .execute()
         .then((rows) => rows.map((t) => ({ id: t.id, instruction: t.instruction, at: t.run_at, status: t.status as 'waiting' | 'missed' | 'running' }))),
       vip: await this.streamVip(r),
+      timerDone: pj<WorkStream['timerDone']>(r.timer_done ?? null, null),
       waitingOn: r.pending ? pj<{ who: string; since: string } | null>(r.waiting_on ?? null, null) : null,
       runState: rs === 'idle' && pendingN > 0 ? 'waiting_approval' : rs,
     };
@@ -173,6 +174,18 @@ export class Repo {
     if (r.unread && fromOther) return `New message from ${fromOther}`;
     if (r.unread && Date.now() - Date.parse(r.created_at) < 86_400_000) return 'New work stream';
     return null;
+  }
+
+  /** A timed instruction finished (ok) or failed: the ⏱ chip on the tile, until the PU next opens the stream. */
+  async setTimerDone(id: string, done: { instruction: string; at: string; ok: boolean }) {
+    await this.db.updateTable('streams').set({ timer_done: j(done) }).where('id', '=', id).execute();
+  }
+  async clearTimerDone(id: string) {
+    const r = await this.db.updateTable('streams').set({ timer_done: null }).where('id', '=', id).where('timer_done', 'is not', null).executeTakeFirst();
+    if (Number(r.numUpdatedRows) > 0) {
+      const st = await this.getStream(id);
+      if (st) bus.publish({ type: 'stream.updated', stream: st });
+    }
   }
 
   async setWaitingOn(id: string, w: { who: string; since: string } | null) {

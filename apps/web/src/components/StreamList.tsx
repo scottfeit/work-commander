@@ -206,6 +206,14 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
           {s.runState === 'running' && <span className="chip running">working…</span>}
           {s.pendingProposals > 0 && <span className="chip attention">{s.pendingProposals} to review</span>}
           {s.reminderAt && <span className="chip reminder" title="This was Pending and nothing has happened for a while">Reminder</span>}
+          {s.timerDone && (
+            <span
+              className={`chip timer-done-chip ${s.timerDone.ok ? 'is-done' : 'is-failed'}`}
+              title={`${s.timerDone.ok ? 'Timed instruction done' : 'Timed instruction failed'} ${new Date(s.timerDone.at).toLocaleString()}: ${s.timerDone.instruction}. Goes away when you open the work stream.`}
+            >
+              <span aria-hidden="true">⏱{s.timerDone.ok ? '✓' : '!'}</span> {s.timerDone.ok ? 'done' : 'failed'}
+            </span>
+          )}
           {(s.timers ?? []).map((t) => (
             <span key={t.id} className={`chip timer-chip ${t.status}`} title={`Timed instruction: ${t.instruction}`}>
               <span aria-hidden="true">⏱</span> {t.status === 'missed' ? 'missed' : t.status === 'running' ? 'running' : timerWhen(t.at)}

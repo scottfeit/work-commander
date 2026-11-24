@@ -511,6 +511,13 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
   // Timed instructions: cancel one, or run a missed one now.
   f.post('/api/timers/:id/cancel', async (req) => ({ ok: await app.timers.cancel((req.params as any).id) }));
   f.post('/api/timers/:id/run', async (req) => ({ ok: await app.timers.runNow((req.params as any).id) }));
+  // A timer Claude suggested: Set timer (No thanks is /cancel).
+  f.post('/api/timers/:id/approve', async (req) => ({ ok: await app.timers.approve((req.params as any).id) }));
+  // You opened the stream: the "timer complete" chip goes.
+  f.post('/api/streams/:id/opened', async (req) => {
+    await repo.clearTimerDone((req.params as any).id);
+    return { ok: true };
+  });
   // System-wide Undo (your last three actions).
   f.get('/api/undo', async () => undo.info());
   f.post('/api/undo', async () => ({ undone: await undo.undo(), ...(await undo.info()) }));
@@ -698,7 +705,7 @@ export async function registerRoutes(f: FastifyInstance, app: App) {
       const q = await repo.getChat(b.answersQuestionId);
       if (q) await repo.updateChatMeta(q.id, { ...q.meta, question: { ...q.meta.question, answered: true } });
     }
-    void runner.run({ streamId, prompt: b.text, origin: 'user', selectedItemId: b.selectedItemId });
+    void runner.run({ streamId, prompt: b.text, origin: 'user', selectedItemId: b.selectedItemId, puMessage: b.text });
     return reply.code(202).send({ ok: true });
   });
   f.post('/api/chat/:id/suggestion', async (req) => {

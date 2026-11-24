@@ -131,6 +131,10 @@ export class ScriptedBackend implements AgentBackend {
       const m = /\b(in \d+ (?:minutes?|hours?)),\s*([^\n"\]]*)/i.exec(p)!;
       await call('set_timer', { when: m[1], instruction: m[2].trim() || 'do that' });
       text = await say(`Will do: I'll ${m[2] || 'do that'} then.`);
+    } else if (/keep an eye on this/i.test(p)) {
+      // Claude thinks a timer would help, though the PU didn't ask for one: it can only be suggested
+      await call('set_timer', { when: 'in 1 hour', instruction: 'check for new replies on this thread' });
+      text = await say("I'd check back in an hour for new replies; I've suggested a timer for that.");
     } else if (/^\[A timed instruction the PU set earlier is due now/.test(p)) {
       text = await say('Checked: no new tickets on this topic yet.');
     } else if (p.startsWith('[Dashboard event]')) {

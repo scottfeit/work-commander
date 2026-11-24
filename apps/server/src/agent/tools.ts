@@ -19,6 +19,16 @@ export interface ToolContext {
   runId: string;
   /** Auto drafts are off and the PU didn't ask for this turn: Claude may offer a draft (offer_draft) but not make one. */
   offerOnly?: boolean;
+  /** The PU's chat message that started this turn, if one did. */
+  puMessage?: string;
+}
+
+/** Words that say when: the PU's message asks for something at a later time. */
+const TIME_ASK = /\b(in\s+(a|an|\d+|a few|a couple of?|half an)\s*(sec|min|minute|hour|hr|day|week|month)|minutes?|hours?|hrs?\b|tomorrow|tonight|today|later|this (morning|afternoon|evening)|next (week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(on|by|at)\s+(mon|tue|wed|thu|fri|sat|sun)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|end of (the )?(day|week)|eod|eow|noon|midnight|remind|timer|at\s+\d|\d\s*(am|pm)\b|\d{1,2}:\d{2})/i;
+
+/** May Claude set a timer straight away? Only when the PU asked for one in the chat message that started this turn. */
+export function timerAskedFor(puMessage: string | undefined) {
+  return !!puMessage && TIME_ASK.test(puMessage);
 }
 
 /** Proposal kinds that are drafts of something sent or changed elsewhere (what "Draft automatically" governs). */
@@ -40,7 +50,7 @@ export interface ToolDeps {
   /** Hand-off to Claude Code is available (Work Commander runs on the PU's own machine). */
   canHandoff?: boolean;
   /** Sets a timed instruction on a stream ("in 30 minutes", "at 3pm"). */
-  setTimer?: (streamId: string, when: string, instruction: string, runId?: string) => Promise<{ at: string; note?: string | null }>;
+  setTimer?: (streamId: string, when: string, instruction: string, runId?: string, suggest?: boolean) => Promise<{ at: string; note?: string | null }>;
 }
 
 type RawTool = ToolDef & { kind?: ProposalKind };
@@ -323,7 +333,7 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
   add({
     name: 'set_timer',
     description:
-      'Set a timed instruction: when the PU asks you to do something later in this stream ("in 30 minutes, check for tickets on this topic", "at 3pm remind me to…", "tomorrow morning, see if Lee replied"). At that time you are asked to carry it out, as if the PU had just asked. Do not do the work now. when: the time as the PU said it ("in 30 minutes", "at 3pm", "tomorrow 9am"). instruction: what to do then, self-contained.',
+      'Set a timed instruction: when the PU asks you in the chat to do something later in this stream ("in 30 minutes, check for tickets on this topic", "at 3pm remind me to…", "tomorrow morning, see if Lee replied"). At that time you are asked to carry it out, as if the PU had just asked. Do not do the work now. when: the time as the PU said it ("in 30 minutes", "at 3pm", "tomorrow 9am"). instruction: what to do then, self-contained. If the PU did not ask for a timer, you may still use this to SUGGEST one when it would clearly help: it is then only offered to the PU with Set timer / No thanks buttons, and nothing is set unless they approve.',
     shape: { when: z.string(), instruction: z.string() },
     access: 'internal',
     system: 'internal',
@@ -331,7 +341,10 @@ export async function buildTools(ctx: ToolContext, d: ToolDeps): Promise<ToolDef
       if (!ctx.streamId) return 'Timed instructions belong to a work stream: ask the PU which one, or do it in that stream.';
       if (!d.setTimer) return 'Timed instructions are not available here.';
       try {
-        const t = await d.setTimer(ctx.streamId, a.when, a.instruction, ctx.runId);
+        // Never set unprompted: unless the PU's own message asked for something later, it's only suggested.
+        const suggest = !timerAskedFor(ctx.puMessage);
+        const t = await d.setTimer(ctx.streamId, a.when, a.instruction, ctx.runId, suggest);
+        if (suggest) return `Not set: the PU didn't ask for a timer, so it is offered to them in the chat for ${new Date(t.at).toString()}${t.note ? ` (${t.note})` : ''}, with Set timer / No thanks buttons. Nothing runs unless they approve. Say in one sentence why you suggest it, then end your turn.`;
         return `Timer set for ${new Date(t.at).toString()}${t.note ? ` (${t.note})` : ''}. It shows in the chat and on the stream, and the PU can cancel it there. Tell the PU in one sentence when it will run, then end your turn.`;
       } catch (e: any) {
         return `Could not set the timer: ${e.message}. Ask the PU when they mean.`;

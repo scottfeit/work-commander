@@ -204,6 +204,8 @@ export class AtlassianCloud implements TicketApi {
           requester: f.reporter?.emailAddress ?? f.reporter?.displayName,
           description: adfToText(f.description).trim(),
           flavor: isJsm ? 'jsm' : 'jira',
+          ...(f.created ? { created: String(f.created) } : {}),
+          ...(f.updated ? { updated: String(f.updated) } : {}),
           comments,
           attachments: (f.attachment ?? []).filter((a: any) => a?.id && a.content).map((a: any) => ({ id: String(a.id), name: String(a.filename ?? 'file'), mimeType: String(a.mimeType ?? 'application/octet-stream'), size: typeof a.size === 'number' ? a.size : undefined, ref: String(a.content) })),
         },

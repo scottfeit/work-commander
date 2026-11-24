@@ -44,6 +44,8 @@
   --pu-bg: #f3f5ff;
   --vip: #c62828; /* the VIP chip: a plain red, so it reads as urgent (the brand's "red" is magenta) */
   --vip-ink: #ffffff;
+  --done: #1b7f37; /* the "timer complete" chip: a plain green (the brand's green is teal) */
+  --done-ink: #ffffff;
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* Gibson (Book and SemiBold) when installed; otherwise the system font */
@@ -71,6 +73,8 @@
     --err: #ff6e90;
     --vip: #ff5252;
     --vip-ink: #000000;
+    --done: #4cd964;
+    --done-ink: #000000;
     --attn: #ffffff;
     --attn-bg: #161922;
     --attn-mark: #ffdb30;
@@ -160,7 +164,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .stream.active { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), 0 1px 3px rgba(0,0,0,.08); }
 .stream.active:hover { background: var(--accent-soft); }
 /* Chips on a card: the sidebar is Grey 8 and so was the chip, so they vanished. Lift them to the panel colour with a firmer border. */
-.sidebar .stream .chip:not(.running):not(.new-chip):not(.demo):not(.vip-chip) { background: var(--panel); border: 1px solid var(--line-2); }
+.sidebar .stream .chip:not(.running):not(.new-chip):not(.demo):not(.vip-chip):not(.timer-done-chip) { background: var(--panel); border: 1px solid var(--line-2); }
 .sidebar .stream .chip.running { border: 1px solid var(--accent); }
 .stream.closed { opacity: .65; }
 .stream.general { display: flex; justify-content: space-between; margin: 0 6px; width: calc(100% - 12px); }
@@ -240,6 +244,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .ticket-fields div { min-width: 0; }
 .ticket-fields dd.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-form { margin: 0 0 12px; }
+.ticket-dates { margin: -4px 0 8px; }
 /* a forwarded Slack message: indented under a bar, as Slack shows it */
 .btn.small.icon-only { display: inline-flex; align-items: center; justify-content: center; padding-left: 8px; padding-right: 8px; }
 .forwarded { margin: 6px 0 4px; padding: 2px 0 2px 12px; border-left: 4px solid var(--line-2); }
@@ -826,5 +831,8 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .timer-bubble { border-left: 3px solid var(--cta); }
 .timer-bubble.done, .timer-bubble.cancelled { opacity: .7; }
 .timer-bubble .actions { display: flex; gap: 6px; margin-top: 6px; }
+.chip.timer-done-chip { font-weight: 600; }
+.sidebar .stream .chip.timer-done-chip.is-done, .chip.timer-done-chip.is-done { background: var(--done); border-color: var(--done); color: var(--done-ink); }
+.sidebar .stream .chip.timer-done-chip.is-failed, .chip.timer-done-chip.is-failed { background: var(--vip); border-color: var(--vip); color: var(--vip-ink); }
 .chip.timer-chip { background: var(--attn-bg); border-color: transparent; color: var(--strong); font-weight: 600; }
 .chip.timer-chip.missed::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 5px; background: var(--attn-mark); vertical-align: 1px; }

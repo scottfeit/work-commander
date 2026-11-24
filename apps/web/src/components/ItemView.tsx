@@ -305,6 +305,13 @@ function SlackSelection({ item, enabled, order, children }: { item: StreamItem; 
   );
 }
 
+/** A ticket's Created / Updated time: "Nov 20, 9:14 AM", with the year when it isn't this year. */
+export function ticketTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString([], { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}), hour: 'numeric', minute: '2-digit' });
+}
+
 /** A message forwarded from another Slack conversation, inside the message that forwarded it (as Slack shows it). */
 function Forwarded({ f, itemId }: { f: ForwardedMessage; itemId?: string }) {
   return (
@@ -536,6 +543,13 @@ export function ItemView({
       </div>
       {t ? (
         <>
+          {(t.created || t.updated) && (
+            <div className="ticket-dates small muted">
+              {t.created && <>Created {ticketTime(t.created)}</>}
+              {t.created && t.updated && ' · '}
+              {t.updated && <>Updated {ticketTime(t.updated)}</>}
+            </div>
+          )}
           <dl className="ticket-fields">
             <div><dt>Status</dt><dd><TicketStatus item={item} status={t.status} /></dd></div>
             {/* long values are cut with … and shown whole on hover */}

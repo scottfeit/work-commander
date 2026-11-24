@@ -26,6 +26,14 @@ export interface TurnRequest {
   purpose?: 'chat' | 'draft' | 'handoff' | 'review';
   /** A turn the PU didn't start may create drafts even when automatic drafts are off (used to file a draft Claude Code already wrote). */
   allowDrafts?: boolean;
+  /** The PU's own chat message that started this turn (only then may Claude set a timer without asking). */
+  puMessage?: string;
+}
+
+/** How a turn ended. */
+export interface TurnResult {
+  ok: boolean;
+  error?: string;
 }
 
 /**
@@ -51,7 +59,7 @@ export class StreamAgentRunner {
   }
 
   /** Queue a turn; resolves when the turn finishes. */
-  run(req: TurnRequest) {
+  run(req: TurnRequest): Promise<TurnResult> {
     const key = req.streamId ?? '__general__';
     const prev = this.queues.get(key) ?? Promise.resolve();
     const next = prev.catch(() => undefined).then(() => this.execTurn(req));
@@ -174,7 +182,8 @@ export class StreamAgentRunner {
     return chat.length ? `\n\n(Previous session unavailable; recent conversation recap)\n${chat.map((m) => `${m.role}: ${m.content.slice(0, 500)}`).join('\n')}` : '';
   }
 
-  private async execTurn(req: TurnRequest) {
+  private async execTurn(req: TurnRequest): Promise<TurnResult> {
+    let result: TurnResult = { ok: true };
     const runId = `r_${nanoid(8)}`;
     const { streamId } = req;
     this.activeRuns.add(runId);
@@ -186,7 +195,7 @@ export class StreamAgentRunner {
     try {
       // Auto drafts off: a turn the PU didn't start (new activity, a hand-off coming back) may only offer drafts.
       const offerOnly = req.origin === 'system' && !req.allowDrafts && !(await this.settings()).claude.autoDraft;
-      const tools = await buildTools({ streamId, runId, offerOnly }, this.toolDeps);
+      const tools = await buildTools({ streamId, runId, offerOnly, puMessage: req.puMessage }, this.toolDeps);
       const external = await this.externalServers();
       const systemPrompt = await this.systemPrompt(streamId, req.selectedItemId);
       const prefix =
@@ -218,6 +227,7 @@ export class StreamAgentRunner {
       if (final) await this.repo.addChat({ streamId, role: 'assistant', content: final, meta: { runId, toolCalls } });
       bus.publish({ type: 'run.state', streamId, runId, state: 'done' });
     } catch (e: any) {
+      result = { ok: false, error: e.message };
       await this.repo.addChat({ streamId, role: 'system', content: `Agent error: ${e.message}`, meta: { runId } });
       bus.publish({ type: 'run.state', streamId, runId, state: 'error', error: e.message });
     } finally {
@@ -237,6 +247,7 @@ export class StreamAgentRunner {
         }
       }
     }
+    return result;
   }
 
   private reported = new Set<string>();

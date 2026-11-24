@@ -342,7 +342,7 @@ function TimerBubble({ m }: { m: ChatMessage }) {
   const t = m.meta.timer!;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const act = async (what: 'cancel' | 'run') => {
+  const act = async (what: 'cancel' | 'run' | 'approve') => {
     setBusy(true);
     setErr(null);
     try {
@@ -353,14 +353,34 @@ function TimerBubble({ m }: { m: ChatMessage }) {
       setBusy(false);
     }
   };
+  // Claude suggested it (you didn't ask): it waits for Set timer / No thanks, and nothing counts down until then.
+  const suggested = m.content.startsWith('Suggested');
   const when = new Date(t.at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  const state = { waiting: `Runs ${when}`, running: 'Running now…', done: `Ran ${when}`, cancelled: 'Cancelled', missed: `Missed: it was due ${when}, while Work Commander wasn't running` }[t.status];
+  const state = {
+    suggested: `Would run ${when}`,
+    waiting: `Runs ${when}`,
+    running: 'Running now…',
+    done: `Ran ${when}`,
+    failed: `Failed at ${when}`,
+    cancelled: suggested ? 'Not set' : 'Cancelled',
+    missed: `Missed: it was due ${when}, while Work Commander wasn't running`,
+  }[t.status];
   return (
-    <div className={`bubble timer-bubble ${t.status}`} role="group" aria-label="Timed instruction">
+    <div className={`bubble timer-bubble ${t.status}`} role="group" aria-label={t.status === 'suggested' ? 'Suggested timed instruction' : 'Timed instruction'}>
       <div className="small">
-        <span className="timer-icon" aria-hidden="true">⏱</span> <b>Timed instruction</b> · {state}
+        <span className="timer-icon" aria-hidden="true">⏱</span> <b>{suggested ? 'Suggested timed instruction' : 'Timed instruction'}</b> · {state}
       </div>
       <div className="body">{t.instruction}</div>
+      {t.status === 'suggested' && (
+        <div className="actions">
+          <button type="button" className="btn small primary" disabled={busy} onClick={() => void act('approve')}>
+            Set timer
+          </button>
+          <button type="button" className="btn small" disabled={busy} onClick={() => void act('cancel')}>
+            No thanks
+          </button>
+        </div>
+      )}
       {(t.status === 'waiting' || t.status === 'missed') && (
         <div className="actions">
           {t.status === 'missed' && (

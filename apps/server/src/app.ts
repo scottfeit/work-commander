@@ -101,7 +101,7 @@ export async function createApp(cfg: AppConfig, o: AppOverrides = {}): Promise<A
   const backend = o.backend ? o.backend(partial) : new ClaudeAgentBackend(cfg, get, secrets, usage, sync);
   const runner = new StreamAgentRunner(repo, backend, hub, executor, secrets, get, toolDeps, usage);
   const timers = new TimerService({ repo, backend, run: (r) => runner.run(r) });
-  toolDeps.setTimer = (streamId, when, instruction, runId) => timers.create(streamId, when, instruction, runId);
+  toolDeps.setTimer = (streamId, when, instruction, runId, suggest) => timers.create(streamId, when, instruction, runId, suggest);
   let laya: LayaService;
   const layaManager = new LayaManager(cfg.dataDir, () => laya?.notify());
   laya = new LayaService(db, repo, layaManager, get, cfg.hosting === 'local');

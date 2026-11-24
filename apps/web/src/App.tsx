@@ -209,6 +209,8 @@ export function App() {
     });
     // Opening a stream marks it read, unless you mark streams Read yourself (Settings → Display).
     if (selected !== GENERAL_STREAM && !manualStreamReadRef.current) void patch(`/api/streams/${selected}`, { unread: false }).catch(() => undefined);
+    // ...and clears its "timer complete" chip (whatever the read setting)
+    if (selected !== GENERAL_STREAM) void post(`/api/streams/${selected}/opened`).catch(() => undefined);
   }, [selected, loadSelected]);
 
   const toast = useCallback((t: Omit<Toast, 'id'>) => {

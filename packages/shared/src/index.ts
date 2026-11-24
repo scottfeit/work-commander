@@ -92,6 +92,8 @@ export interface WorkStream {
   timers?: StreamTimer[];
   /** Pending: who it's waiting on (from your last message), and since when. */
   waitingOn?: { who: string; since: string } | null;
+  /** A timed instruction finished (or failed) since the PU last opened the stream: the green (or red) ⏱ chip. */
+  timerDone?: { instruction: string; at: string; ok: boolean } | null;
   /** A VIP wrote here and it isn't dealt with yet (the red VIP chip). */
   vip?: boolean;
   runState: 'idle' | 'running' | 'waiting_approval';
@@ -210,6 +212,9 @@ export interface ItemData {
     attachments?: MessageAttachment[];
     /** JSM forms on the request, with their answers. */
     forms?: TicketForm[];
+    /** When the ticket was created, and last changed in Jira (ISO). */
+    created?: string;
+    updated?: string;
   };
   /** Slack-specific */
   slack?: { channel: string; channelName?: string; threadTs: string };
@@ -330,7 +335,8 @@ export interface StreamTimer {
   id: string;
   instruction: string;
   at: string;
-  status: 'waiting' | 'running' | 'done' | 'cancelled' | 'missed';
+  /** suggested: Claude proposed it and it waits for the PU's Set timer / No thanks; nothing counts down until then. failed: the run errored. */
+  status: 'suggested' | 'waiting' | 'running' | 'done' | 'failed' | 'cancelled' | 'missed';
 }
 
 /** A status a Jira/JSM ticket can move to now, and the fields Jira requires for it (e.g. Resolution, with its choices). */

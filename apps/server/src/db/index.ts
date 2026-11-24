@@ -48,6 +48,8 @@ export interface DB {
     waiting_on: string | null;
     /** VIP messages up to this time are dealt with (someone else replied and the stream was read since): no VIP chip for them. */
     vip_cleared_at?: string | null;
+    /** JSON { instruction, at, ok }: a timed instruction finished since the PU last opened the stream. */
+    timer_done?: string | null;
     created_at: string;
     updated_at: string;
     closed_at: string | null;
@@ -484,6 +486,7 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS untitled integer`.execute(db);
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS waiting_on text`.execute(db);
     await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS vip_cleared_at text`.execute(db);
+    await sql`ALTER TABLE streams ADD COLUMN IF NOT EXISTS timer_done text`.execute(db);
   } else {
     const cols = await sql<{ name: string }>`PRAGMA table_info(streams)`.execute(db);
     if (!cols.rows.some((c) => c.name === 'pending')) await sql`ALTER TABLE streams ADD COLUMN pending integer NOT NULL DEFAULT 0`.execute(db);
@@ -496,6 +499,7 @@ async function migrate(db: Database, dialect: 'sqlite' | 'postgres') {
     if (!cols.rows.some((c) => c.name === 'untitled')) await sql`ALTER TABLE streams ADD COLUMN untitled integer`.execute(db);
     if (!cols.rows.some((c) => c.name === 'waiting_on')) await sql`ALTER TABLE streams ADD COLUMN waiting_on text`.execute(db);
     if (!cols.rows.some((c) => c.name === 'vip_cleared_at')) await sql`ALTER TABLE streams ADD COLUMN vip_cleared_at text`.execute(db);
+    if (!cols.rows.some((c) => c.name === 'timer_done')) await sql`ALTER TABLE streams ADD COLUMN timer_done text`.execute(db);
   }
 }
 

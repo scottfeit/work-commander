@@ -259,3 +259,18 @@ test("a JSM request's form shows under the description, question by question", a
   expect((await form.boundingBox())!.y).toBeGreaterThan(desc!.y);
   await form.screenshot({ path: 'qa/results/jsm-form.png' });
 });
+
+test('a ticket shows when it was created and last updated, just under its title', async ({ page }) => {
+  const { key, streamId } = await demoTicket();
+  await page.goto(WEB);
+  const s = (await api.streams()).find((x: any) => x.id === streamId);
+  await stream(page, new RegExp(s.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).click();
+  await page.getByText(new RegExp(`^${key}`)).first().click();
+  const dates = page.locator('.ticket-dates');
+  await expect(dates).toHaveText(/^Created [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s?[AP]M · Updated [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s?[AP]M$/);
+  const title = await page.locator('.top-pane .item-head h2').boundingBox();
+  const box = await dates.boundingBox();
+  expect(box!.y).toBeGreaterThan(title!.y);
+  expect(box!.y).toBeLessThan((await page.locator('.ticket-fields').boundingBox())!.y);
+  await page.locator('.top-pane').screenshot({ path: 'qa/results/ticket-dates.png', clip: undefined });
+});
