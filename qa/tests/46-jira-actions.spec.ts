@@ -62,6 +62,7 @@ test('email drafts end with the Gmail signature (Quick Reply too)', async ({ pag
   await page.reload();
   await stream(page, /contractor access/i).click();
   await expect(page.locator('.draft', { hasText: 'Quick reply' }).locator('.send-error')).toContainText(/Write a message first/);
+  await api.post(`/api/proposals/${id}/reject`, {}); // (it would otherwise stay waiting for the tests after this one)
 });
 
 test('a Jira/JSM item has a status drop-down: moves right away, asks for a Resolution when needed, Undo moves it back', async ({ page }) => {

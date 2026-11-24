@@ -838,9 +838,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .chip.timer-chip.missed::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 5px; background: var(--attn-mark); vertical-align: 1px; }
 
 /* A draft being sent: the pane keeps it, with a moving bar, until it has gone. */
-.draft.sending { border-left-color: var(--attn-mark); }
-.draft.sending .fields, .draft.sending .actions, .draft.sending .attach-row, .draft.sending .row-form { opacity: .55; pointer-events: none; }
-.draft.sending .actions { display: none; }
+/* Locked as soon as it is approved; the bar, dimming and hidden buttons only show once it has taken more than a second. */
+.draft.sending .fields, .draft.sending .actions, .draft.sending .attach-row, .draft.sending .row-form { pointer-events: none; }
+.draft.sending-slow { border-left-color: var(--attn-mark); }
+.draft.sending-slow .fields, .draft.sending-slow .actions, .draft.sending-slow .attach-row, .draft.sending-slow .row-form { opacity: .55; }
+.draft.sending-slow .actions { display: none; }
 .sending-note { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text); }
 .sending-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
 .sending-bar > div { width: 35%; height: 100%; position: absolute; border-radius: 3px; background: var(--attn); animation: catchup-slide 1.2s ease-in-out infinite; }

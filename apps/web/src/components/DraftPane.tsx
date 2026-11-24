@@ -183,6 +183,17 @@ function DraftCard({
   const [rejecting, setRejecting] = useState(false);
   // On its way: approved (maybe waiting its turn) or running, or this click is still waiting for the server's answer.
   const sending = p.status === 'approved' || p.status === 'executing' || approving;
+  // The bar and the dimming only appear when sending is taking a moment (a message that goes at once is not made to flicker), but the
+  // draft is locked from the start so it can't be sent twice.
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!sending) {
+      setSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setSlow(true), 1000);
+    return () => clearTimeout(t);
+  }, [sending]);
   const [reason, setReason] = useState('');
   const update = (key: string, v: unknown) => onEdit(setPath(payload, key, v));
   const people = usePeople(MENTIONABLE[p.kind] ? p.streamId : null);
@@ -237,8 +248,8 @@ function DraftCard({
   }, [quick, edited, p.id]);
 
   return (
-    <div ref={card} className={`draft kind-${p.kind} ${flash ? 'flash' : ''} ${sending ? 'sending' : ''}`} aria-busy={sending}>
-      {sending && <SendingBar p={p} waitingFor={dependsOn} />}
+    <div ref={card} className={`draft kind-${p.kind} ${flash ? 'flash' : ''} ${sending ? 'sending' : ''} ${sending && slow ? 'sending-slow' : ''}`} aria-busy={sending}>
+      {sending && slow && <SendingBar p={p} waitingFor={dependsOn} />}
       <div className="draft-head">
         <SystemIcon system={p.system} />
         <strong>{p.title}</strong>
@@ -263,7 +274,7 @@ function DraftCard({
         <Attachments
           streamId={p.streamId}
           value={(payload.attachments as AttachmentRef[] | undefined) ?? []}
-          disabled={busy}
+          disabled={busy || sending}
           onChange={(attachments) =>
             act(async () => {
               // Persist straight away (with any unsaved text edits) so an upload is never lost.
@@ -281,7 +292,7 @@ function DraftCard({
             <ConfirmButton
               className="btn small primary"
               armedClassName="btn small danger"
-              disabled={busy}
+              disabled={busy || sending}
               confirm={confirmClose}
               title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'}
               armedTitle="Click again to close this work stream"
@@ -291,19 +302,19 @@ function DraftCard({
               Close stream
             </ConfirmButton>
           ) : (
-          <button className="btn small primary" disabled={busy || blank} title={blank ? 'Write a message first' : undefined} onClick={() => void approve()}>
+          <button className="btn small primary" disabled={busy || sending || blank} title={blank ? 'Write a message first' : undefined} onClick={() => void approve()}>
             {approveLabel(p.kind)}
           </button>
           )}
           {dirty && (
-            <button className="btn small" disabled={busy} onClick={() => act(() => patch(`/api/proposals/${p.id}`, { payload }).then(() => onEdit(null)))}>
+            <button className="btn small" disabled={busy || sending} onClick={() => act(() => patch(`/api/proposals/${p.id}`, { payload }).then(() => onEdit(null)))}>
               Save edits
             </button>
           )}
           {/* One Reject button: the first click opens the "why?" box below; the second sends the rejection. Your own Quick Reply has no "why?": it goes at once. */}
           <button
             className={`btn small ${rejecting ? 'danger' : 'ghost'}`}
-            disabled={busy}
+            disabled={busy || sending}
             title={quick ? 'Discard this quick reply' : undefined}
             onClick={() => (rejecting || quick ? act(async () => (await post(`/api/proposals/${p.id}/reject`, { reason }), onDecided({ ...p, status: 'rejected' }))) : setRejecting(true))}
           >

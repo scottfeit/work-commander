@@ -32,7 +32,9 @@ test('a draft that is being sent stays in the Drafts pane with a moving bar, and
   await open(page, d.streamTitle);
   const card = page.locator('.draft.sending', { hasText: 'post in #sending-one' });
   await expect(card).toBeVisible();
-  await expect(card.locator('.sending-bar')).toBeVisible();
+  // locked at once, but the bar waits a second so a message that goes quickly is not made to flicker
+  expect(await card.locator('.sending-bar').count()).toBe(0);
+  await expect(card.locator('.sending-bar')).toBeVisible({ timeout: 4000 });
   await expect(card.getByRole('status')).toContainText(/Sending/);
   await expect(card.getByRole('button', { name: /send/i })).toHaveCount(0); // no Approve & send, no Reject while it goes
   await card.screenshot({ path: 'qa/results/draft-sending.png' });
