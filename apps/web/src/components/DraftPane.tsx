@@ -75,11 +75,12 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, onHi
         .catch(() => setElsewhere((m) => ({ ...m, [id]: 'an earlier draft' })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing.join(',')]);
+  const waiting = drafts.filter((d) => d.status === 'pending'); // (the others are being sent)
   const [allErr, setAllErr] = useState('');
   const approveAll = async () => {
     setAllErr('');
     // Approve in creation order so dependencies are already approved when their dependents are.
-    for (const d of drafts) {
+    for (const d of drafts.filter((x) => x.status === 'pending')) {
       const payload = (edits[d.id] ?? d.payload) as Record<string, any>;
       if (d.kind === 'stream_close') continue; // closing a work stream always takes its own two clicks
       if (payload.quick && !String(mainText(d, payload) ?? '').trim() && !payload.attachments?.length) continue; // a blank Quick Reply isn't sent
@@ -105,14 +106,14 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, onHi
   return (
     <div className="drafts">
       <div className="pane-head">
-        Drafts to review {drafts.length > 0 ? <span className="chip attention">{drafts.length}</span> : <span className="chip">0</span>}
-        {drafts.length > 1 && (
+        Drafts to review {waiting.length > 0 ? <span className="chip attention">{waiting.length}</span> : <span className="chip">0</span>}
+        {waiting.length > 1 && (
           <button className="btn small primary right" title="Sends every draft except blank Quick Reply drafts and close-stream proposals" onClick={approveAll}>
             Approve all
           </button>
         )}
         {onHide && (
-          <button type="button" className={`icon-btn drafts-hide${drafts.length > 1 ? '' : ' right'}`} aria-label="Hide the Drafts pane" title="Hide the Drafts pane (a new draft opens it again)" onClick={onHide}>
+          <button type="button" className={`icon-btn drafts-hide${waiting.length > 1 ? '' : ' right'}`} aria-label="Hide the Drafts pane" title="Hide the Drafts pane (a new draft opens it again)" onClick={onHide}>
             »
           </button>
         )}
@@ -124,6 +125,31 @@ export function DraftPane({ drafts, onDecided, onStale, focusId, onFocused, onHi
           <DraftCard key={d.id} confirmClose={confirmClose} p={d} focus={focusId === d.id} onFocused={onFocused} onDecided={onDecided} onStale={onStale} edited={edits[d.id] ?? null} onEdit={(v) => setEdit(d.id, v)} dependsOn={d.dependsOn.map((x) => titles.get(x) ?? x)} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Shown over a draft that is being sent. How far along it is isn't known (Slack, Gmail and Jira do not say), so the bar just moves. */
+function SendingBar({ p, waitingFor }: { p: Proposal; waitingFor: string[] }) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t0 = Date.now();
+    const t = setInterval(() => setSecs(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const files = ((p.payload as any).attachments as unknown[] | undefined)?.length ?? 0;
+  const message = ['email_reply', 'email_send', 'slack_post', 'mcp_tool_call'].includes(p.kind);
+  const word = p.status === 'approved' && waitingFor.length ? 'Waiting for the step it depends on' : message ? 'Sending' : 'Working on it';
+  return (
+    <div className="sending-note" role="status" aria-live="polite">
+      <div className="sending-bar" aria-hidden="true">
+        <div />
+      </div>
+      <span>
+        {word}
+        {files ? ` (with ${files} file${files === 1 ? '' : 's'})` : ''}… {secs >= 3 ? `${secs}s` : ''}
+        {secs >= 20 ? ' Large messages can take a while; it stays here until it has gone.' : ''}
+      </span>
     </div>
   );
 }
@@ -152,8 +178,11 @@ function DraftCard({
   const payload = edited ?? p.payload;
   const dirty = edited !== null;
   const [busy, setBusy] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
+  // On its way: approved (maybe waiting its turn) or running, or this click is still waiting for the server's answer.
+  const sending = p.status === 'approved' || p.status === 'executing' || approving;
   const [reason, setReason] = useState('');
   const update = (key: string, v: unknown) => onEdit(setPath(payload, key, v));
   const people = usePeople(MENTIONABLE[p.kind] ? p.streamId : null);
@@ -170,6 +199,17 @@ function DraftCard({
       setBusy(false);
     }
   };
+  const approve = () =>
+    act(async () => {
+      setApproving(true);
+      try {
+        onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload }));
+      } finally {
+        setApproving(false);
+      }
+    });
+  // Why it did not go: this click's own problem, or the reason the last attempt to send it failed (it is waiting again, to be fixed and re-sent).
+  const shownErr = err ?? (p.status === 'pending' ? p.error : null);
   const hasPlaceholder = JSON.stringify(payload).includes('{{');
   const quick = !!(p.payload as any).quick;
   const blank = quick && !String(mainText(p, payload) ?? '').trim() && !((payload.attachments as unknown[] | undefined)?.length);
@@ -197,7 +237,8 @@ function DraftCard({
   }, [quick, edited, p.id]);
 
   return (
-    <div ref={card} className={`draft kind-${p.kind} ${flash ? 'flash' : ''}`}>
+    <div ref={card} className={`draft kind-${p.kind} ${flash ? 'flash' : ''} ${sending ? 'sending' : ''}`} aria-busy={sending}>
+      {sending && <SendingBar p={p} waitingFor={dependsOn} />}
       <div className="draft-head">
         <SystemIcon system={p.system} />
         <strong>{p.title}</strong>
@@ -235,7 +276,6 @@ function DraftCard({
         />
       )}
       {hasPlaceholder && <div className="small muted">Text in {'{{ }}'} is filled in automatically when the step it depends on runs.</div>}
-      {err && <div className="error small">{err}</div>}
         <div className="actions">
           {p.kind === 'stream_close' ? (
             <ConfirmButton
@@ -246,12 +286,12 @@ function DraftCard({
               title={confirmClose ? 'Close this work stream (asks you to click twice)' : 'Close this work stream'}
               armedTitle="Click again to close this work stream"
               armedChildren="Click again to close"
-              onConfirm={() => void act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}
+              onConfirm={() => void approve()}
             >
               Close stream
             </ConfirmButton>
           ) : (
-          <button className="btn small primary" disabled={busy || blank} title={blank ? 'Write a message first' : undefined} onClick={() => act(async () => onDecided(await post<Proposal>(`/api/proposals/${p.id}/approve`, { payload })))}>
+          <button className="btn small primary" disabled={busy || blank} title={blank ? 'Write a message first' : undefined} onClick={() => void approve()}>
             {approveLabel(p.kind)}
           </button>
           )}
@@ -275,6 +315,13 @@ function DraftCard({
             </button>
           )}
         </div>
+      {shownErr && !sending && (
+        <div className="error small send-error" role="alert">
+          {shownErr}
+          {/[.!?]$/.test(shownErr) ? '' : '.'}
+          {p.status === 'pending' && p.error && !err ? ' Nothing was sent. You can change the draft and try again.' : ''}
+        </div>
+      )}
       {rejecting && (
         <div className="row-form">
           <input autoFocus aria-label="Why reject this draft?" placeholder="Why? (optional, Claude sees this)" value={reason} onChange={(e) => setReason(e.target.value)} />

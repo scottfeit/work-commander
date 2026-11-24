@@ -55,8 +55,13 @@ test('email drafts end with the Gmail signature (Quick Reply too)', async ({ pag
   // a Quick Reply holding only the signature is still blank: it can't be sent
   const id = (await api.proposals()).find((p: any) => p.payload.quick && p.kind === 'email_reply')!.id;
   await api.post(`/api/proposals/${id}/approve`);
-  const failed = (await api.waitStatus(id, 'failed')) as any;
-  expect(failed.error).toMatch(/Write a message first/);
+  // ...so it goes back to waiting, with the reason beside its buttons, ready to be written and sent
+  const waiting = (await api.proposals()).find((p: any) => p.id === id) as any;
+  expect(waiting.status).toBe('pending');
+  expect(waiting.error).toMatch(/Write a message first/);
+  await page.reload();
+  await stream(page, /contractor access/i).click();
+  await expect(page.locator('.draft', { hasText: 'Quick reply' }).locator('.send-error')).toContainText(/Write a message first/);
 });
 
 test('a Jira/JSM item has a status drop-down: moves right away, asks for a Resolution when needed, Undo moves it back', async ({ page }) => {

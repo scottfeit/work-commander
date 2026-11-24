@@ -61,7 +61,7 @@ export class Executor {
     if (!p) throw notFound('Proposal');
     if (p.status !== 'pending') throw conflict(`Proposal is ${p.status}`);
     if (opts.auto) this.autoApproved.add(id);
-    await this.repo.updateProposal(id, { status: 'approved', payload: payload ?? p.payload });
+    await this.repo.updateProposal(id, { status: 'approved', payload: payload ?? p.payload, error: null });
     await this.repo.audit(opts.auto ? 'policy' : 'pu', 'proposal.approved', { id, kind: p.kind, edited: !!payload && JSON.stringify(payload) !== JSON.stringify(p.originalPayload) });
     await this.drain(p.runId, opts.auto);
     return (await this.repo.getProposal(id))!;
@@ -131,16 +131,26 @@ export class Executor {
       // a reply you approved is your next move on it: a "Reopened" stream isn't any more
       if (p.streamId) await this.repo.updateStream(p.streamId, { touch: true, ...(/reply|send|post|comment/.test(p.kind) ? { reopened: false } : {}) });
     } catch (e: any) {
-      await this.repo.updateProposal(p.id, { status: 'failed', error: e.message });
+      // It did not go: the draft goes back to waiting, with the reason beside its buttons, so it can be fixed and sent again.
+      await this.repo.updateProposal(p.id, { status: 'pending', error: e.message });
       await this.repo.audit('executor', 'proposal.failed', { id: p.id, kind: p.kind, error: e.message });
       bus.publish({ type: 'notify', streamId: p.streamId, title: 'Action failed', body: `${p.title}: ${e.message}` });
     }
   }
 
-  private async attachInbound(streamId: string | null, inbound: Parameters<Repo['upsertItem']>[0]) {
-    const { item } = await this.repo.upsertItem({ ...inbound, streamId });
-    if (streamId && item.streamId !== streamId) await this.repo.attachItem(item.id, streamId);
-    return item;
+  /**
+   * Show what was just sent or done in the stream. It has already happened by now, so a failure here is logged and never reported as
+   * the action failing: the draft would go back to waiting, and sending it again would do it twice.
+   */
+  private async attachInbound(streamId: string | null, make: () => Promise<Parameters<Repo['upsertItem']>[0]> | Parameters<Repo['upsertItem']>[0]) {
+    try {
+      const { item } = await this.repo.upsertItem({ ...(await make()), streamId });
+      if (streamId && item.streamId !== streamId) await this.repo.attachItem(item.id, streamId);
+      return item;
+    } catch (e: any) {
+      console.warn(`[executor] done, but could not show it in the work stream yet: ${e.message}`);
+      return null;
+    }
   }
 
   /**
@@ -201,26 +211,28 @@ export class Executor {
         const email = await this.hub.api('email');
         checkEmailSize(files);
         const r = await email.reply({ threadId: x.thread_id, to: asList(x.to), cc: asList(x.cc), subject: x.subject ?? '', body: x.body, html: emailHtml(x.body, x) ?? undefined, files });
-        await this.attachInbound(p.streamId, await email.getThread(r.threadId));
+        await this.attachInbound(p.streamId, () => email.getThread(r.threadId));
         return { ...r, ...attached };
       }
       case 'email_send': {
         const email = await this.hub.api('email');
         checkEmailSize(files);
         const r = await email.send({ to: asList(x.to), cc: asList(x.cc), subject: x.subject, body: x.body, html: emailHtml(x.body, x) ?? undefined, files });
-        await this.attachInbound(p.streamId, await email.getThread(r.threadId));
+        await this.attachInbound(p.streamId, () => email.getThread(r.threadId));
         return { ...r, ...attached };
       }
       case 'slack_post': {
         const chat = await this.hub.api('chat');
         const r = await chat.postMessage({ channel: x.channel, userEmail: x.recipient_email, text: await slackMentions(chat, String(x.text ?? ''), x.mentions), threadTs: x.thread_ts, files });
         // Track the thread so replies flow back into this stream.
-        const sent = await chat.getThread(r.channel, x.thread_ts ?? r.ts);
-        // A DM or group DM is one flowing conversation: a message posted into it (not in a thread) joins that conversation's item,
-        // not a new "thread" of its own.
-        const flat = !x.thread_ts && (Repo.slackIsFlat(r.channel, await this.repo.slackFamily(r.channel)) || Repo.isGroupDmName(sent.data.slack?.channelName));
-        const dmChat = chat as { getDmConversation?: (c: string, trigger?: string, after?: number) => Promise<Parameters<Executor['attachInbound']>[1]> };
-        await this.attachInbound(p.streamId, flat && dmChat.getDmConversation ? await dmChat.getDmConversation(r.channel, r.ts, Number(r.ts) - 1) : sent);
+        await this.attachInbound(p.streamId, async () => {
+          const sent = await chat.getThread(r.channel, x.thread_ts ?? r.ts);
+          // A DM or group DM is one flowing conversation: a message posted into it (not in a thread) joins that conversation's item,
+          // not a new "thread" of its own.
+          const flat = !x.thread_ts && (Repo.slackIsFlat(r.channel, await this.repo.slackFamily(r.channel)) || Repo.isGroupDmName(sent.data.slack?.channelName));
+          const dmChat = chat as { getDmConversation?: (c: string, trigger?: string, after?: number) => Promise<Parameters<Repo['upsertItem']>[0]> };
+          return flat && dmChat.getDmConversation ? await dmChat.getDmConversation(r.channel, r.ts, Number(r.ts) - 1) : sent;
+        });
         return { ...r, ...attached };
       }
       case 'ticket_create': {
@@ -230,28 +242,28 @@ export class Executor {
             ? await t.createJsmRequest({ serviceDeskId: x.service_desk_id, requestTypeId: x.type_id, summary: x.summary, description: x.description, requesterEmail: x.requester_email, assignToSelf: true })
             : await t.createJiraIssue({ projectKey: x.project_key, issueType: x.type_id, summary: x.summary, description: x.description, requesterEmail: x.requester_email, assignToSelf: true });
         if (files.length) await t.attach({ key: r.key, files });
-        await this.attachInbound(p.streamId, await t.getIssue(r.key));
+        await this.attachInbound(p.streamId, () => t.getIssue(r.key));
         return { ...r, ...attached };
       }
       case 'ticket_comment': {
         const t = await this.hub.api('tickets');
         const issue = await t.getIssue(x.key);
         const r = await t.comment({ key: x.key, body: x.body, public: x.visibility !== 'internal', flavor: issue.data.ticket?.flavor ?? 'jira', files, mentions: Array.isArray(x.mentions) ? x.mentions : undefined });
-        await this.attachInbound(p.streamId, await t.getIssue(x.key));
+        await this.attachInbound(p.streamId, () => t.getIssue(x.key));
         return { ...r, key: x.key, ...attached };
       }
       case 'ticket_transition': {
         const t = await this.hub.api('tickets');
         const r = await t.transition({ key: x.key, to: x.to_status, resolution: x.resolution || undefined });
-        const moved = await this.attachInbound(p.streamId, await t.getIssue(x.key));
-        await this.repo.noteWcTransition(moved.id);
+        const moved = await this.attachInbound(p.streamId, () => t.getIssue(x.key));
+        if (moved) await this.repo.noteWcTransition(moved.id);
         return { ...r, key: x.key };
       }
       case 'ticket_assign': {
         const t = await this.hub.api('tickets');
         const who = String(x.assignee ?? '').trim();
         const r = await t.assign({ key: x.key, assignee: !who || /^unassign/i.test(who) ? null : /^(me|myself)$/i.test(who) ? 'me' : who });
-        await this.attachInbound(p.streamId, await t.getIssue(x.key));
+        await this.attachInbound(p.streamId, () => t.getIssue(x.key));
         return { ...r, key: x.key };
       }
       case 'ticket_link': {
@@ -260,7 +272,7 @@ export class Executor {
         const keys = asList(x.keys).map((k) => k.trim().toUpperCase()).filter(Boolean);
         if (!keys.length || !x.to_key) throw new Error('Name the issues to link and the issue to link them to');
         const r = await t.linkIssues({ keys, to: String(x.to_key).trim().toUpperCase(), relation: String(x.relation ?? 'relates to') });
-        await this.attachInbound(p.streamId, await t.getIssue(String(x.to_key).trim().toUpperCase())).catch(() => undefined);
+        await this.attachInbound(p.streamId, () => t.getIssue(String(x.to_key).trim().toUpperCase()));
         return r;
       }
       case 'ticket_epic':
@@ -277,7 +289,7 @@ export class Executor {
           if (!String(x.sprint ?? '').trim()) throw new Error('Name the sprint first');
           r = await t.setSprint({ keys, sprint: String(x.sprint) });
         }
-        for (const k of keys) await this.attachInbound(p.streamId, await t.getIssue(k)).catch(() => undefined);
+        for (const k of keys) await this.attachInbound(p.streamId, () => t.getIssue(k));
         return { ...r, keys };
       }
       case 'credential_request': {
@@ -311,7 +323,8 @@ export class Executor {
         const conn = await McpConnection.open(mcp, (id) => this.secrets.get(id));
         try {
           const r = await conn.call(x.tool, x.args ?? {});
-          await this.recordMcpSend(p, x, r.text);
+          // (the tool has already acted: failing to show it in the stream must not make the draft look unsent)
+          await this.recordMcpSend(p, x, r.text).catch((e: any) => console.warn(`[executor] done, but could not show it in the work stream yet: ${e.message}`));
           return { text: r.text.slice(0, 20_000), ...extractRefs(r.text) };
         } finally {
           await conn.close();

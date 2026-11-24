@@ -122,7 +122,7 @@ export function App() {
     const [it, ch, pr] = await Promise.all([
       id === GENERAL_STREAM ? Promise.resolve([] as StreamItem[]) : get<StreamItem[]>(`/api/streams/${id}/items`),
       get<ChatMessage[]>(`/api/streams/${id}/chat`),
-      get<Proposal[]>(`/api/proposals?streamId=${id}&status=pending`),
+      get<Proposal[]>(`/api/proposals?streamId=${id}&status=pending,approved,executing`), // (a draft being sent stays until it has gone)
     ]);
     if (selRef.current !== id) return;
     setItems(it);
@@ -292,7 +292,8 @@ export function App() {
           if (sidOf(e.proposal.streamId) === cur)
             setDrafts((xs) => {
               const rest = xs.filter((x) => x.id !== e.proposal.id);
-              return e.proposal.status === 'pending' ? [...rest, e.proposal].sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : rest;
+              // Pending, or on its way (approved / executing): stays in the pane, marked as sending, until it is done or has failed.
+              return ['pending', 'approved', 'executing'].includes(e.proposal.status) ? [...rest, e.proposal].sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : rest;
             });
           if (e.proposal.status === 'failed') toast({ title: 'Action failed', body: `${e.proposal.title}: ${e.proposal.error}`, tone: 'error' });
           if (e.proposal.status === 'executed') toast({ title: 'Done', body: e.proposal.title, tone: 'ok' });
@@ -667,8 +668,8 @@ export function App() {
             running={running}
           />
           {draftsCollapsed && (
-            <button type="button" className={`drafts-bar${drafts.length ? ' has' : ''}`} aria-label={`Show the Drafts pane (${drafts.length} waiting)`} title="Show the Drafts pane" onClick={() => hideDrafts(false)}>
-              <span className="drafts-bar-count">{drafts.length}</span>
+            <button type="button" className={`drafts-bar${drafts.some((d) => d.status === 'pending') ? ' has' : ''}`} aria-label={`Show the Drafts pane (${drafts.filter((d) => d.status === 'pending').length} waiting)`} title="Show the Drafts pane" onClick={() => hideDrafts(false)}>
+              <span className="drafts-bar-count">{drafts.filter((d) => d.status === 'pending').length}</span>
               <span className="drafts-bar-label">Drafts</span>
             </button>
           )}
@@ -694,7 +695,7 @@ export function App() {
               focusId={focusDraft}
               onFocused={() => setFocusDraft(null)}
               onDecided={(p) => {
-                setDrafts((xs) => (p.status === 'pending' ? xs.map((x) => (x.id === p.id ? p : x)) : xs.filter((x) => x.id !== p.id)));
+                setDrafts((xs) => (['pending', 'approved', 'executing'].includes(p.status) ? xs.map((x) => (x.id === p.id ? p : x)) : xs.filter((x) => x.id !== p.id)));
                 // Once it has run, the server has re-fetched the thread/ticket: reload so the item tab shows what was sent.
                 if (p.status === 'executed' || p.status === 'failed') void loadSelected(selRef.current);
               }}

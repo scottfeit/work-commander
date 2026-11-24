@@ -836,3 +836,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .sidebar .stream .chip.timer-done-chip.is-failed, .chip.timer-done-chip.is-failed { background: var(--vip); border-color: var(--vip); color: var(--vip-ink); }
 .chip.timer-chip { background: var(--attn-bg); border-color: transparent; color: var(--strong); font-weight: 600; }
 .chip.timer-chip.missed::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 5px; background: var(--attn-mark); vertical-align: 1px; }
+
+/* A draft being sent: the pane keeps it, with a moving bar, until it has gone. */
+.draft.sending { border-left-color: var(--attn-mark); }
+.draft.sending .fields, .draft.sending .actions, .draft.sending .attach-row, .draft.sending .row-form { opacity: .55; pointer-events: none; }
+.draft.sending .actions { display: none; }
+.sending-note { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text); }
+.sending-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+.sending-bar > div { width: 35%; height: 100%; position: absolute; border-radius: 3px; background: var(--attn); animation: catchup-slide 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .sending-bar > div { animation: none; width: 100%; opacity: .5; } }
+
+.draft .send-error { margin-top: -2px; }
