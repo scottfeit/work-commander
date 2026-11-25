@@ -348,7 +348,8 @@ export class GoogleWorkspace implements EmailApi, CalendarApi {
 /** DocsApi adapter (GoogleWorkspace has both `search` for mail and docs). */
 export const driveAdapter = (g: GoogleWorkspace): DocsApi => ({ search: (q, m) => g.searchDocs(q, m), read: (id) => g.read(id) });
 
-const SKIP_LABELS = new Set(['SPAM', 'TRASH', 'CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_FORUMS']);
+// Forums is not skipped: Gmail files mail sent to a group address (an IT or Jira admin alias, say) there, and the default query allows it.
+const SKIP_LABELS = new Set(['SPAM', 'TRASH', 'CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL']);
 
 /**
  * Gmail ingestion. Polling walks users.history from the last seen historyId. Realtime uses
@@ -437,6 +438,7 @@ export class GmailIngestor implements Ingestor {
           pageToken = h.data.nextPageToken ?? undefined;
         } while (pageToken);
         for (const [threadId, msgId] of threads) await this.deliverThread(await this.g.getThread(threadId, msgId));
+        if (threads.size > 25) console.log(`[gmail] read ${threads.size} threads from the mailbox history (catching up)`);
         await this.repo.setSync('gmail.historyId', latest);
       }
       this.status(true, 'Gmail synced');
