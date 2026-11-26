@@ -149,6 +149,8 @@ export class Executor {
       return item;
     } catch (e: any) {
       console.warn(`[executor] done, but could not show it in the work stream yet: ${e.message}`);
+      // Say so where you will see it: it was sent, but it is not in the stream's tabs yet.
+      if (streamId) await this.repo.addChat({ streamId, role: 'system', content: `It was sent, but I could not add it to this work stream yet (${e.message}). Ask me to add it, or it will appear when it next syncs.` }).catch(() => undefined);
       return null;
     }
   }

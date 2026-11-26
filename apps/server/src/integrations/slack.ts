@@ -211,6 +211,7 @@ export class SlackWorkspace implements ChatApi {
   }
 
   async getThread(channel: string, threadTs: string, triggerTs?: string): Promise<InboundItem> {
+    channel = (await this.resolveChannel(channel).catch(() => null)) ?? channel; // a name given for an id still finds it
     const me = await this.selfUserId();
     const r = await this.web.conversations.replies({ channel, ts: threadTs, limit: 200 });
     const msgs = (r.messages ?? []) as any[];
@@ -326,6 +327,37 @@ export class SlackWorkspace implements ChatApi {
     }
   }
 
+  private channelIds = new Map<string, { id: string | null; at: number }>();
+  /**
+   * A channel's id from what was typed: an id stays as it is; "#name" (or "name") is looked up among the channels you are in, then in the
+   * workspace's list. Reads and permalinks need the id; Slack accepts a name only for posting. Null when no such channel is found.
+   */
+  async resolveChannel(input: string): Promise<string | null> {
+    const raw = input.trim();
+    if (/^[CDG][A-Z0-9]{6,}$/.test(raw)) return raw;
+    const name = raw.replace(/^#/, '').toLowerCase();
+    if (!name) return null;
+    const hit = this.channelIds.get(name);
+    if (hit && (hit.id || Date.now() - hit.at < 60_000) && Date.now() - hit.at < 600_000) return hit.id;
+    let found: string | null = null;
+    let cursor: string | undefined;
+    for (let page = 0; page < 10 && !found; page++) {
+      const r = await this.web.users.conversations({ types: 'public_channel,private_channel', exclude_archived: true, limit: 200, cursor });
+      found = ((r.channels ?? []) as any[]).find((c) => c.name?.toLowerCase() === name)?.id ?? null;
+      cursor = r.response_metadata?.next_cursor || undefined;
+      if (!cursor) break;
+    }
+    cursor = undefined;
+    for (let page = 0; page < 5 && !found; page++) {
+      const r = await this.web.conversations.list({ types: 'public_channel,private_channel', exclude_archived: true, limit: 1000, cursor });
+      found = ((r.channels ?? []) as any[]).find((c) => c.name?.toLowerCase() === name)?.id ?? null;
+      cursor = r.response_metadata?.next_cursor || undefined;
+      if (!cursor) break;
+    }
+    this.channelIds.set(name, { id: found, at: Date.now() });
+    return found;
+  }
+
   /** The timestamp of the message Slack made for an upload (the upload call does not return it): from the file's shares, else the conversation. */
   async sharedMessageTs(channel: string, up: any, threadTs?: string): Promise<string> {
     const ids: string[] = ((up?.files ?? []) as any[]).flatMap((f) => (f?.files ?? [f]) as any[]).map((f) => f?.id).filter(Boolean);
@@ -347,6 +379,9 @@ export class SlackWorkspace implements ChatApi {
 
   async postMessage(input: { channel?: string; userEmail?: string; userId?: string; text: string; threadTs?: string; files?: OutFile[] }) {
     let channel = input.channel;
+    // A channel typed as "#name" becomes its id: the message goes there, and reading it back (and its link) needs the id. A name that
+    // cannot be found is left as typed, which Slack may still accept for a public channel.
+    if (channel) channel = (await this.resolveChannel(channel).catch(() => null)) ?? channel;
     if (!channel) {
       const uid = input.userId ?? (input.userEmail ? (await this.lookupUserByEmail(input.userEmail))?.id : undefined);
       if (!uid) throw new Error(`No Slack user found for ${input.userEmail ?? input.userId}`);
@@ -366,7 +401,9 @@ export class SlackWorkspace implements ChatApi {
       }
       ts = await this.sharedMessageTs(channel, up, input.threadTs);
     } else {
-      ts = (await this.web.chat.postMessage({ channel, text: input.text, thread_ts: input.threadTs })).ts!;
+      const posted: any = await this.web.chat.postMessage({ channel, text: input.text, thread_ts: input.threadTs });
+      ts = posted.ts!;
+      if (posted.channel) channel = String(posted.channel); // Slack's own id for where it went
     }
     const r = { ts };
     let permalink: string | undefined;
