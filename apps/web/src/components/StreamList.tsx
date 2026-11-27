@@ -16,6 +16,8 @@ interface Props {
   streams: WorkStream[];
   selected: string;
   onSelect: (id: string) => void;
+  /** Where you are looking now (a work stream, or a ? item): changes when you click somewhere else. Read when something you started finishes. */
+  navKey: () => string;
   showClosed: boolean;
   onToggleClosed: () => void;
   onSettings: () => void;
@@ -65,7 +67,7 @@ export function waitedFor(since: string) {
   return days < 1 ? 'today' : `${days} day${days === 1 ? '' : 's'}`;
 }
 
-export function StreamList({ streams, selected, onSelect, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onShowPendingChange, showReason, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
+export function StreamList({ streams, selected, onSelect, navKey, showClosed, onToggleClosed, onSettings, demo, onOpenSkipped, onSkippedDismissed, skippedVersion, peekId, onMarkUnread, manualRead, onSetRead, onCloseStream, onReopenStream, onTogglePending, onShowPendingChange, showReason, onSnooze, confirmClose, undoNext, onUndo, pollingPaused, onTogglePolling, onSearchAll }: Props) {
   const [q, setQ] = useState('');
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [moved, setMoved] = useState(0);
@@ -106,9 +108,10 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
         i={e.item!}
         active={peekId === e.key}
         onOpen={() => onOpenSkipped(e.key)}
-        onAccepted={(streamId) => {
+        navKey={navKey}
+        onAccepted={(streamId, stillHere) => {
           void loadSkipped();
-          onSelect(streamId);
+          if (stillHere) onSelect(streamId); // you have moved on to something else meanwhile: stay there
         }}
         onDismissed={() => {
           onSkippedDismissed([e.key]);
@@ -145,10 +148,11 @@ export function StreamList({ streams, selected, onSelect, showClosed, onToggleCl
     const id = e.dataTransfer.getData(ITEM_DRAG);
     if (!id) return;
     setMoveErr(null);
+    const was = navKey();
     try {
       const r = await post<{ streamId: string }>(`/api/items/${id}/new-stream`);
       setMoved((n) => n + 1);
-      onSelect(r.streamId);
+      if (navKey() === was) onSelect(r.streamId); // (not if you have moved on to something else meanwhile)
     } catch (err: any) {
       setMoveErr(err.message);
     }
@@ -488,15 +492,16 @@ type SkippedItem = { id: string; source: string; title: string; updatedAt: strin
  * A message triage didn't think was work, shown among the work streams with a "?". Accept makes it a work stream (or files it into the
  * existing stream it belongs to); Dismiss moves it to the closed list. Click to look at it; drag onto a stream to add it there.
  */
-function SkippedTile({ i, active, onOpen, onAccepted, onDismissed }: { i: SkippedItem; active: boolean; onOpen: () => void; onAccepted: (streamId: string) => void; onDismissed: () => void }) {
+function SkippedTile({ i, active, onOpen, onAccepted, onDismissed, navKey }: { i: SkippedItem; active: boolean; onOpen: () => void; onAccepted: (streamId: string, stillHere: boolean) => void; onDismissed: () => void; navKey: () => string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const accept = async () => {
     setBusy(true);
     setErr(null);
+    const was = navKey(); // accepting can take a while (triage runs first): where were you when you clicked?
     try {
       const r = await post<{ streamId: string | null }>(`/api/items/${i.id}/accept`);
-      if (r.streamId) onAccepted(r.streamId);
+      if (r.streamId) onAccepted(r.streamId, navKey() === was);
       else setErr("Couldn't make this a work stream.");
     } catch (e: any) {
       setErr(e.message);

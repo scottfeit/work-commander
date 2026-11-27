@@ -163,6 +163,9 @@ export function App() {
   // Closing or declining the preview goes back to the stream you were on; accepting opens the new one.
   const peekRef = useRef<StreamItem | null>(null);
   peekRef.current = peek;
+  // Where you are looking, as a string that changes when you click elsewhere (read by things that finish later, such as accepting a ? item).
+  const navKeyRef = useRef('');
+  navKeyRef.current = peek ? `peek:${peek.id}` : `stream:${selected}`;
   const beforePeekRef = useRef<string | null>(null);
   const openSkipped = useCallback(async (id: string) => {
     try {
@@ -595,6 +598,7 @@ export function App() {
         onSetRead={(id, read) => void patch(`/api/streams/${id}`, { unread: !read })}
         streams={streams}
         selected={peek ? '' : selected}
+        navKey={() => navKeyRef.current}
         onSelect={(id) => {
           // Picking a work stream (even the one already selected) leaves a ? item being viewed.
           if (peek) closePeek();

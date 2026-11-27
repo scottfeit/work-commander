@@ -99,3 +99,29 @@ test('Skipped ("?") items have Decline & mute too', async ({ page }) => {
   await expect(t).toHaveCount(0);
   expect((await api.get('/api/items/skipped?dismissed=1')).json.find((i: any) => i.id === 'skipQ')).toMatchObject({ dismissed: true, muted: true });
 });
+
+test('Accepting, then clicking another work stream while it works, leaves you on that stream', async ({ page }) => {
+  const { default: SQLite } = await import('better-sqlite3');
+  const db = new SQLite(path.join(demoDataDir(), 'work-commander.sqlite'));
+  const now = new Date().toISOString();
+  db.prepare('insert into items (id, stream_id, source, kind, external_id, title, url, data, updated_at) values (?,?,?,?,?,?,?,?,?)').run('propD', null, 'gmail', 'email_thread', 'ext-propD', 'Re: Team lunch booking', null, JSON.stringify({ messages: [{ id: 'm-propD', author: { name: 'Dana' }, text: 'Can you take a look?', at: now }], proposedStream: proposal('Team lunch booking') }), now);
+  db.close();
+  await page.goto(WEB);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route('**/api/items/propD/accept', async (route) => {
+    await gate; // triage takes a while
+    await route.continue();
+  });
+  await tile(page, /Team lunch booking/).getByRole('button', { name: 'Accept' }).click();
+  const other = page.locator('.stream:not(.general) .stream-open').first();
+  const otherTitle = (await other.innerText()).split('\n').find((l) => l.trim().length > 8)!.trim();
+  await other.click();
+  await expect(page.locator('.stream.active')).toContainText(otherTitle);
+  release();
+  await expect.poll(async () => (await api.streams()).some((s) => s.title === 'Team lunch booking')).toBe(true);
+  await expect(tile(page, /Team lunch booking/)).toHaveCount(0);
+  // still where you went; not pulled into the stream that was just made
+  await expect(page.locator('.stream.active')).toContainText(otherTitle);
+  await expect(page.locator('.title-input')).not.toHaveValue('Team lunch booking');
+});
