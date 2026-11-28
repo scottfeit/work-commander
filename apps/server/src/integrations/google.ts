@@ -67,12 +67,24 @@ function hasCalendarReply(part?: gmail_v1.Schema$MessagePart): boolean {
  * Google Drive, Docs or Calendar on their behalf (share requests, "shared with you", access requests). These never start or
  * update a work stream.
  */
+/** An automatic reply: marked as one in its headers (Auto-Submitted, X-Autoreply, Precedence), or titled like one ("Automatic reply Re: …", "Out of office: …"). */
+export function isAutoReply(m: gmail_v1.Schema$Message): boolean {
+  const auto = header(m, 'Auto-Submitted').trim().toLowerCase();
+  if (auto && auto !== 'no') return true;
+  if (header(m, 'X-Autoreply') || header(m, 'X-Autorespond')) return true;
+  if (/^auto[_-]?reply$/i.test(header(m, 'Precedence').trim())) return true;
+  const subject = header(m, 'Subject').trim();
+  return /^(automatic reply|auto[- ]?reply|autoreply)\b/i.test(subject) || /^out of (the )?office\s*(:|auto[- ]?reply|reply|response)/i.test(subject);
+}
+
 export function automatedFromYou(m: gmail_v1.Schema$Message, isFromPU: boolean): boolean {
   const from = header(m, 'From');
   const sender = header(m, 'Sender');
   const viaGoogle = /\(via Google (Drive|Docs|Sheets|Slides|Forms|Calendar|Chat)\)/i.test(from) || /@(docs|calendar|drive)\.google\.com\b|(drive-shares|calendar-notification|comments)-[\w-]*noreply@google\.com|drive-shares-noreply@google\.com/i.test(`${from} ${sender}`);
   if (!isFromPU && !viaGoogle) return false;
   if (isFromPU && hasCalendarReply(m.payload)) return true;
+  // Your out-of-office / vacation responder: a robot answering on your behalf, never your own reply to anything.
+  if (isFromPU && isAutoReply(m)) return true;
   if (isFromPU && /^(Accepted|Declined|Tentatively accepted|Tentative|Maybe)( \(.*?\))?:/i.test(header(m, 'Subject'))) return true;
   return isFromPU && viaGoogle;
 }

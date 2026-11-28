@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { automatedFromYou, withoutAutomated } from '../src/integrations/google.js';
+import { automatedFromYou, isAutoReply, withoutAutomated } from '../src/integrations/google.js';
 
 const msg = (headers: Record<string, string>, payload: any = { mimeType: 'text/plain', body: { data: Buffer.from('hi').toString('base64') } }) => ({ payload: { ...payload, headers: Object.entries(headers).map(([name, value]) => ({ name, value })) } }) as any;
 const ics = (method: string) => ({ mimeType: 'multipart/alternative', parts: [{ mimeType: 'text/plain', body: { data: '' } }, { mimeType: 'text/calendar', headers: [{ name: 'Content-Type', value: `text/calendar; method=${method}` }], body: { data: Buffer.from(`BEGIN:VCALENDAR\nMETHOD:${method}\nEND:VCALENDAR`).toString('base64') } }] });
@@ -30,5 +30,24 @@ describe('notices Google sends as you are never pulled in', () => {
     expect(kept.eventId).toBe('inv');
     const plain = item([{ id: 'x' }]);
     expect(withoutAutomated(plain)).toBe(plain);
+  });
+});
+
+describe('your out-of-office replies are never pulled in', () => {
+  it('by their title or their headers, when you sent them', () => {
+    expect(automatedFromYou(msg({ From: 'Scott <scott@x.com>', Subject: 'Automatic reply Re: 3 days remaining to set up billing' }), true)).toBe(true);
+    expect(automatedFromYou(msg({ From: 'Scott <scott@x.com>', Subject: 'Automatic reply: Budget' }), true)).toBe(true);
+    expect(automatedFromYou(msg({ From: 'Scott <scott@x.com>', Subject: 'Re: Budget', 'Auto-Submitted': 'auto-replied' }), true)).toBe(true);
+    expect(automatedFromYou(msg({ From: 'Scott <scott@x.com>', Subject: 'Re: Budget', Precedence: 'auto_reply' }), true)).toBe(true);
+    expect(automatedFromYou(msg({ From: 'Scott <scott@x.com>', Subject: 'Out of office: back Dec 1' }), true)).toBe(true);
+  });
+  it('but not your own mail that merely mentions it, and not other people\'s auto-replies (those are mail you receive)', () => {
+    expect(isAutoReply(msg({ Subject: 'Out of office next week: coverage plan' }))).toBe(false); // (a title of your own)
+    expect(isAutoReply(msg({ Subject: 'Re: Budget', 'Auto-Submitted': 'no' }))).toBe(false);
+    expect(automatedFromYou(msg({ From: 'Dana <dana@x.com>', Subject: 'Automatic reply: out of office' }), false)).toBe(false);
+  });
+  it('a thread of nothing but your auto-reply is not handed on', () => {
+    const item: any = { source: 'gmail', kind: 'email_thread', externalId: 't', title: 'Automatic reply Re: x', eventId: 'e', data: { messages: [{ id: 'm1', author: { email: 'scott@x.com' }, text: 'I am OOO', at: 'a', automated: true }] } };
+    expect(withoutAutomated(item)).toBeNull();
   });
 });
